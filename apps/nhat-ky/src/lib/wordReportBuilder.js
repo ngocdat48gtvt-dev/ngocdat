@@ -16,7 +16,7 @@ import {
 } from 'docx'
 
 import { reportAfterImage, reportBeforeImage } from "../utils/incidentUtils";
-import { formatKmDisplay } from "../utils/kmUtils";
+import { formatKmDisplay } from "@quanlysuco/shared";
 
 const FONT = 'Times New Roman'
 

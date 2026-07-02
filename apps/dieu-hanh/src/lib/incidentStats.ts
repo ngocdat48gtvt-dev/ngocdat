@@ -6,7 +6,7 @@ import {
   resolveIncidentUnit,
 } from '@/lib/incidentUtils'
 import { matchesCompletedDateRange, matchesDateRange } from '@/lib/incidentFilters'
-import { matchesChainageSearch } from '@/lib/kmUtils'
+import { matchesChainageSearch } from '@quanlysuco/shared'
 import type { DispatchFilters } from '@/types/incident'
 
 export type VolumeByUnit = Record<string, number>

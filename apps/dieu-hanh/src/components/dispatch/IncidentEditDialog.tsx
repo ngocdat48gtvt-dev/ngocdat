@@ -14,7 +14,7 @@ import {
   resolveCompletedDate,
   statusFromProgress,
 } from '@/lib/incidentUtils'
-import { formatKmDisplay } from '@/lib/kmUtils'
+import { formatKmDisplay } from '@quanlysuco/shared'
 import type { IncidentRecord } from '@/types/incident'
 
 type Props = {

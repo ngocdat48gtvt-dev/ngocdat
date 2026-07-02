@@ -8,7 +8,7 @@ import {
   resolveCompletedDate,
   todayViDateString
 } from "../utils/incidentUtils.js";
-import { formatKmDisplay } from "../utils/kmUtils.js";
+import { formatKmDisplay } from "@quanlysuco/shared";
 
 const DEFAULT_ROW_COUNT = 5;
 const cellCls = "incident-bulk-cell";

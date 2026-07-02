@@ -12,7 +12,7 @@ import {
   resolveCompletedDate,
   todayViDateString,
 } from '@/lib/incidentUtils'
-import { formatKmDisplay } from '@/lib/kmUtils'
+import { formatKmDisplay } from '@quanlysuco/shared'
 
 type RowPhoto = { file: File; url: string }
 

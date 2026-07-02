@@ -12,7 +12,7 @@ import {
   statusLabel,
   statusFromProgress,
 } from '@/lib/incidentUtils'
-import { buildDuplicateChainageKeySet, chainageDedupeKey, formatKmDisplay } from '@/lib/kmUtils'
+import { buildDuplicateChainageKeySet, chainageDedupeKey, formatKmDisplay } from '@quanlysuco/shared'
 import {
   canAssignRework,
   getIncidentRework,

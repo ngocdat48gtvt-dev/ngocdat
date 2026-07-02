@@ -1,7 +1,13 @@
 /**
- * @quanlysuco/shared — Phase 3.1 scaffold
- *
- * Pure module exports will be added in later phases.
+ * @quanlysuco/shared — pure modules shared across web apps.
  */
 
-export {}
+export {
+  parseKmToSortValue,
+  formatKmDisplay,
+  compareByKm,
+  sortIncidentsByKm,
+  chainageDedupeKey,
+  buildDuplicateChainageKeySet,
+  matchesChainageSearch,
+} from './kmUtils'

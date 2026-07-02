@@ -222,7 +222,7 @@ export function applyIncidentFilters(items, filters) {
   });
 }
 
-import { sortIncidentsByKm as sortByKm } from "./kmUtils.js";
+import { sortIncidentsByKm as sortByKm } from "@quanlysuco/shared";
 
 export function sortIncidentsByKm(items) {
   return sortByKm(items);

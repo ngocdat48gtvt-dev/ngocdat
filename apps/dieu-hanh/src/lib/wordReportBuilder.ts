@@ -16,7 +16,7 @@ import {
 } from 'docx'
 import type { IncidentRecord } from '@/types/incident'
 import { reportAfterImage, reportBeforeImage } from '@/lib/incidentUtils'
-import { formatKmDisplay } from '@/lib/kmUtils'
+import { formatKmDisplay } from '@quanlysuco/shared'
 
 const FONT = 'Times New Roman'
 

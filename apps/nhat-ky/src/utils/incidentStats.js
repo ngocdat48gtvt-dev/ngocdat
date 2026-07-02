@@ -5,7 +5,7 @@ import {
   resolveIncidentUnit
 } from "./incidentUtils.js";
 import { matchesCompletedDateRange, matchesDateRange } from "./incidentFilters.js";
-import { matchesChainageSearch } from "./kmUtils.js";
+import { matchesChainageSearch } from "@quanlysuco/shared";
 
 export function formatVolumeValue(value) {
   if (value <= 0) return "0";

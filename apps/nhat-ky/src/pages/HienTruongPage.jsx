@@ -22,7 +22,7 @@ import {
   dispatchFilterStatus
 } from "../utils/incidentUtils";
 import { applyDispatchFilters, computeDispatchSummary, sortedVolumeEntries, formatVolumeValue } from "../utils/incidentStats";
-import { sortIncidentsByKm, buildDuplicateChainageKeySet, chainageDedupeKey } from "../utils/kmUtils";
+import { sortIncidentsByKm, buildDuplicateChainageKeySet, chainageDedupeKey } from "@quanlysuco/shared";
 import {
   formatImportNote,
   getImportRecord,

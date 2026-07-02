@@ -23,7 +23,7 @@ import {
   computeDispatchSummary,
   computeRoadSummaries,
 } from '@/lib/incidentStats'
-import { sortIncidentsByKm } from '@/lib/kmUtils'
+import { sortIncidentsByKm } from '@quanlysuco/shared'
 import {
   emptyDispatchFilters,
   type DispatchFilters,
