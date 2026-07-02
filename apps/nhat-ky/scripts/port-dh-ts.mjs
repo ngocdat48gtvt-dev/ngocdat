@@ -7,7 +7,6 @@ const DH = path.resolve(__dirname, "../../dieu-hanh-web/src");
 const OUT = path.resolve(__dirname, "../src/lib");
 
 const MAP = {
-  "lib/kmUtils.ts": "kmUtils.js",
   "lib/incidentFilters.ts": "incidentFilters.js",
   "lib/incidentStats.ts": "incidentStats.js",
   "lib/excelReportBuilder.ts": "excelReportBuilder.js",
