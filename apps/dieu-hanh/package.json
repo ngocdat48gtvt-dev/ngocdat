@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@quanlysuco/shared": "file:../../packages/shared",
     "clsx": "^2.1.1",
     "docx": "^9.7.1",
     "exceljs": "^4.4.0",
