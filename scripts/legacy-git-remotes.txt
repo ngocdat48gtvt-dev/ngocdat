@@ -1,0 +1,3 @@
+# Luu tru remote truoc khi hop nhat monorepo (Giai doan 1 - chi tham khao)
+# apps/website: https://github.com/ngocdat48gtvt-dev/quanlysuco.git (branch main)
+# apps/dieu-hanh: (kiem tra .git/config neu con)
