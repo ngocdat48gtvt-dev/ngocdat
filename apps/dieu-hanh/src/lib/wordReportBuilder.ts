@@ -222,7 +222,8 @@ function packPairs(slots: LabeledSlot[]): [LabeledSlot | null, LabeledSlot | nul
   return rows
 }
 
-/** Pack HT block (packPairs), rồi XL block (packPairs) — không nhét XL vào ô trống HT. */
+/** HT trước, XL sau — xếp liên tục 2 ô/hàng trái→phải (không tách block thừa ô). */
+/** Xếp liên tục 2 cột theo thứ tự HT rồi XL ([...before, ...after]). */
 function buildSlotRows(
   beforeList: (PreparedImage | null)[],
   afterList: (PreparedImage | null)[],
@@ -234,23 +235,8 @@ function buildSlotRows(
     return { rows: [], breakBeforeRow: null }
   }
 
-  // 1 HT + 1 XL: cùng 1 hàng, cùng trang
-  if (before.length === 1 && after.length === 1) {
-    return { rows: [[before[0], after[0]]], breakBeforeRow: null }
-  }
-
-  const rows = packPairs(before)
-  let breakBeforeRow: number | null = null
-
-  if (after.length > 0) {
-    // 2 HT + 1 XL: trang 1 đủ 2 ảnh HT, ảnh sau thi công sang trang mới
-    if (before.length === 2 && after.length === 1) {
-      breakBeforeRow = rows.length
-    }
-    rows.push(...packPairs(after))
-  }
-
-  return { rows, breakBeforeRow }
+  const stream = [...before, ...after]
+  return { rows: packPairs(stream), breakBeforeRow: null }
 }
 
 function imageTableBlocks(
