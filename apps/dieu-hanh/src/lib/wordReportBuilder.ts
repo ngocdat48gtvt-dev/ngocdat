@@ -214,6 +214,15 @@ function labeledImageCell(
 
 type LabeledSlot = { kind: 'before' | 'after'; image: PreparedImage | null }
 
+function packPairs(slots: LabeledSlot[]): [LabeledSlot | null, LabeledSlot | null][] {
+  const rows: [LabeledSlot | null, LabeledSlot | null][] = []
+  for (let i = 0; i < slots.length; i += 2) {
+    rows.push([slots[i] ?? null, slots[i + 1] ?? null])
+  }
+  return rows
+}
+
+/** Xếp hết ảnh hiện trạng (2 cột/hàng), rồi mới xếp ảnh sau thi công. */
 function buildSlotRows(
   beforeList: (PreparedImage | null)[],
   afterList: (PreparedImage | null)[],
@@ -225,23 +234,23 @@ function buildSlotRows(
     return { rows: [], breakBeforeRow: null }
   }
 
-  // 2 HT + 1 XL: trang 1 đủ 2 ảnh trước, ảnh sau sang trang mới
-  if (before.length === 2 && after.length === 1) {
-    return {
-      rows: [
-        [before[0], before[1]],
-        [after[0], null],
-      ],
-      breakBeforeRow: 1,
-    }
+  // 1 HT + 1 XL: cùng 1 hàng, cùng trang
+  if (before.length === 1 && after.length === 1) {
+    return { rows: [[before[0], after[0]]], breakBeforeRow: null }
   }
 
-  const stream = [...before, ...after]
-  const rows: [LabeledSlot | null, LabeledSlot | null][] = []
-  for (let i = 0; i < stream.length; i += 2) {
-    rows.push([stream[i] ?? null, stream[i + 1] ?? null])
+  const rows = packPairs(before)
+  let breakBeforeRow: number | null = null
+
+  if (after.length > 0) {
+    // 2 HT + 1 XL: trang 1 đủ 2 ảnh HT, ảnh sau thi công sang trang mới
+    if (before.length === 2 && after.length === 1) {
+      breakBeforeRow = rows.length
+    }
+    rows.push(...packPairs(after))
   }
-  return { rows, breakBeforeRow: null }
+
+  return { rows, breakBeforeRow }
 }
 
 function imageTableBlocks(
