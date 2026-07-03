@@ -174,6 +174,22 @@ function labelCell(text) {
   })
 }
 
+function makeImageTable(rows) {
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    alignment: AlignmentType.CENTER,
+    borders: {
+      top: CELL_BORDER,
+      bottom: CELL_BORDER,
+      left: CELL_BORDER,
+      right: CELL_BORDER,
+      insideHorizontal: CELL_BORDER,
+      insideVertical: CELL_BORDER,
+    },
+    rows,
+  })
+}
+
 function sectionLabelRow(text) {
   return new TableRow({
     children: [
@@ -202,51 +218,46 @@ function pairRows(list) {
   return rows
 }
 
-function imageTable(beforeList, afterList, isFirstPage) {
+function imageTableBlocks(beforeList, afterList, isFirstPage) {
   const beforeRows = pairRows(beforeList)
   const afterRows = pairRows(afterList)
-  const rows = []
+  const blocks = []
   if (beforeRows.length === 0 && afterRows.length === 0) {
-    rows.push(
-      new TableRow({
-        children: [imageCell(null, isFirstPage), imageCell(null, isFirstPage)],
-      }),
+    blocks.push(
+      makeImageTable([
+        new TableRow({
+          children: [imageCell(null, isFirstPage), imageCell(null, isFirstPage)],
+        }),
+      ]),
     )
-  } else {
-    if (beforeRows.length > 0) {
-      rows.push(sectionLabelRow('Ảnh hiện trạng'))
-      for (const [left, right] of beforeRows) {
-        rows.push(
-          new TableRow({
-            children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
-          }),
-        )
-      }
-    }
-    if (afterRows.length > 0) {
-      rows.push(sectionLabelRow('Ảnh sau xử lý'))
-      for (const [left, right] of afterRows) {
-        rows.push(
-          new TableRow({
-            children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
-          }),
-        )
-      }
-    }
+    return blocks
   }
-  return new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    alignment: AlignmentType.CENTER,
-    borders: {
-      top: CELL_BORDER,
-      bottom: CELL_BORDER,
-      left: CELL_BORDER,
-      right: CELL_BORDER,
-      insideHorizontal: CELL_BORDER,
-      insideVertical: CELL_BORDER,
-    },
-    rows,
-  })
+  if (beforeRows.length > 0) {
+    const rows = [sectionLabelRow('Ảnh hiện trạng')]
+    for (const [left, right] of beforeRows) {
+      rows.push(
+        new TableRow({
+          children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
+        }),
+      )
+    }
+    blocks.push(makeImageTable(rows))
+  }
+  if (afterRows.length > 0) {
+    if (beforeRows.length > 0) {
+      blocks.push(new Paragraph({ children: [new PageBreak()] }))
+    }
+    const rows = [sectionLabelRow('Ảnh sau xử lý')]
+    for (const [left, right] of afterRows) {
+      rows.push(
+        new TableRow({
+          children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
+        }),
+      )
+    }
+    blocks.push(makeImageTable(rows))
+  }
+  return blocks
 }
 
 function titleBlock(options) {
@@ -309,7 +320,7 @@ export async function buildIncidentWordReport(items, options, onProgress) {
       children.push(headingParagraph(`${stt}Hoàn thiện tại ${kmText} (chưa có ảnh)`))
     } else {
       children.push(headingParagraph(`${stt}Ảnh hoàn thiện tại ${kmText}`))
-      children.push(imageTable(beforePrepared, afterPrepared, isFirstPage))
+      children.push(...imageTableBlocks(beforePrepared, afterPrepared, isFirstPage))
     }
     index++
 

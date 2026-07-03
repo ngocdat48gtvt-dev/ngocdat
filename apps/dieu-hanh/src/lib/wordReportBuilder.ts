@@ -179,6 +179,25 @@ function headingParagraph(text: string): Paragraph {
 const CELL_BORDER = { style: BorderStyle.SINGLE, size: 4, color: '000000' }
 
 
+const LABEL_BEFORE = '\u1EA2nh hi\u1EC7n tr\u1EA1ng'
+const LABEL_AFTER = '\u1EA2nh sau x\u1EED l\u00FD'
+
+function makeImageTable(rows: TableRow[]): Table {
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    alignment: AlignmentType.CENTER,
+    borders: {
+      top: CELL_BORDER,
+      bottom: CELL_BORDER,
+      left: CELL_BORDER,
+      right: CELL_BORDER,
+      insideHorizontal: CELL_BORDER,
+      insideVertical: CELL_BORDER,
+    },
+    rows,
+  })
+}
+
 function sectionLabelRow(text: string): TableRow {
   return new TableRow({
     children: [
@@ -209,56 +228,50 @@ function pairRows(list: (PreparedImage | null)[]): [PreparedImage | null, Prepar
   return rows
 }
 
-function imageTable(
+function imageTableBlocks(
   beforeList: (PreparedImage | null)[],
   afterList: (PreparedImage | null)[],
   isFirstPage: boolean,
-): Table {
-  /** Háº¿t HT (2 áº£nh/hÃ ng) rá»“i má»›i XL (2 áº£nh/hÃ ng) â€” khÃ´ng trá»™n HT vÃ  XL cÃ¹ng hÃ ng. */
+): (Paragraph | Table)[] {
   const beforeRows = pairRows(beforeList)
   const afterRows = pairRows(afterList)
-  const rows: TableRow[] = []
+  const blocks: (Paragraph | Table)[] = []
   if (beforeRows.length === 0 && afterRows.length === 0) {
-    rows.push(
-      new TableRow({
-        children: [imageCell(null, isFirstPage), imageCell(null, isFirstPage)],
-      }),
+    blocks.push(
+      makeImageTable([
+        new TableRow({
+          children: [imageCell(null, isFirstPage), imageCell(null, isFirstPage)],
+        }),
+      ]),
     )
-  } else {
-    if (beforeRows.length > 0) {
-      rows.push(sectionLabelRow('áº¢nh hiá»‡n tráº¡ng'))
-      for (const [left, right] of beforeRows) {
-        rows.push(
-          new TableRow({
-            children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
-          }),
-        )
-      }
-    }
-    if (afterRows.length > 0) {
-      rows.push(sectionLabelRow('áº¢nh sau xá»­ lÃ½'))
-      for (const [left, right] of afterRows) {
-        rows.push(
-          new TableRow({
-            children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
-          }),
-        )
-      }
-    }
+    return blocks
   }
-  return new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    alignment: AlignmentType.CENTER,
-    borders: {
-      top: CELL_BORDER,
-      bottom: CELL_BORDER,
-      left: CELL_BORDER,
-      right: CELL_BORDER,
-      insideHorizontal: CELL_BORDER,
-      insideVertical: CELL_BORDER,
-    },
-    rows,
-  })
+  if (beforeRows.length > 0) {
+    const rows: TableRow[] = [sectionLabelRow(LABEL_BEFORE)]
+    for (const [left, right] of beforeRows) {
+      rows.push(
+        new TableRow({
+          children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
+        }),
+      )
+    }
+    blocks.push(makeImageTable(rows))
+  }
+  if (afterRows.length > 0) {
+    if (beforeRows.length > 0) {
+      blocks.push(new Paragraph({ children: [new PageBreak()] }))
+    }
+    const rows: TableRow[] = [sectionLabelRow(LABEL_AFTER)]
+    for (const [left, right] of afterRows) {
+      rows.push(
+        new TableRow({
+          children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
+        }),
+      )
+    }
+    blocks.push(makeImageTable(rows))
+  }
+  return blocks
 }
 
 function titleBlock(options: WordExportOptions): Paragraph[] {
@@ -322,10 +335,12 @@ export async function buildIncidentWordReport(
     const stt = options.showStt ? `${index}. ` : ''
     const kmText = formatKmDisplay(inc.km) || (inc.km ?? '')
     if (beforeUrls.length === 0 && afterUrls.length === 0) {
-      children.push(headingParagraph(`${stt}HoÃ n thiá»‡n táº¡i ${kmText} (chÆ°a cÃ³ áº£nh)`))
+      children.push(
+        headingParagraph(`${stt}Ho\u00E0n thi\u1EC7n t\u1EA1i ${kmText} (ch\u01B0a c\u00F3 \u1EA3nh)`),
+      )
     } else {
-      children.push(headingParagraph(`${stt}áº¢nh hoÃ n thiá»‡n táº¡i ${kmText}`))
-      children.push(imageTable(beforePrepared, afterPrepared, isFirstPage))
+      children.push(headingParagraph(`${stt}\u1EA2nh ho\u00E0n thi\u1EC7n t\u1EA1i ${kmText}`))
+      children.push(...imageTableBlocks(beforePrepared, afterPrepared, isFirstPage))
     }
     index++
 
