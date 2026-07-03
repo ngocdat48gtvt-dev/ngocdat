@@ -10,6 +10,7 @@ export type GallerySelection = {
   afterUrls: string[]
   /** STT ghép Word (1-based) — hiển thị trên thumbnail đã chọn. */
   orderIndex?: (kind: SelectionKind, url: string) => number | undefined
+  onOrderChange?: (kind: SelectionKind, url: string, order: number) => void
   onToggle: (kind: SelectionKind, url: string) => void
   onSelectAll: (kind: SelectionKind) => void
   onClearAll: (kind: SelectionKind) => void
@@ -36,6 +37,7 @@ function ThumbnailTile({
   selected = false,
   onSelect,
   mergeOrder,
+  onOrderChange,
 }: {
   url: string
   index: number
@@ -44,9 +46,25 @@ function ThumbnailTile({
   selected?: boolean
   onSelect?: () => void
   mergeOrder?: number
+  onOrderChange?: (order: number) => void
 }) {
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState(false)
+  const [orderDraft, setOrderDraft] = useState(String(mergeOrder ?? ''))
+
+  useEffect(() => {
+    setOrderDraft(mergeOrder != null ? String(mergeOrder) : '')
+  }, [mergeOrder])
+
+  function commitOrder() {
+    if (!onOrderChange) return
+    const n = parseInt(orderDraft, 10)
+    if (!Number.isFinite(n) || n < 1) {
+      setOrderDraft(mergeOrder != null ? String(mergeOrder) : '1')
+      return
+    }
+    onOrderChange(n)
+  }
 
   return (
     <div
@@ -80,10 +98,6 @@ function ThumbnailTile({
       {selected && mergeOrder != null ? (
         <span className="absolute left-1.5 top-1.5 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-amber-500 text-xs font-bold text-white shadow">
           {mergeOrder}
-        </span>
-      ) : selected ? (
-        <span className="absolute left-1.5 top-1.5 z-10 flex items-center gap-1 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow">
-          <Star className="h-3 w-3 fill-current" /> Báo cáo
         </span>
       ) : null}
       <button
@@ -130,6 +144,33 @@ function ThumbnailTile({
         </span>
       </div>
       </button>
+      {selected && onOrderChange ? (
+        <div
+          className="flex items-center justify-center gap-1.5 border-t border-amber-300/80 bg-amber-50 px-2 py-1.5 dark:bg-amber-950/40"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <label className="text-[10px] font-semibold text-amber-900 dark:text-amber-100">
+            STT
+          </label>
+          <input
+            type="number"
+            min={1}
+            inputMode="numeric"
+            className="h-7 w-12 rounded border border-amber-400 bg-white text-center text-sm font-bold text-amber-900 outline-none focus:ring-2 focus:ring-amber-400 dark:bg-background"
+            value={orderDraft}
+            onChange={(e) => setOrderDraft(e.target.value)}
+            onBlur={commitOrder}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                commitOrder()
+                ;(e.target as HTMLInputElement).blur()
+              }
+            }}
+            aria-label="Số thứ tự ghép Word"
+          />
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -143,6 +184,7 @@ function ImageSection({
   onSelectAll,
   onClearAll,
   orderIndex,
+  onOrderChange,
 }: {
   title: string
   urls: string[]
@@ -152,6 +194,7 @@ function ImageSection({
   onSelectAll?: () => void
   onClearAll?: () => void
   orderIndex?: (url: string) => number | undefined
+  onOrderChange?: (url: string, order: number) => void
 }) {
   const selected = selectedUrls ?? []
   const allSelected = urls.length > 0 && urls.every((u) => selected.includes(u))
@@ -197,6 +240,11 @@ function ImageSection({
               selected={selected.includes(url)}
               onSelect={onToggle ? () => onToggle(url) : undefined}
               mergeOrder={orderIndex?.(url)}
+              onOrderChange={
+                onOrderChange && selected.includes(url)
+                  ? (order) => onOrderChange(url, order)
+                  : undefined
+              }
             />
           ))}
         </div>
@@ -430,6 +478,11 @@ export function IncidentImageGallery({
                 ? (url) => selection.orderIndex!('before', url)
                 : undefined
             }
+            onOrderChange={
+              selection?.onOrderChange
+                ? (url, order) => selection.onOrderChange!('before', url, order)
+                : undefined
+            }
           />
         ) : null}
         {!hideAfter ? (
@@ -444,6 +497,11 @@ export function IncidentImageGallery({
             orderIndex={
               selection?.orderIndex
                 ? (url) => selection.orderIndex!('after', url)
+                : undefined
+            }
+            onOrderChange={
+              selection?.onOrderChange
+                ? (url, order) => selection.onOrderChange!('after', url, order)
                 : undefined
             }
           />

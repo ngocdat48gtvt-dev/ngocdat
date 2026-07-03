@@ -1,14 +1,15 @@
-import { ChevronDown, ChevronUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ReportImageSlot } from '@/lib/incidentUtils'
 import { Button } from '@/components/ui/primitives'
 
 export function ReportMergeOrderPanel({
   slots,
-  onMove,
+  onOrderChange,
+  onRemove,
 }: {
   slots: ReportImageSlot[]
-  onMove: (index: number, delta: -1 | 1) => void
+  onOrderChange: (index: number, order: number) => void
+  onRemove: (index: number) => void
 }) {
   if (slots.length === 0) return null
 
@@ -18,8 +19,7 @@ export function ReportMergeOrderPanel({
         Thứ tự ghép Word ({slots.length} ảnh)
       </p>
       <p className="mb-2 text-[11px] text-muted-foreground">
-        STT quyết định thứ tự ảnh trong báo cáo — HT và XL có thể xen kẽ. Dùng mũi tên để đổi
-        thứ tự.
+        Tick ảnh rồi điền STT — hoặc sửa số tại đây. HT và XL có thể xen kẽ theo STT.
       </p>
       <ol className="space-y-1.5">
         {slots.map((slot, index) => (
@@ -27,9 +27,19 @@ export function ReportMergeOrderPanel({
             key={`${slot.kind}-${slot.url}`}
             className="flex items-center gap-2 rounded-md border border-border/60 bg-background px-2 py-1.5"
           >
-            <span className="w-7 shrink-0 text-center text-sm font-bold text-amber-600">
-              {index + 1}
-            </span>
+            <input
+              type="number"
+              min={1}
+              max={slots.length}
+              inputMode="numeric"
+              className="h-8 w-12 shrink-0 rounded border border-amber-400 bg-white text-center text-sm font-bold text-amber-700 outline-none focus:ring-2 focus:ring-amber-400 dark:bg-background"
+              value={index + 1}
+              onChange={(e) => {
+                const n = parseInt(e.target.value, 10)
+                if (Number.isFinite(n) && n >= 1) onOrderChange(index, n)
+              }}
+              aria-label={`STT ghép ảnh ${index + 1}`}
+            />
             <span
               className={cn(
                 'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase',
@@ -43,30 +53,15 @@ export function ReportMergeOrderPanel({
             <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
               {slot.kind === 'before' ? 'Ảnh hiện trạng' : 'Ảnh sau xử lý'}
             </span>
-            <div className="flex shrink-0 gap-0.5">
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="h-7 w-7"
-                disabled={index === 0}
-                onClick={() => onMove(index, -1)}
-                aria-label="Lên trên"
-              >
-                <ChevronUp className="h-4 w-4" />
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="h-7 w-7"
-                disabled={index === slots.length - 1}
-                onClick={() => onMove(index, 1)}
-                aria-label="Xuống dưới"
-              >
-                <ChevronDown className="h-4 w-4" />
-              </Button>
-            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 shrink-0 px-2 text-xs text-muted-foreground"
+              onClick={() => onRemove(index)}
+            >
+              Bỏ
+            </Button>
           </li>
         ))}
       </ol>

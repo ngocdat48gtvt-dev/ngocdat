@@ -476,6 +476,21 @@ export function moveReportImageSlot(
   return copy
 }
 
+/** Đặt STT ghép (1-based) cho ảnh — chèn/di chuyển trong danh sách. */
+export function assignReportSlotOrder(
+  slots: ReportImageSlot[],
+  kind: ReportImageKind,
+  url: string,
+  order: number,
+): ReportImageSlot[] {
+  const slot = slots.find((s) => s.kind === kind && s.url === url) ?? { kind, url }
+  const without = slots.filter((s) => !(s.kind === kind && s.url === url))
+  const clamped = Math.max(1, Math.min(Math.round(order) || 1, without.length + 1))
+  const copy = [...without]
+  copy.splice(clamped - 1, 0, slot)
+  return copy
+}
+
 /** Đồng bộ selectedBefore/selectedAfter (app Android) từ thứ tự ghép. */
 export function legacyRefsFromReportSlots(slots: ReportImageSlot[]): {
   selectedBefore: string

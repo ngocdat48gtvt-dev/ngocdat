@@ -8,11 +8,11 @@ import type { IncidentRecord } from '@/types/incident'
 import {
   afterConstructionImages,
   beforeConstructionImages,
+  assignReportSlotOrder,
   clearReportImageSlots,
   computeKhoiLuong,
   encodeReportImageOrder,
   legacyRefsFromReportSlots,
-  moveReportImageSlot,
   progressLabel,
   reportImageSlots,
   reportSlotOrderIndex,
@@ -96,9 +96,21 @@ export function IncidentDetailDrawer({
     void persistReportSlots(clearReportImageSlots(reportSlots, kind))
   }
 
-  function handleMoveSlot(index: number, delta: -1 | 1) {
+  function handleOrderChange(kind: 'before' | 'after', url: string, order: number) {
     if (!incident) return
-    void persistReportSlots(moveReportImageSlot(reportSlots, index, delta))
+    void persistReportSlots(assignReportSlotOrder(reportSlots, kind, url, order))
+  }
+
+  function handlePanelOrderChange(index: number, order: number) {
+    const slot = reportSlots[index]
+    if (!slot || !incident) return
+    void persistReportSlots(assignReportSlotOrder(reportSlots, slot.kind, slot.url, order))
+  }
+
+  function handleRemoveSlot(index: number) {
+    const slot = reportSlots[index]
+    if (!slot || !incident) return
+    void persistReportSlots(toggleReportImageSlot(reportSlots, slot.kind, slot.url))
   }
 
   if (!incident) return null
@@ -203,12 +215,16 @@ export function IncidentDetailDrawer({
           ) : null}
 
           <p className="text-xs text-muted-foreground">
-            Bấm dấu <span className="font-medium text-foreground">✓</span> ở góc ảnh để chọn ghép
-            Word — số trên ảnh là <span className="font-medium text-foreground">STT ghép</span>.
-            Dùng bảng thứ tự bên dưới để đổi vị trí HT / XL.
+            Bấm <span className="font-medium text-foreground">✓</span> chọn ảnh, rồi điền{' '}
+            <span className="font-medium text-foreground">STT</span> ghép Word (ô dưới ảnh hoặc
+            bảng thứ tự). HT / XL xen kẽ tùy STT.
           </p>
           {user && reportSlots.length > 0 ? (
-            <ReportMergeOrderPanel slots={reportSlots} onMove={handleMoveSlot} />
+            <ReportMergeOrderPanel
+              slots={reportSlots}
+              onOrderChange={handlePanelOrderChange}
+              onRemove={handleRemoveSlot}
+            />
           ) : null}
           <IncidentImageGallery
             beforeUrls={beforeUrls}
@@ -226,6 +242,7 @@ export function IncidentDetailDrawer({
                       .map((s) => s.url),
                     orderIndex: (kind, url) =>
                       reportSlotOrderIndex(reportSlots, kind, url),
+                    onOrderChange: handleOrderChange,
                     onToggle: handleTogglePhoto,
                     onSelectAll: handleSelectAll,
                     onClearAll: handleClearAll,
