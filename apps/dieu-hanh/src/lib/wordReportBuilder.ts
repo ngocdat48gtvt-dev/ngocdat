@@ -20,10 +20,12 @@ import { formatKmDisplay } from '@quanlysuco/shared'
 
 const FONT = 'Times New Roman'
 
-// KÃ­ch thÆ°á»›c áº£nh (px @96dpi) â€” khá»›p WordExporter.kt: bá» ngang ~342.9pt, cao tá»‘i Ä‘a 380/440pt.
+// Kích thước ảnh (px @96dpi) — khổ ngang A4; tăng cao để lấp trang.
 const IMG_WIDTH_PX = 457
-const IMG_MAX_HEIGHT_FIRST_PX = 507
-const IMG_MAX_HEIGHT_PX = 587
+/** Hàng ảnh đầu (còn tiêu đề báo cáo phía trên) ~400pt */
+const IMG_MAX_HEIGHT_REPORT_ROW_PX = Math.round((400 * 96) / 72)
+/** Trang chủ yếu ảnh / sau ngắt trang ~500pt */
+const IMG_MAX_HEIGHT_FULL_ROW_PX = Math.round((500 * 96) / 72)
 const RESIZE_MAX_SIDE = 1200
 const JPEG_QUALITY = 0.82
 
@@ -128,16 +130,29 @@ async function prepareImage(url: string): Promise<PreparedImage | null> {
   }
 }
 
-function displaySize(img: PreparedImage, isFirstPage: boolean): { width: number; height: number } {
-  const maxHeight = isFirstPage ? IMG_MAX_HEIGHT_FIRST_PX : IMG_MAX_HEIGHT_PX
+function displaySize(img: PreparedImage, maxHeightPx: number): { width: number; height: number } {
   const ratio = img.height / img.width
   let width = IMG_WIDTH_PX
   let height = Math.round(width * ratio)
-  if (height > maxHeight) {
-    height = maxHeight
+  if (height > maxHeightPx) {
+    height = maxHeightPx
     width = Math.round(height / ratio)
   }
   return { width, height }
+}
+
+function rowMaxHeightPx(
+  rowIndex: number,
+  breakBeforeRow: number | null,
+  isFirstReportPage: boolean,
+): number {
+  if (breakBeforeRow !== null && rowIndex >= breakBeforeRow) {
+    return IMG_MAX_HEIGHT_FULL_ROW_PX
+  }
+  if (rowIndex === 0 && isFirstReportPage) {
+    return IMG_MAX_HEIGHT_REPORT_ROW_PX
+  }
+  return IMG_MAX_HEIGHT_FULL_ROW_PX
 }
 
 function headingParagraph(text: string): Paragraph {
@@ -170,7 +185,7 @@ function makeImageTable(rows: TableRow[]): Table {
 
 function labeledImageCell(
   slot: { kind: 'before' | 'after'; image: PreparedImage | null } | null,
-  isFirstPage: boolean,
+  maxHeightPx: number,
 ): TableCell {
   if (!slot) {
     return new TableCell({
@@ -183,12 +198,12 @@ function labeledImageCell(
   const paragraphs: Paragraph[] = [
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      spacing: { before: 40, after: 40 },
+      spacing: { before: 20, after: 20 },
       children: [new TextRun({ text: label, bold: true, font: FONT, size: 24 })],
     }),
   ]
   if (slot.image) {
-    const { width, height } = displaySize(slot.image, isFirstPage)
+    const { width, height } = displaySize(slot.image, maxHeightPx)
     paragraphs.push(
       new Paragraph({
         alignment: AlignmentType.CENTER,
@@ -222,8 +237,7 @@ function packPairs(slots: LabeledSlot[]): [LabeledSlot | null, LabeledSlot | nul
   return rows
 }
 
-/** HT trước, XL sau — xếp liên tục 2 ô/hàng trái→phải (không tách block thừa ô). */
-/** Xếp liên tục 2 cột theo thứ tự HT rồi XL ([...before, ...after]). */
+/** HT trước, XL sau — xếp liên tục 2 ô/hàng trái→phải, không tách block để thừa ô. */
 function buildSlotRows(
   beforeList: (PreparedImage | null)[],
   afterList: (PreparedImage | null)[],
@@ -233,6 +247,17 @@ function buildSlotRows(
 
   if (before.length === 0 && after.length === 0) {
     return { rows: [], breakBeforeRow: null }
+  }
+
+  // 2 HT + 1 XL: trang 1 đủ 2 ảnh HT, ảnh XL sang trang mới
+  if (before.length === 2 && after.length === 1) {
+    return {
+      rows: [
+        [before[0], before[1]],
+        [after[0], null],
+      ],
+      breakBeforeRow: 1,
+    }
   }
 
   const stream = [...before, ...after]
