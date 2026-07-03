@@ -31,7 +31,6 @@ import {
 import { positionLabel } from '@/lib/positionUtils'
 import { Badge, Button } from '@/components/ui/primitives'
 import { IncidentImageGallery } from './IncidentImageGallery'
-import { ReportMergeOrderPanel } from './ReportMergeOrderPanel'
 import { IncidentFullTimeline } from './IncidentFullTimeline'
 import { ReworkAssignDialog } from './ReworkAssignDialog'
 
@@ -99,18 +98,6 @@ export function IncidentDetailDrawer({
   function handleOrderChange(kind: 'before' | 'after', url: string, order: number) {
     if (!incident) return
     void persistReportSlots(assignReportSlotOrder(reportSlots, kind, url, order))
-  }
-
-  function handlePanelOrderChange(index: number, order: number) {
-    const slot = reportSlots[index]
-    if (!slot || !incident) return
-    void persistReportSlots(assignReportSlotOrder(reportSlots, slot.kind, slot.url, order))
-  }
-
-  function handleRemoveSlot(index: number) {
-    const slot = reportSlots[index]
-    if (!slot || !incident) return
-    void persistReportSlots(toggleReportImageSlot(reportSlots, slot.kind, slot.url))
   }
 
   if (!incident) return null
@@ -215,17 +202,10 @@ export function IncidentDetailDrawer({
           ) : null}
 
           <p className="text-xs text-muted-foreground">
-            Bấm <span className="font-medium text-foreground">✓</span> chọn ảnh, rồi điền{' '}
-            <span className="font-medium text-foreground">STT</span> ghép Word (ô dưới ảnh hoặc
-            bảng thứ tự). HT / XL xen kẽ tùy STT.
+            Bấm <span className="font-medium text-foreground">✓</span> chọn ảnh, điền{' '}
+            <span className="font-medium text-foreground">STT</span> ở ô dưới mỗi ảnh (HT / XL xen
+            kẽ tùy STT).
           </p>
-          {user && reportSlots.length > 0 ? (
-            <ReportMergeOrderPanel
-              slots={reportSlots}
-              onOrderChange={handlePanelOrderChange}
-              onRemove={handleRemoveSlot}
-            />
-          ) : null}
           <IncidentImageGallery
             beforeUrls={beforeUrls}
             afterUrls={afterUrls}
