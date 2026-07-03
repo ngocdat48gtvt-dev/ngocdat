@@ -200,21 +200,33 @@ function imageTable(
   afterList: (PreparedImage | null)[],
   isFirstPage: boolean,
 ): Table {
-  const rowCount = Math.max(beforeList.length, afterList.length, 1)
+  const nBefore = beforeList.length
+  const nAfter = afterList.length
+  const rowCount = nBefore + nAfter
   const rows: TableRow[] = [
     new TableRow({
       children: [labelCell('Ảnh hiện trạng'), labelCell('Ảnh sau xử lý')],
     }),
   ]
-  for (let j = 0; j < rowCount; j++) {
+  if (rowCount === 0) {
     rows.push(
       new TableRow({
-        children: [
-          imageCell(beforeList[j] ?? null, isFirstPage),
-          imageCell(afterList[j] ?? null, isFirstPage),
-        ],
+        children: [imageCell(null, isFirstPage), imageCell(null, isFirstPage)],
       }),
     )
+  } else {
+    for (let j = 0; j < rowCount; j++) {
+      const beforeImg = j < nBefore ? beforeList[j] : null
+      const afterImg = j >= nBefore ? afterList[j - nBefore] : null
+      rows.push(
+        new TableRow({
+          children: [
+            imageCell(beforeImg, isFirstPage),
+            imageCell(afterImg, isFirstPage),
+          ],
+        }),
+      )
+    }
   }
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
@@ -259,8 +271,8 @@ function titleBlock(options: WordExportOptions): Paragraph[] {
 }
 
 /**
- * Dựng file Word ghép ảnh hiện trạng + sau xử lý (bố cục khớp app Android):
- * khổ ngang A4, mỗi sự cố một trang, bảng 2 cột Trước | Sau, STT tuỳ chọn.
+ * Dựng file Word ghép ảnh: hết ảnh hiện trạng (trái→phải) rồi mới ảnh sau xử lý;
+ * khổ ngang A4, mỗi sự cố một trang, bảng 2 cột, STT tuỳ chọn.
  */
 export async function buildIncidentWordReport(
   items: IncidentRecord[],
