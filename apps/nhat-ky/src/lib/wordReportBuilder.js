@@ -176,33 +176,22 @@ function labelCell(text) {
 }
 
 function imageTable(beforeList, afterList, isFirstPage) {
-  const nBefore = beforeList.length
-  const nAfter = afterList.length
-  const rowCount = nBefore + nAfter
+  const ordered = [...beforeList, ...afterList]
   const rows = [
     new TableRow({
       children: [labelCell("Ảnh hiện trạng"), labelCell("Ảnh sau xử lý")],
     }),
   ]
-  if (rowCount === 0) {
+  const rowCount = Math.max(1, Math.ceil(ordered.length / 2))
+  for (let r = 0; r < rowCount; r++) {
     rows.push(
       new TableRow({
-        children: [imageCell(null, isFirstPage), imageCell(null, isFirstPage)],
+        children: [
+          imageCell(ordered[r * 2] ?? null, isFirstPage),
+          imageCell(ordered[r * 2 + 1] ?? null, isFirstPage),
+        ],
       }),
     )
-  } else {
-    for (let j = 0; j < rowCount; j++) {
-      const beforeImg = j < nBefore ? beforeList[j] : null
-      const afterImg = j >= nBefore ? afterList[j - nBefore] : null
-      rows.push(
-        new TableRow({
-          children: [
-            imageCell(beforeImg, isFirstPage),
-            imageCell(afterImg, isFirstPage),
-          ],
-        }),
-      )
-    }
   }
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
@@ -247,8 +236,8 @@ function titleBlock(options) {
 }
 
 /**
- * Dựng file Word ghép ảnh: hết ảnh hiện trạng (trái→phải) rồi mới ảnh sau xử lý;
- * khổ ngang A4, mỗi sự cố một trang, bảng 2 cột, STT tuỳ chọn.
+ * Dựng file Word: hết ảnh hiện trạng (trái→phải) rồi sau xử lý, xếp lưới 2 cột/hàng;
+ * khổ ngang A4, mỗi sự cố một trang, STT tuỳ chọn.
  */
 export async function buildIncidentWordReport(items, options, onProgress) {
   const children = [...titleBlock(options)];
