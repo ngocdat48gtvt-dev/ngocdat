@@ -267,14 +267,16 @@ function buildSlotRows(
 function imageTableBlocks(
   beforeList: (PreparedImage | null)[],
   afterList: (PreparedImage | null)[],
-  isFirstPage: boolean,
+  isFirstReportPage: boolean,
 ): (Paragraph | Table)[] {
   const { rows, breakBeforeRow } = buildSlotRows(beforeList, afterList)
   if (rows.length === 0) {
+    const h = rowMaxHeightPx(0, null, isFirstReportPage)
     return [
       makeImageTable([
         new TableRow({
-          children: [labeledImageCell(null, isFirstPage), labeledImageCell(null, isFirstPage)],
+          cantSplit: true,
+          children: [labeledImageCell(null, h), labeledImageCell(null, h)],
         }),
       ]),
     ]
@@ -289,12 +291,15 @@ function imageTableBlocks(
       blocks.push(new Paragraph({ children: [new PageBreak()] }))
       tableRows = []
     }
+    const rowHeight = rowMaxHeightPx(i, breakBeforeRow, isFirstReportPage)
     const [left, right] = rows[i]
+    const hasImage = Boolean(left?.image || right?.image)
     tableRows.push(
       new TableRow({
+        cantSplit: hasImage,
         children: [
-          labeledImageCell(left, isFirstPage),
-          labeledImageCell(right, isFirstPage),
+          labeledImageCell(left, rowHeight),
+          labeledImageCell(right, rowHeight),
         ],
       }),
     )
