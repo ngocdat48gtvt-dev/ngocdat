@@ -140,35 +140,6 @@ function displaySize(img: PreparedImage, isFirstPage: boolean): { width: number;
   return { width, height }
 }
 
-function imageCell(img: PreparedImage | null, isFirstPage: boolean): TableCell {
-  let content: Paragraph
-  if (img) {
-    const { width, height } = displaySize(img, isFirstPage)
-    content = new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { before: 0, after: 0 },
-      children: [
-        new ImageRun({
-          type: 'jpg',
-          data: img.data,
-          transformation: { width, height },
-        }),
-      ],
-    })
-  } else {
-    content = new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { before: 0, after: 0 },
-      children: [],
-    })
-  }
-  return new TableCell({
-    width: { size: 50, type: WidthType.PERCENTAGE },
-    verticalAlign: VerticalAlign.CENTER,
-    children: [content],
-  })
-}
-
 function headingParagraph(text: string): Paragraph {
   return new Paragraph({
     spacing: { before: 60, after: 60 },
@@ -177,7 +148,6 @@ function headingParagraph(text: string): Paragraph {
 }
 
 const CELL_BORDER = { style: BorderStyle.SINGLE, size: 4, color: '000000' }
-
 
 const LABEL_BEFORE = '\u1EA2nh hi\u1EC7n tr\u1EA1ng'
 const LABEL_AFTER = '\u1EA2nh sau x\u1EED l\u00FD'
@@ -198,68 +168,80 @@ function makeImageTable(rows: TableRow[]): Table {
   })
 }
 
-function sectionLabelRow(text: string): TableRow {
-  return new TableRow({
-    children: [
-      new TableCell({
-        columnSpan: 2,
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        verticalAlign: VerticalAlign.CENTER,
+function labeledImageCell(
+  slot: { kind: 'before' | 'after'; image: PreparedImage | null } | null,
+  isFirstPage: boolean,
+): TableCell {
+  if (!slot) {
+    return new TableCell({
+      width: { size: 50, type: WidthType.PERCENTAGE },
+      verticalAlign: VerticalAlign.CENTER,
+      children: [new Paragraph({ children: [] })],
+    })
+  }
+  const label = slot.kind === 'before' ? LABEL_BEFORE : LABEL_AFTER
+  const paragraphs: Paragraph[] = [
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 40, after: 40 },
+      children: [new TextRun({ text: label, bold: true, font: FONT, size: 24 })],
+    }),
+  ]
+  if (slot.image) {
+    const { width, height } = displaySize(slot.image, isFirstPage)
+    paragraphs.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 0, after: 0 },
         children: [
-          new Paragraph({
-            alignment: AlignmentType.CENTER,
-            spacing: { before: 60, after: 60 },
-            children: [
-              new TextRun({ text, bold: true, font: FONT, size: 24 }),
-            ],
+          new ImageRun({
+            type: 'jpg',
+            data: slot.image.data,
+            transformation: { width, height },
           }),
         ],
       }),
-    ],
+    )
+  } else {
+    paragraphs.push(new Paragraph({ children: [] }))
+  }
+  return new TableCell({
+    width: { size: 50, type: WidthType.PERCENTAGE },
+    verticalAlign: VerticalAlign.CENTER,
+    children: paragraphs,
   })
 }
 
-function pairRows(list: (PreparedImage | null)[]): [PreparedImage | null, PreparedImage | null][] {
-  if (list.length === 0) return []
-  const rows: [PreparedImage | null, PreparedImage | null][] = []
-  for (let i = 0; i < list.length; i += 2) {
-    rows.push([list[i] ?? null, list[i + 1] ?? null])
-  }
-  return rows
-}
+type LabeledSlot = { kind: 'before' | 'after'; image: PreparedImage | null }
 
-/** Chỉ ngắt trang trước XL khi block HT đủ lớn; ít ảnh (vd. 1 HT + 1 XL) giữ cùng trang. */
-function shouldPageBreakBeforeAfter(
+function buildSlotRows(
   beforeList: (PreparedImage | null)[],
   afterList: (PreparedImage | null)[],
-  isFirstPage: boolean,
-): boolean {
-  const beforeRows = pairRows(beforeList)
-  const afterRows = pairRows(afterList)
-  if (beforeRows.length === 0 || afterRows.length === 0) return false
+): { rows: [LabeledSlot | null, LabeledSlot | null][]; breakBeforeRow: number | null } {
+  const before: LabeledSlot[] = beforeList.map((image) => ({ kind: 'before', image }))
+  const after: LabeledSlot[] = afterList.map((image) => ({ kind: 'after', image }))
 
-  const total = beforeList.length + afterList.length
-  if (total <= 3) return false
-
-  if (beforeRows.length >= 2) return true
-
-  if (afterRows.length >= 2) return isFirstPage
-
-  return false
-}
-
-function appendImageRows(
-  rows: TableRow[],
-  paired: [PreparedImage | null, PreparedImage | null][],
-  isFirstPage: boolean,
-): void {
-  for (const [left, right] of paired) {
-    rows.push(
-      new TableRow({
-        children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
-      }),
-    )
+  if (before.length === 0 && after.length === 0) {
+    return { rows: [], breakBeforeRow: null }
   }
+
+  // 2 HT + 1 XL: trang 1 đủ 2 ảnh trước, ảnh sau sang trang mới
+  if (before.length === 2 && after.length === 1) {
+    return {
+      rows: [
+        [before[0], before[1]],
+        [after[0], null],
+      ],
+      breakBeforeRow: 1,
+    }
+  }
+
+  const stream = [...before, ...after]
+  const rows: [LabeledSlot | null, LabeledSlot | null][] = []
+  for (let i = 0; i < stream.length; i += 2) {
+    rows.push([stream[i] ?? null, stream[i + 1] ?? null])
+  }
+  return { rows, breakBeforeRow: null }
 }
 
 function imageTableBlocks(
@@ -267,48 +249,38 @@ function imageTableBlocks(
   afterList: (PreparedImage | null)[],
   isFirstPage: boolean,
 ): (Paragraph | Table)[] {
-  const beforeRows = pairRows(beforeList)
-  const afterRows = pairRows(afterList)
-  const blocks: (Paragraph | Table)[] = []
-  if (beforeRows.length === 0 && afterRows.length === 0) {
-    blocks.push(
+  const { rows, breakBeforeRow } = buildSlotRows(beforeList, afterList)
+  if (rows.length === 0) {
+    return [
       makeImageTable([
         new TableRow({
-          children: [imageCell(null, isFirstPage), imageCell(null, isFirstPage)],
+          children: [labeledImageCell(null, isFirstPage), labeledImageCell(null, isFirstPage)],
         }),
       ]),
-    )
-    return blocks
+    ]
   }
 
-  const needBreak = shouldPageBreakBeforeAfter(beforeList, afterList, isFirstPage)
+  const blocks: (Paragraph | Table)[] = []
+  let tableRows: TableRow[] = []
 
-  if (!needBreak) {
-    const rows: TableRow[] = []
-    if (beforeRows.length > 0) {
-      rows.push(sectionLabelRow(LABEL_BEFORE))
-      appendImageRows(rows, beforeRows, isFirstPage)
-    }
-    if (afterRows.length > 0) {
-      rows.push(sectionLabelRow(LABEL_AFTER))
-      appendImageRows(rows, afterRows, isFirstPage)
-    }
-    blocks.push(makeImageTable(rows))
-    return blocks
-  }
-
-  if (beforeRows.length > 0) {
-    const rows: TableRow[] = [sectionLabelRow(LABEL_BEFORE)]
-    appendImageRows(rows, beforeRows, isFirstPage)
-    blocks.push(makeImageTable(rows))
-  }
-  if (afterRows.length > 0) {
-    if (beforeRows.length > 0) {
+  for (let i = 0; i < rows.length; i++) {
+    if (breakBeforeRow === i && tableRows.length > 0) {
+      blocks.push(makeImageTable(tableRows))
       blocks.push(new Paragraph({ children: [new PageBreak()] }))
+      tableRows = []
     }
-    const rows: TableRow[] = [sectionLabelRow(LABEL_AFTER)]
-    appendImageRows(rows, afterRows, isFirstPage)
-    blocks.push(makeImageTable(rows))
+    const [left, right] = rows[i]
+    tableRows.push(
+      new TableRow({
+        children: [
+          labeledImageCell(left, isFirstPage),
+          labeledImageCell(right, isFirstPage),
+        ],
+      }),
+    )
+  }
+  if (tableRows.length > 0) {
+    blocks.push(makeImageTable(tableRows))
   }
   return blocks
 }
