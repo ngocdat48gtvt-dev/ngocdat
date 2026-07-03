@@ -163,48 +163,86 @@ function headingParagraph(text: string): Paragraph {
 }
 
 const CELL_BORDER = { style: BorderStyle.SINGLE, size: 4, color: '000000' }
+const NO_BORDER = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }
 
 const LABEL_BEFORE = '\u1EA2nh hi\u1EC7n tr\u1EA1ng'
 const LABEL_AFTER = '\u1EA2nh sau x\u1EED l\u00FD'
+
+type LabeledSlot = { kind: 'before' | 'after'; image: PreparedImage | null }
 
 function makeImageTable(rows: TableRow[]): Table {
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     alignment: AlignmentType.CENTER,
     borders: {
-      top: CELL_BORDER,
-      bottom: CELL_BORDER,
-      left: CELL_BORDER,
-      right: CELL_BORDER,
-      insideHorizontal: CELL_BORDER,
-      insideVertical: CELL_BORDER,
+      top: NO_BORDER,
+      bottom: NO_BORDER,
+      left: NO_BORDER,
+      right: NO_BORDER,
+      insideHorizontal: NO_BORDER,
+      insideVertical: NO_BORDER,
     },
     rows,
   })
 }
 
-function labeledImageCell(
-  slot: { kind: 'before' | 'after'; image: PreparedImage | null } | null,
-  maxHeightPx: number,
-): TableCell {
+function labelCell(slot: LabeledSlot | null): TableCell {
   if (!slot) {
     return new TableCell({
       width: { size: 50, type: WidthType.PERCENTAGE },
-      verticalAlign: VerticalAlign.CENTER,
+      borders: {
+        top: NO_BORDER,
+        bottom: NO_BORDER,
+        left: NO_BORDER,
+        right: NO_BORDER,
+      },
       children: [new Paragraph({ children: [] })],
     })
   }
   const label = slot.kind === 'before' ? LABEL_BEFORE : LABEL_AFTER
-  const paragraphs: Paragraph[] = [
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { before: 20, after: 20 },
-      children: [new TextRun({ text: label, bold: true, font: FONT, size: 24 })],
-    }),
-  ]
-  if (slot.image) {
-    const { width, height } = displaySize(slot.image, maxHeightPx)
-    paragraphs.push(
+  return new TableCell({
+    width: { size: 50, type: WidthType.PERCENTAGE },
+    borders: {
+      top: NO_BORDER,
+      bottom: NO_BORDER,
+      left: NO_BORDER,
+      right: NO_BORDER,
+    },
+    children: [
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 20, after: 40 },
+        children: [new TextRun({ text: label, bold: true, font: FONT, size: 24 })],
+      }),
+    ],
+  })
+}
+
+function imageOnlyCell(slot: LabeledSlot | null, maxHeightPx: number): TableCell {
+  if (!slot?.image) {
+    return new TableCell({
+      width: { size: 50, type: WidthType.PERCENTAGE },
+      borders: {
+        top: NO_BORDER,
+        bottom: NO_BORDER,
+        left: NO_BORDER,
+        right: NO_BORDER,
+      },
+      verticalAlign: VerticalAlign.CENTER,
+      children: [new Paragraph({ children: [] })],
+    })
+  }
+  const { width, height } = displaySize(slot.image, maxHeightPx)
+  return new TableCell({
+    width: { size: 50, type: WidthType.PERCENTAGE },
+    borders: {
+      top: CELL_BORDER,
+      bottom: CELL_BORDER,
+      left: CELL_BORDER,
+      right: CELL_BORDER,
+    },
+    verticalAlign: VerticalAlign.CENTER,
+    children: [
       new Paragraph({
         alignment: AlignmentType.CENTER,
         spacing: { before: 0, after: 0 },
@@ -216,18 +254,26 @@ function labeledImageCell(
           }),
         ],
       }),
-    )
-  } else {
-    paragraphs.push(new Paragraph({ children: [] }))
-  }
-  return new TableCell({
-    width: { size: 50, type: WidthType.PERCENTAGE },
-    verticalAlign: VerticalAlign.CENTER,
-    children: paragraphs,
+    ],
   })
 }
 
-type LabeledSlot = { kind: 'before' | 'after'; image: PreparedImage | null }
+function imagePairRows(
+  left: LabeledSlot | null,
+  right: LabeledSlot | null,
+  maxHeightPx: number,
+): TableRow[] {
+  const hasImage = Boolean(left?.image || right?.image)
+  return [
+    new TableRow({
+      children: [labelCell(left), labelCell(right)],
+    }),
+    new TableRow({
+      cantSplit: hasImage,
+      children: [imageOnlyCell(left, maxHeightPx), imageOnlyCell(right, maxHeightPx)],
+    }),
+  ]
+}
 
 function packPairs(slots: LabeledSlot[]): [LabeledSlot | null, LabeledSlot | null][] {
   const rows: [LabeledSlot | null, LabeledSlot | null][] = []
@@ -272,14 +318,7 @@ function imageTableBlocks(
   const { rows, breakBeforeRow } = buildSlotRows(beforeList, afterList)
   if (rows.length === 0) {
     const h = rowMaxHeightPx(0, null, isFirstReportPage)
-    return [
-      makeImageTable([
-        new TableRow({
-          cantSplit: true,
-          children: [labeledImageCell(null, h), labeledImageCell(null, h)],
-        }),
-      ]),
-    ]
+    return [makeImageTable(imagePairRows(null, null, h))]
   }
 
   const blocks: (Paragraph | Table)[] = []
@@ -293,16 +332,7 @@ function imageTableBlocks(
     }
     const rowHeight = rowMaxHeightPx(i, breakBeforeRow, isFirstReportPage)
     const [left, right] = rows[i]
-    const hasImage = Boolean(left?.image || right?.image)
-    tableRows.push(
-      new TableRow({
-        cantSplit: hasImage,
-        children: [
-          labeledImageCell(left, rowHeight),
-          labeledImageCell(right, rowHeight),
-        ],
-      }),
-    )
+    tableRows.push(...imagePairRows(left, right, rowHeight))
   }
   if (tableRows.length > 0) {
     blocks.push(makeImageTable(tableRows))
