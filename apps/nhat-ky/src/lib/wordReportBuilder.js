@@ -70,7 +70,7 @@ async function fetchImageBlob(url) {
 /**
  * Tải ảnh từ URL Firebase Storage, resize (cạnh dài ≤ 1200) và nén JPEG q82.
  * fetch → blob (object URL same-origin nên canvas không bị taint).
- * Trả về null nếu lỗi mạng/CORS để cell hiển thị "[Không tải được ảnh]".
+ * Trả về null nếu lỗi mạng/CORS — ô Word để trống.
  */
 async function prepareImage(url) {
   let objectUrl = null;
@@ -140,9 +140,8 @@ function imageCell(img, isFirstPage) {
   } else {
     content = new Paragraph({
       alignment: AlignmentType.CENTER,
-      children: [
-        new TextRun({ text: '[Không tải được ảnh]', italics: true, font: FONT, size: 24 }),
-      ],
+      spacing: { before: 0, after: 0 },
+      children: [],
     })
   }
   return new TableCell({
