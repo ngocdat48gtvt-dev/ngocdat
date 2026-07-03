@@ -228,6 +228,40 @@ function pairRows(list: (PreparedImage | null)[]): [PreparedImage | null, Prepar
   return rows
 }
 
+/** Chỉ ngắt trang trước XL khi block HT đủ lớn; ít ảnh (vd. 1 HT + 1 XL) giữ cùng trang. */
+function shouldPageBreakBeforeAfter(
+  beforeList: (PreparedImage | null)[],
+  afterList: (PreparedImage | null)[],
+  isFirstPage: boolean,
+): boolean {
+  const beforeRows = pairRows(beforeList)
+  const afterRows = pairRows(afterList)
+  if (beforeRows.length === 0 || afterRows.length === 0) return false
+
+  const total = beforeList.length + afterList.length
+  if (total <= 3) return false
+
+  if (beforeRows.length >= 2) return true
+
+  if (afterRows.length >= 2) return isFirstPage
+
+  return false
+}
+
+function appendImageRows(
+  rows: TableRow[],
+  paired: [PreparedImage | null, PreparedImage | null][],
+  isFirstPage: boolean,
+): void {
+  for (const [left, right] of paired) {
+    rows.push(
+      new TableRow({
+        children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
+      }),
+    )
+  }
+}
+
 function imageTableBlocks(
   beforeList: (PreparedImage | null)[],
   afterList: (PreparedImage | null)[],
@@ -246,15 +280,26 @@ function imageTableBlocks(
     )
     return blocks
   }
+
+  const needBreak = shouldPageBreakBeforeAfter(beforeList, afterList, isFirstPage)
+
+  if (!needBreak) {
+    const rows: TableRow[] = []
+    if (beforeRows.length > 0) {
+      rows.push(sectionLabelRow(LABEL_BEFORE))
+      appendImageRows(rows, beforeRows, isFirstPage)
+    }
+    if (afterRows.length > 0) {
+      rows.push(sectionLabelRow(LABEL_AFTER))
+      appendImageRows(rows, afterRows, isFirstPage)
+    }
+    blocks.push(makeImageTable(rows))
+    return blocks
+  }
+
   if (beforeRows.length > 0) {
     const rows: TableRow[] = [sectionLabelRow(LABEL_BEFORE)]
-    for (const [left, right] of beforeRows) {
-      rows.push(
-        new TableRow({
-          children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
-        }),
-      )
-    }
+    appendImageRows(rows, beforeRows, isFirstPage)
     blocks.push(makeImageTable(rows))
   }
   if (afterRows.length > 0) {
@@ -262,13 +307,7 @@ function imageTableBlocks(
       blocks.push(new Paragraph({ children: [new PageBreak()] }))
     }
     const rows: TableRow[] = [sectionLabelRow(LABEL_AFTER)]
-    for (const [left, right] of afterRows) {
-      rows.push(
-        new TableRow({
-          children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
-        }),
-      )
-    }
+    appendImageRows(rows, afterRows, isFirstPage)
     blocks.push(makeImageTable(rows))
   }
   return blocks
