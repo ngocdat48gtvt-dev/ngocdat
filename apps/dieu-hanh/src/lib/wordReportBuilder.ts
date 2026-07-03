@@ -186,7 +186,55 @@ function makeImageTable(rows: TableRow[]): Table {
   })
 }
 
-function labelCell(slot: LabeledSlot | null): TableCell {
+function labelParagraph(slot: LabeledSlot): Paragraph {
+  const label = slot.kind === 'before' ? LABEL_BEFORE : LABEL_AFTER
+  return new Paragraph({
+    alignment: AlignmentType.CENTER,
+    spacing: { before: 20, after: 40 },
+    children: [new TextRun({ text: label, bold: true, font: FONT, size: 24 })],
+  })
+}
+
+function borderedImageTable(img: PreparedImage, maxHeightPx: number): Table {
+  const { width, height } = displaySize(img, maxHeightPx)
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    alignment: AlignmentType.CENTER,
+    borders: {
+      top: CELL_BORDER,
+      bottom: CELL_BORDER,
+      left: CELL_BORDER,
+      right: CELL_BORDER,
+      insideHorizontal: NO_BORDER,
+      insideVertical: NO_BORDER,
+    },
+    rows: [
+      new TableRow({
+        children: [
+          new TableCell({
+            verticalAlign: VerticalAlign.CENTER,
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 0, after: 0 },
+                children: [
+                  new ImageRun({
+                    type: 'jpg',
+                    data: img.data,
+                    transformation: { width, height },
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+    ],
+  })
+}
+
+/** Tiêu đề + khung ảnh trong cùng ô — không tách tiêu đề sang trang khác. */
+function labeledSlotCell(slot: LabeledSlot | null, maxHeightPx: number): TableCell {
   if (!slot) {
     return new TableCell({
       width: { size: 50, type: WidthType.PERCENTAGE },
@@ -199,62 +247,20 @@ function labelCell(slot: LabeledSlot | null): TableCell {
       children: [new Paragraph({ children: [] })],
     })
   }
-  const label = slot.kind === 'before' ? LABEL_BEFORE : LABEL_AFTER
+  const children: (Paragraph | Table)[] = [labelParagraph(slot)]
+  if (slot.image) {
+    children.push(borderedImageTable(slot.image, maxHeightPx))
+  }
   return new TableCell({
     width: { size: 50, type: WidthType.PERCENTAGE },
+    verticalAlign: VerticalAlign.TOP,
     borders: {
       top: NO_BORDER,
       bottom: NO_BORDER,
       left: NO_BORDER,
       right: NO_BORDER,
     },
-    children: [
-      new Paragraph({
-        alignment: AlignmentType.CENTER,
-        spacing: { before: 20, after: 40 },
-        children: [new TextRun({ text: label, bold: true, font: FONT, size: 24 })],
-      }),
-    ],
-  })
-}
-
-function imageOnlyCell(slot: LabeledSlot | null, maxHeightPx: number): TableCell {
-  if (!slot?.image) {
-    return new TableCell({
-      width: { size: 50, type: WidthType.PERCENTAGE },
-      borders: {
-        top: NO_BORDER,
-        bottom: NO_BORDER,
-        left: NO_BORDER,
-        right: NO_BORDER,
-      },
-      verticalAlign: VerticalAlign.CENTER,
-      children: [new Paragraph({ children: [] })],
-    })
-  }
-  const { width, height } = displaySize(slot.image, maxHeightPx)
-  return new TableCell({
-    width: { size: 50, type: WidthType.PERCENTAGE },
-    borders: {
-      top: CELL_BORDER,
-      bottom: CELL_BORDER,
-      left: CELL_BORDER,
-      right: CELL_BORDER,
-    },
-    verticalAlign: VerticalAlign.CENTER,
-    children: [
-      new Paragraph({
-        alignment: AlignmentType.CENTER,
-        spacing: { before: 0, after: 0 },
-        children: [
-          new ImageRun({
-            type: 'jpg',
-            data: slot.image.data,
-            transformation: { width, height },
-          }),
-        ],
-      }),
-    ],
+    children,
   })
 }
 
@@ -266,11 +272,11 @@ function imagePairRows(
   const hasImage = Boolean(left?.image || right?.image)
   return [
     new TableRow({
-      children: [labelCell(left), labelCell(right)],
-    }),
-    new TableRow({
       cantSplit: hasImage,
-      children: [imageOnlyCell(left, maxHeightPx), imageOnlyCell(right, maxHeightPx)],
+      children: [
+        labeledSlotCell(left, maxHeightPx),
+        labeledSlotCell(right, maxHeightPx),
+      ],
     }),
   ]
 }
