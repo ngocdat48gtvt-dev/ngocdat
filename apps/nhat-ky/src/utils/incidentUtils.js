@@ -467,7 +467,8 @@ export function isImageSelectedForReport(pool, ref, url) {
 
 export function toggleSelectedImageRef(pool, ref, url) {
   const current = resolveSelectedImageUrls(pool, ref);
-  const next = current.includes(url) ? current.filter((u) => u !== url) : [...current, url];
+  const already = isImageSelectedForReport(pool, ref, url);
+  const next = already ? current.filter((u) => u !== url) : [...current, url];
   return joinSelectedImageRefs(next);
 }
 

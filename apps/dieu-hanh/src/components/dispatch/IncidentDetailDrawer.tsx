@@ -15,6 +15,7 @@ import {
   statusLabel,
   statusFromProgress,
   toggleSelectedImageRef,
+  joinSelectedImageRefs,
 } from '@/lib/incidentUtils'
 import { updateSelectedReportPhoto } from '@/services/incidentsService'
 import {
@@ -79,8 +80,11 @@ export function IncidentDetailDrawer({
   function handleTogglePhoto(kind: 'before' | 'after', url: string) {
     if (!incident) return
     const pool = kind === 'before' ? beforeUrls : afterUrls
-    const ref = kind === 'before' ? incident.selectedBefore : incident.selectedAfter
-    const nextRef = toggleSelectedImageRef(pool, ref, url)
+    const currentRef =
+      kind === 'before'
+        ? joinSelectedImageRefs(selBefore)
+        : joinSelectedImageRefs(selAfter)
+    const nextRef = toggleSelectedImageRef(pool, currentRef, url)
     const nextBefore =
       kind === 'before'
         ? resolveSelectedImageUrls(beforeUrls, nextRef)
