@@ -68,11 +68,12 @@ export default function IncidentDetailDrawer({
   const afterUrls = incident ? afterConstructionImages(incident) : [];
 
   useEffect(() => {
-    if (!incident) return;
+    if (!incident || !open) return;
     setSelBefore(resolveSelectedImageUrls(beforeUrls, incident.selectedBefore));
     setSelAfter(resolveSelectedImageUrls(afterUrls, incident.selectedAfter));
     setSaveError("");
-  }, [incident?.id, incident?.selectedBefore, incident?.selectedAfter]);
+    // Chỉ nạp lại khi mở drawer / đổi sự cố — khớp app Android.
+  }, [incident?.id, open]);
 
   async function persistSelection(kind, value, nextBefore, nextAfter) {
     if (!incident || !uid) return;

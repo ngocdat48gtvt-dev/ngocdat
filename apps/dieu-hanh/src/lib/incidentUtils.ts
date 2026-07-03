@@ -331,11 +331,10 @@ export function toggleSelectedImageRef(
   url: string,
 ): string {
   const current = resolveSelectedImageUrls(pool, ref)
-  const already = isImageSelectedForReport(pool, ref, url)
-  const next = already
-    ? current.filter((u) => u !== url)
-    : [...current, url]
-  return joinSelectedImageRefs(next)
+  if (isImageSelectedForReport(pool, ref, url)) {
+    return joinSelectedImageRefs(current.filter((u) => u !== url))
+  }
+  return joinSelectedImageRefs([...current, url])
 }
 
 export function selectAllImageRefs(pool: string[]): string {

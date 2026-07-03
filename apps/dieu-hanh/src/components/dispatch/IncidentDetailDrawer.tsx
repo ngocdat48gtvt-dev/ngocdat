@@ -50,12 +50,12 @@ export function IncidentDetailDrawer({
   const afterUrls = incident ? afterConstructionImages(incident) : []
 
   useEffect(() => {
-    if (!incident) return
+    if (!incident || !open) return
     setSelBefore(resolveSelectedImageUrls(beforeUrls, incident.selectedBefore))
     setSelAfter(resolveSelectedImageUrls(afterUrls, incident.selectedAfter))
-    // chỉ phụ thuộc id để khởi tạo lại khi mở sự cố khác
+    // Chỉ nạp lại khi mở drawer / đổi sự cố — không reset giữa phiên tick (khớp app Android).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incident?.id, incident?.selectedBefore, incident?.selectedAfter])
+  }, [incident?.id, open])
 
   async function persistSelection(
     kind: 'before' | 'after',
@@ -212,19 +212,17 @@ export function IncidentDetailDrawer({
             </p>
           ) : null}
 
-          {isCompanyAdmin ? (
-            <p className="text-xs text-muted-foreground">
-              Bấm dấu <span className="font-medium text-foreground">✓</span> ở góc ảnh để chọn nhiều ảnh ghép báo cáo Word
-              (Hiện trạng / Sau xử lý). Dùng <span className="font-medium text-foreground">Chọn tất</span> để chọn hết ảnh trong mục.
-            </p>
-          ) : null}
+          <p className="text-xs text-muted-foreground">
+            Bấm dấu <span className="font-medium text-foreground">✓</span> ở góc ảnh để chọn nhiều ảnh ghép báo cáo Word
+            (Hiện trạng / Sau xử lý). Dùng <span className="font-medium text-foreground">Chọn tất</span> để chọn hết ảnh trong mục.
+          </p>
           <IncidentImageGallery
             beforeUrls={beforeUrls}
             afterUrls={afterUrls}
             beforeTitle="Hiện trạng"
             afterTitle="Sau xử lý"
             selection={
-              isCompanyAdmin
+              user
                 ? {
                     beforeUrls: selBefore,
                     afterUrls: selAfter,
