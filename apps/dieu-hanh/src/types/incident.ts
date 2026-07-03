@@ -72,6 +72,8 @@ export interface IncidentRecord {
   selectedBefore?: string
   /** Ảnh sau xử lý đã chọn để ghép báo cáo Word (URL hoặc "token:<tên>"). */
   selectedAfter?: string
+  /** Thứ tự ghép Word: `b:url|a:url|…` — STT = thứ tự trong chuỗi (HT/XL xen kẽ). */
+  reportImageOrder?: string
   status?: IncidentStatus
   progress?: number
   locked?: boolean

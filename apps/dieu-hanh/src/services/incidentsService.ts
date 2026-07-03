@@ -56,6 +56,7 @@ function mapDocCore(snap: QueryDocumentSnapshot): IncidentRecord {
     afterImages: (data.afterImages as string[] | undefined) ?? [],
     selectedBefore: data.selectedBefore as string | undefined,
     selectedAfter: data.selectedAfter as string | undefined,
+    reportImageOrder: data.reportImageOrder as string | undefined,
     status: data.status as IncidentRecord['status'],
     progress: data.progress as number | undefined,
     locked: data.locked as boolean | undefined,
@@ -336,6 +337,7 @@ export async function createIncidentRecord(
     afterImages: [],
     selectedBefore: '',
     selectedAfter: '',
+    reportImageOrder: '',
     updates: [
       {
         date: isoToday,
@@ -351,7 +353,24 @@ export async function createIncidentRecord(
   return id
 }
 
-/** Lưu ảnh đã chọn để ghép báo cáo Word (khớp field selectedBefore/selectedAfter của app). */
+/** Lưu thứ tự ảnh ghép báo cáo Word (+ đồng bộ selectedBefore/selectedAfter). */
+export async function updateReportImageSelection(
+  ownerUid: string,
+  docId: string,
+  reportImageOrder: string,
+  selectedBefore: string,
+  selectedAfter: string,
+): Promise<void> {
+  const ref = doc(db, 'users', ownerUid, 'incidents', docId)
+  await updateDoc(ref, {
+    reportImageOrder,
+    selectedBefore,
+    selectedAfter,
+    updatedAt: serverTimestamp(),
+  })
+}
+
+/** @deprecated dùng updateReportImageSelection */
 export async function updateSelectedReportPhoto(
   ownerUid: string,
   docId: string,

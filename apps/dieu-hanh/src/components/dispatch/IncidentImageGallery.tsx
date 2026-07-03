@@ -8,6 +8,8 @@ type SelectionKind = 'before' | 'after'
 export type GallerySelection = {
   beforeUrls: string[]
   afterUrls: string[]
+  /** STT ghép Word (1-based) — hiển thị trên thumbnail đã chọn. */
+  orderIndex?: (kind: SelectionKind, url: string) => number | undefined
   onToggle: (kind: SelectionKind, url: string) => void
   onSelectAll: (kind: SelectionKind) => void
   onClearAll: (kind: SelectionKind) => void
@@ -33,6 +35,7 @@ function ThumbnailTile({
   onOpen,
   selected = false,
   onSelect,
+  mergeOrder,
 }: {
   url: string
   index: number
@@ -40,6 +43,7 @@ function ThumbnailTile({
   onOpen: () => void
   selected?: boolean
   onSelect?: () => void
+  mergeOrder?: number
 }) {
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState(false)
@@ -73,7 +77,11 @@ function ThumbnailTile({
           <Check className="h-4 w-4" strokeWidth={3} />
         </button>
       ) : null}
-      {selected ? (
+      {selected && mergeOrder != null ? (
+        <span className="absolute left-1.5 top-1.5 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-amber-500 text-xs font-bold text-white shadow">
+          {mergeOrder}
+        </span>
+      ) : selected ? (
         <span className="absolute left-1.5 top-1.5 z-10 flex items-center gap-1 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow">
           <Star className="h-3 w-3 fill-current" /> Báo cáo
         </span>
@@ -134,6 +142,7 @@ function ImageSection({
   onToggle,
   onSelectAll,
   onClearAll,
+  orderIndex,
 }: {
   title: string
   urls: string[]
@@ -142,6 +151,7 @@ function ImageSection({
   onToggle?: (url: string) => void
   onSelectAll?: () => void
   onClearAll?: () => void
+  orderIndex?: (url: string) => number | undefined
 }) {
   const selected = selectedUrls ?? []
   const allSelected = urls.length > 0 && urls.every((u) => selected.includes(u))
@@ -186,6 +196,7 @@ function ImageSection({
               onOpen={() => onOpen(index)}
               selected={selected.includes(url)}
               onSelect={onToggle ? () => onToggle(url) : undefined}
+              mergeOrder={orderIndex?.(url)}
             />
           ))}
         </div>
@@ -414,6 +425,11 @@ export function IncidentImageGallery({
             onToggle={selection ? (url) => selection.onToggle('before', url) : undefined}
             onSelectAll={selection ? () => selection.onSelectAll('before') : undefined}
             onClearAll={selection ? () => selection.onClearAll('before') : undefined}
+            orderIndex={
+              selection?.orderIndex
+                ? (url) => selection.orderIndex!('before', url)
+                : undefined
+            }
           />
         ) : null}
         {!hideAfter ? (
@@ -425,6 +441,11 @@ export function IncidentImageGallery({
             onToggle={selection ? (url) => selection.onToggle('after', url) : undefined}
             onSelectAll={selection ? () => selection.onSelectAll('after') : undefined}
             onClearAll={selection ? () => selection.onClearAll('after') : undefined}
+            orderIndex={
+              selection?.orderIndex
+                ? (url) => selection.orderIndex!('after', url)
+                : undefined
+            }
           />
         ) : null}
       </div>

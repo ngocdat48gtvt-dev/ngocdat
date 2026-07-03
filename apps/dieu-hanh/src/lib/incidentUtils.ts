@@ -366,3 +366,127 @@ export function reportBeforeImage(inc: IncidentRecord): string | null {
 export function reportAfterImage(inc: IncidentRecord): string | null {
   return reportAfterImages(inc)[0] ?? null
 }
+
+export type ReportImageKind = 'before' | 'after'
+
+export interface ReportImageSlot {
+  kind: ReportImageKind
+  url: string
+}
+
+const REPORT_ORDER_BEFORE = 'b'
+const REPORT_ORDER_AFTER = 'a'
+
+/** Mã hoá thứ tự ghép Word: `b:url|a:url|…` (thứ tự = STT ghép). */
+export function encodeReportImageOrder(slots: ReportImageSlot[]): string {
+  return slots
+    .map((s) => `${s.kind === 'before' ? REPORT_ORDER_BEFORE : REPORT_ORDER_AFTER}:${s.url}`)
+    .join('|')
+}
+
+function parseReportOrderPart(part: string): { kind: ReportImageKind; ref: string } | null {
+  const trimmed = part.trim()
+  if (!trimmed) return null
+  if (trimmed.startsWith(`${REPORT_ORDER_BEFORE}:`)) {
+    return { kind: 'before', ref: trimmed.slice(2) }
+  }
+  if (trimmed.startsWith(`${REPORT_ORDER_AFTER}:`)) {
+    return { kind: 'after', ref: trimmed.slice(2) }
+  }
+  return null
+}
+
+export function decodeReportImageOrder(
+  order: string | undefined,
+  beforePool: string[],
+  afterPool: string[],
+): ReportImageSlot[] {
+  const out: ReportImageSlot[] = []
+  for (const part of splitSelectedImageRefs(order)) {
+    const parsed = parseReportOrderPart(part)
+    if (!parsed) continue
+    const pool = parsed.kind === 'before' ? beforePool : afterPool
+    const url = resolveSelectedImageUrl(pool, parsed.ref)
+    if (!url) continue
+    if (!out.some((s) => s.kind === parsed.kind && s.url === url)) {
+      out.push({ kind: parsed.kind, url })
+    }
+  }
+  return out
+}
+
+/** Thứ tự ghép Word — ưu tiên reportImageOrder; không có thì HT rồi XL (legacy). */
+export function reportImageSlots(inc: IncidentRecord): ReportImageSlot[] {
+  const beforePool = beforeConstructionImages(inc)
+  const afterPool = afterConstructionImages(inc)
+  const fromOrder = decodeReportImageOrder(inc.reportImageOrder, beforePool, afterPool)
+  if (fromOrder.length > 0) return fromOrder
+
+  const before = reportBeforeImages(inc).map((url) => ({ kind: 'before' as const, url }))
+  const after = reportAfterImages(inc).map((url) => ({ kind: 'after' as const, url }))
+  return [...before, ...after]
+}
+
+export function reportSlotOrderIndex(
+  slots: ReportImageSlot[],
+  kind: ReportImageKind,
+  url: string,
+): number | undefined {
+  const idx = slots.findIndex((s) => s.kind === kind && s.url === url)
+  return idx >= 0 ? idx + 1 : undefined
+}
+
+export function toggleReportImageSlot(
+  slots: ReportImageSlot[],
+  kind: ReportImageKind,
+  url: string,
+): ReportImageSlot[] {
+  const idx = slots.findIndex((s) => s.kind === kind && s.url === url)
+  if (idx >= 0) return slots.filter((_, i) => i !== idx)
+  return [...slots, { kind, url }]
+}
+
+export function selectAllReportImageSlots(
+  slots: ReportImageSlot[],
+  kind: ReportImageKind,
+  pool: string[],
+): ReportImageSlot[] {
+  const kept = slots.filter((s) => s.kind !== kind)
+  const added = pool.map((url) => ({ kind, url }))
+  return [...kept, ...added]
+}
+
+export function clearReportImageSlots(
+  slots: ReportImageSlot[],
+  kind: ReportImageKind,
+): ReportImageSlot[] {
+  return slots.filter((s) => s.kind !== kind)
+}
+
+export function moveReportImageSlot(
+  slots: ReportImageSlot[],
+  index: number,
+  delta: -1 | 1,
+): ReportImageSlot[] {
+  const next = index + delta
+  if (index < 0 || index >= slots.length || next < 0 || next >= slots.length) return slots
+  const copy = [...slots]
+  const [item] = copy.splice(index, 1)
+  copy.splice(next, 0, item)
+  return copy
+}
+
+/** Đồng bộ selectedBefore/selectedAfter (app Android) từ thứ tự ghép. */
+export function legacyRefsFromReportSlots(slots: ReportImageSlot[]): {
+  selectedBefore: string
+  selectedAfter: string
+} {
+  return {
+    selectedBefore: joinSelectedImageRefs(
+      slots.filter((s) => s.kind === 'before').map((s) => s.url),
+    ),
+    selectedAfter: joinSelectedImageRefs(
+      slots.filter((s) => s.kind === 'after').map((s) => s.url),
+    ),
+  }
+}

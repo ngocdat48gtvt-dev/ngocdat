@@ -8,16 +8,21 @@ import type { IncidentRecord } from '@/types/incident'
 import {
   afterConstructionImages,
   beforeConstructionImages,
+  clearReportImageSlots,
   computeKhoiLuong,
+  encodeReportImageOrder,
+  legacyRefsFromReportSlots,
+  moveReportImageSlot,
   progressLabel,
-  resolveSelectedImageUrls,
-  selectAllImageRefs,
+  reportImageSlots,
+  reportSlotOrderIndex,
+  selectAllReportImageSlots,
   statusLabel,
   statusFromProgress,
-  toggleSelectedImageRef,
-  joinSelectedImageRefs,
+  toggleReportImageSlot,
+  type ReportImageSlot,
 } from '@/lib/incidentUtils'
-import { updateSelectedReportPhoto } from '@/services/incidentsService'
+import { updateReportImageSelection } from '@/services/incidentsService'
 import {
   canAssignRework,
   getIncidentRework,
@@ -26,6 +31,7 @@ import {
 import { positionLabel } from '@/lib/positionUtils'
 import { Badge, Button } from '@/components/ui/primitives'
 import { IncidentImageGallery } from './IncidentImageGallery'
+import { ReportMergeOrderPanel } from './ReportMergeOrderPanel'
 import { IncidentFullTimeline } from './IncidentFullTimeline'
 import { ReworkAssignDialog } from './ReworkAssignDialog'
 
@@ -43,72 +49,56 @@ export function IncidentDetailDrawer({
   const { creatorLabel, reload, isCompanyAdmin } = useDispatch()
   const { user, profile } = useAuth()
   const [assignOpen, setAssignOpen] = useState(false)
-  const [selBefore, setSelBefore] = useState<string[]>([])
-  const [selAfter, setSelAfter] = useState<string[]>([])
+  const [reportSlots, setReportSlots] = useState<ReportImageSlot[]>([])
 
   const beforeUrls = incident ? beforeConstructionImages(incident) : []
   const afterUrls = incident ? afterConstructionImages(incident) : []
 
   useEffect(() => {
     if (!incident || !open) return
-    setSelBefore(resolveSelectedImageUrls(beforeUrls, incident.selectedBefore))
-    setSelAfter(resolveSelectedImageUrls(afterUrls, incident.selectedAfter))
-    // Chỉ nạp lại khi mở drawer / đổi sự cố — không reset giữa phiên tick (khớp app Android).
+    setReportSlots(reportImageSlots(incident))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incident?.id, open])
 
-  async function persistSelection(
-    kind: 'before' | 'after',
-    value: string,
-    nextBefore: string[],
-    nextAfter: string[],
-  ) {
+  async function persistReportSlots(nextSlots: ReportImageSlot[]) {
     if (!incident) return
-    const field = kind === 'before' ? 'selectedBefore' : 'selectedAfter'
-    if (kind === 'before') setSelBefore(nextBefore)
-    else setSelAfter(nextAfter)
+    setReportSlots(nextSlots)
+    const { selectedBefore, selectedAfter } = legacyRefsFromReportSlots(nextSlots)
+    const reportImageOrder = encodeReportImageOrder(nextSlots)
     try {
-      await updateSelectedReportPhoto(incident.ownerUid, incident.id, field, value)
-      toast.success('Đã cập nhật ảnh cho báo cáo Word')
+      await updateReportImageSelection(
+        incident.ownerUid,
+        incident.id,
+        reportImageOrder,
+        selectedBefore,
+        selectedAfter,
+      )
+      toast.success('Đã cập nhật thứ tự ảnh cho báo cáo Word')
     } catch {
       toast.error('Không lưu được lựa chọn ảnh')
-      setSelBefore(resolveSelectedImageUrls(beforeUrls, incident.selectedBefore))
-      setSelAfter(resolveSelectedImageUrls(afterUrls, incident.selectedAfter))
+      setReportSlots(reportImageSlots(incident))
     }
   }
 
   function handleTogglePhoto(kind: 'before' | 'after', url: string) {
     if (!incident) return
-    const pool = kind === 'before' ? beforeUrls : afterUrls
-    const currentRef =
-      kind === 'before'
-        ? joinSelectedImageRefs(selBefore)
-        : joinSelectedImageRefs(selAfter)
-    const nextRef = toggleSelectedImageRef(pool, currentRef, url)
-    const nextBefore =
-      kind === 'before'
-        ? resolveSelectedImageUrls(beforeUrls, nextRef)
-        : selBefore
-    const nextAfter =
-      kind === 'after' ? resolveSelectedImageUrls(afterUrls, nextRef) : selAfter
-    void persistSelection(kind, nextRef, nextBefore, nextAfter)
+    void persistReportSlots(toggleReportImageSlot(reportSlots, kind, url))
   }
 
   function handleSelectAll(kind: 'before' | 'after') {
     if (!incident) return
     const pool = kind === 'before' ? beforeUrls : afterUrls
-    const nextRef = selectAllImageRefs(pool)
-    const nextBefore =
-      kind === 'before' ? pool : selBefore
-    const nextAfter = kind === 'after' ? pool : selAfter
-    void persistSelection(kind, nextRef, nextBefore, nextAfter)
+    void persistReportSlots(selectAllReportImageSlots(reportSlots, kind, pool))
   }
 
   function handleClearAll(kind: 'before' | 'after') {
     if (!incident) return
-    const nextBefore = kind === 'before' ? [] : selBefore
-    const nextAfter = kind === 'after' ? [] : selAfter
-    void persistSelection(kind, '', nextBefore, nextAfter)
+    void persistReportSlots(clearReportImageSlots(reportSlots, kind))
+  }
+
+  function handleMoveSlot(index: number, delta: -1 | 1) {
+    if (!incident) return
+    void persistReportSlots(moveReportImageSlot(reportSlots, index, delta))
   }
 
   if (!incident) return null
@@ -213,9 +203,13 @@ export function IncidentDetailDrawer({
           ) : null}
 
           <p className="text-xs text-muted-foreground">
-            Bấm dấu <span className="font-medium text-foreground">✓</span> ở góc ảnh để chọn nhiều ảnh ghép báo cáo Word
-            (Hiện trạng / Sau xử lý). Dùng <span className="font-medium text-foreground">Chọn tất</span> để chọn hết ảnh trong mục.
+            Bấm dấu <span className="font-medium text-foreground">✓</span> ở góc ảnh để chọn ghép
+            Word — số trên ảnh là <span className="font-medium text-foreground">STT ghép</span>.
+            Dùng bảng thứ tự bên dưới để đổi vị trí HT / XL.
           </p>
+          {user && reportSlots.length > 0 ? (
+            <ReportMergeOrderPanel slots={reportSlots} onMove={handleMoveSlot} />
+          ) : null}
           <IncidentImageGallery
             beforeUrls={beforeUrls}
             afterUrls={afterUrls}
@@ -224,8 +218,14 @@ export function IncidentDetailDrawer({
             selection={
               user
                 ? {
-                    beforeUrls: selBefore,
-                    afterUrls: selAfter,
+                    beforeUrls: reportSlots
+                      .filter((s) => s.kind === 'before')
+                      .map((s) => s.url),
+                    afterUrls: reportSlots
+                      .filter((s) => s.kind === 'after')
+                      .map((s) => s.url),
+                    orderIndex: (kind, url) =>
+                      reportSlotOrderIndex(reportSlots, kind, url),
                     onToggle: handleTogglePhoto,
                     onSelectAll: handleSelectAll,
                     onClearAll: handleClearAll,

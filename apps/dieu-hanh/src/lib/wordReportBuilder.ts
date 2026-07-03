@@ -15,7 +15,7 @@
   WidthType,
 } from 'docx'
 import type { IncidentRecord } from '@/types/incident'
-import { reportAfterImages, reportBeforeImages } from '@/lib/incidentUtils'
+import { reportImageSlots } from '@/lib/incidentUtils'
 import { formatKmDisplay } from '@quanlysuco/shared'
 
 const FONT = 'Times New Roman'
@@ -283,39 +283,37 @@ function packPairs(slots: LabeledSlot[]): [LabeledSlot | null, LabeledSlot | nul
   return rows
 }
 
-/** HT trước, XL sau — xếp liên tục 2 ô/hàng trái→phải, không tách block để thừa ô. */
-function buildSlotRows(
-  beforeList: (PreparedImage | null)[],
-  afterList: (PreparedImage | null)[],
+/** Xếp theo thứ tự ghép tùy biến — 2 ô/hàng trái→phải. */
+function buildSlotRowsFromOrdered(
+  slots: LabeledSlot[],
 ): { rows: [LabeledSlot | null, LabeledSlot | null][]; breakBeforeRow: number | null } {
-  const before: LabeledSlot[] = beforeList.map((image) => ({ kind: 'before', image }))
-  const after: LabeledSlot[] = afterList.map((image) => ({ kind: 'after', image }))
-
-  if (before.length === 0 && after.length === 0) {
+  if (slots.length === 0) {
     return { rows: [], breakBeforeRow: null }
   }
 
-  // 2 HT + 1 XL: trang 1 đủ 2 ảnh HT, ảnh XL sang trang mới
-  if (before.length === 2 && after.length === 1) {
+  if (
+    slots.length === 3 &&
+    slots[0].kind === 'before' &&
+    slots[1].kind === 'before' &&
+    slots[2].kind === 'after'
+  ) {
     return {
       rows: [
-        [before[0], before[1]],
-        [after[0], null],
+        [slots[0], slots[1]],
+        [slots[2], null],
       ],
       breakBeforeRow: 1,
     }
   }
 
-  const stream = [...before, ...after]
-  return { rows: packPairs(stream), breakBeforeRow: null }
+  return { rows: packPairs(slots), breakBeforeRow: null }
 }
 
 function imageTableBlocks(
-  beforeList: (PreparedImage | null)[],
-  afterList: (PreparedImage | null)[],
+  orderedSlots: LabeledSlot[],
   isFirstReportPage: boolean,
 ): (Paragraph | Table)[] {
-  const { rows, breakBeforeRow } = buildSlotRows(beforeList, afterList)
+  const { rows, breakBeforeRow } = buildSlotRowsFromOrdered(orderedSlots)
   if (rows.length === 0) {
     const h = rowMaxHeightPx(0, null, isFirstReportPage)
     return [makeImageTable(imagePairRows(null, null, h))]
@@ -384,29 +382,25 @@ export async function buildIncidentWordReport(
   for (let i = 0; i < items.length; i++) {
     const inc = items[i]
     const isFirstPage = i === 0
-    const beforeUrls = reportBeforeImages(inc)
-    const afterUrls = reportAfterImages(inc)
-
-    const [beforePrepared, afterPrepared] = await Promise.all([
-      Promise.all(beforeUrls.map((url) => prepareImage(url))),
-      Promise.all(afterUrls.map((url) => prepareImage(url))),
-    ])
-    for (let j = 0; j < beforeUrls.length; j++) {
-      if (beforeUrls[j] && !beforePrepared[j]) failedImages++
-    }
-    for (let j = 0; j < afterUrls.length; j++) {
-      if (afterUrls[j] && !afterPrepared[j]) failedImages++
+    const slots = reportImageSlots(inc)
+    const prepared = await Promise.all(slots.map((s) => prepareImage(s.url)))
+    const orderedSlots: LabeledSlot[] = slots.map((s, j) => ({
+      kind: s.kind,
+      image: prepared[j] ?? null,
+    }))
+    for (let j = 0; j < slots.length; j++) {
+      if (slots[j].url && !prepared[j]) failedImages++
     }
 
     const stt = options.showStt ? `${index}. ` : ''
     const kmText = formatKmDisplay(inc.km) || (inc.km ?? '')
-    if (beforeUrls.length === 0 && afterUrls.length === 0) {
+    if (slots.length === 0) {
       children.push(
         headingParagraph(`${stt}Ho\u00E0n thi\u1EC7n t\u1EA1i ${kmText} (ch\u01B0a c\u00F3 \u1EA3nh)`),
       )
     } else {
       children.push(headingParagraph(`${stt}\u1EA2nh ho\u00E0n thi\u1EC7n t\u1EA1i ${kmText}`))
-      children.push(...imageTableBlocks(beforePrepared, afterPrepared, isFirstPage))
+      children.push(...imageTableBlocks(orderedSlots, isFirstPage))
     }
     index++
 
