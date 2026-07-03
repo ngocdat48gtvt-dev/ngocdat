@@ -174,6 +174,25 @@ function labelCell(text) {
   })
 }
 
+function sectionLabelRow(text) {
+  return new TableRow({
+    children: [
+      new TableCell({
+        columnSpan: 2,
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        verticalAlign: VerticalAlign.CENTER,
+        children: [
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 60, after: 60 },
+            children: [new TextRun({ text, bold: true, font: FONT, size: 24 })],
+          }),
+        ],
+      }),
+    ],
+  })
+}
+
 function pairRows(list) {
   if (list.length === 0) return []
   const rows = []
@@ -186,11 +205,7 @@ function pairRows(list) {
 function imageTable(beforeList, afterList, isFirstPage) {
   const beforeRows = pairRows(beforeList)
   const afterRows = pairRows(afterList)
-  const rows = [
-    new TableRow({
-      children: [labelCell("Ảnh hiện trạng"), labelCell("Ảnh sau xử lý")],
-    }),
-  ]
+  const rows = []
   if (beforeRows.length === 0 && afterRows.length === 0) {
     rows.push(
       new TableRow({
@@ -198,19 +213,25 @@ function imageTable(beforeList, afterList, isFirstPage) {
       }),
     )
   } else {
-    for (const [left, right] of beforeRows) {
-      rows.push(
-        new TableRow({
-          children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
-        }),
-      )
+    if (beforeRows.length > 0) {
+      rows.push(sectionLabelRow('Ảnh hiện trạng'))
+      for (const [left, right] of beforeRows) {
+        rows.push(
+          new TableRow({
+            children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
+          }),
+        )
+      }
     }
-    for (const [left, right] of afterRows) {
-      rows.push(
-        new TableRow({
-          children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
-        }),
-      )
+    if (afterRows.length > 0) {
+      rows.push(sectionLabelRow('Ảnh sau xử lý'))
+      for (const [left, right] of afterRows) {
+        rows.push(
+          new TableRow({
+            children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
+          }),
+        )
+      }
     }
   }
   return new Table({

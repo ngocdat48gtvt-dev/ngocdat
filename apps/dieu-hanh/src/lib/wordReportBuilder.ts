@@ -1,4 +1,4 @@
-import {
+﻿import {
   AlignmentType,
   BorderStyle,
   Document,
@@ -20,7 +20,7 @@ import { formatKmDisplay } from '@quanlysuco/shared'
 
 const FONT = 'Times New Roman'
 
-// Kích thước ảnh (px @96dpi) — khớp WordExporter.kt: bề ngang ~342.9pt, cao tối đa 380/440pt.
+// KÃ­ch thÆ°á»›c áº£nh (px @96dpi) â€” khá»›p WordExporter.kt: bá» ngang ~342.9pt, cao tá»‘i Ä‘a 380/440pt.
 const IMG_WIDTH_PX = 457
 const IMG_MAX_HEIGHT_FIRST_PX = 507
 const IMG_MAX_HEIGHT_PX = 587
@@ -61,9 +61,9 @@ function isLocalHost(): boolean {
 }
 
 /**
- * Lấy blob ảnh. Ưu tiên proxy cùng origin (/api/img-proxy) để tránh CORS của
- * Firebase Storage; nếu lỗi (vd. chạy local dev không có serverless) thì thử
- * fetch trực tiếp.
+ * Láº¥y blob áº£nh. Æ¯u tiÃªn proxy cÃ¹ng origin (/api/img-proxy) Ä‘á»ƒ trÃ¡nh CORS cá»§a
+ * Firebase Storage; náº¿u lá»—i (vd. cháº¡y local dev khÃ´ng cÃ³ serverless) thÃ¬ thá»­
+ * fetch trá»±c tiáº¿p.
  */
 async function fetchImageBlob(url: string): Promise<Blob | null> {
   const candidates: string[] = []
@@ -79,16 +79,16 @@ async function fetchImageBlob(url: string): Promise<Blob | null> {
       const blob = await resp.blob()
       if (blob.size > 0) return blob
     } catch {
-      /* thử ứng viên tiếp theo */
+      /* thá»­ á»©ng viÃªn tiáº¿p theo */
     }
   }
   return null
 }
 
 /**
- * Tải ảnh từ URL Firebase Storage, resize (cạnh dài ≤ 1200) và nén JPEG q82.
- * fetch → blob (object URL same-origin nên canvas không bị taint).
- * Trả về null nếu lỗi mạng/CORS — ô Word để trống.
+ * Táº£i áº£nh tá»« URL Firebase Storage, resize (cáº¡nh dÃ i â‰¤ 1200) vÃ  nÃ©n JPEG q82.
+ * fetch â†’ blob (object URL same-origin nÃªn canvas khÃ´ng bá»‹ taint).
+ * Tráº£ vá» null náº¿u lá»—i máº¡ng/CORS â€” Ã´ Word Ä‘á»ƒ trá»‘ng.
  */
 async function prepareImage(url: string): Promise<PreparedImage | null> {
   let objectUrl: string | null = null
@@ -178,16 +178,22 @@ function headingParagraph(text: string): Paragraph {
 
 const CELL_BORDER = { style: BorderStyle.SINGLE, size: 4, color: '000000' }
 
-function labelCell(text: string): TableCell {
-  return new TableCell({
-    width: { size: 50, type: WidthType.PERCENTAGE },
-    verticalAlign: VerticalAlign.CENTER,
+
+function sectionLabelRow(text: string): TableRow {
+  return new TableRow({
     children: [
-      new Paragraph({
-        alignment: AlignmentType.CENTER,
-        spacing: { before: 40, after: 40 },
+      new TableCell({
+        columnSpan: 2,
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        verticalAlign: VerticalAlign.CENTER,
         children: [
-          new TextRun({ text, bold: true, font: FONT, size: 24 }),
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 60, after: 60 },
+            children: [
+              new TextRun({ text, bold: true, font: FONT, size: 24 }),
+            ],
+          }),
         ],
       }),
     ],
@@ -208,14 +214,10 @@ function imageTable(
   afterList: (PreparedImage | null)[],
   isFirstPage: boolean,
 ): Table {
-  /** Hết HT (2 ảnh/hàng) rồi mới XL (2 ảnh/hàng) — không trộn HT và XL cùng hàng. */
+  /** Háº¿t HT (2 áº£nh/hÃ ng) rá»“i má»›i XL (2 áº£nh/hÃ ng) â€” khÃ´ng trá»™n HT vÃ  XL cÃ¹ng hÃ ng. */
   const beforeRows = pairRows(beforeList)
   const afterRows = pairRows(afterList)
-  const rows: TableRow[] = [
-    new TableRow({
-      children: [labelCell('Ảnh hiện trạng'), labelCell('Ảnh sau xử lý')],
-    }),
-  ]
+  const rows: TableRow[] = []
   if (beforeRows.length === 0 && afterRows.length === 0) {
     rows.push(
       new TableRow({
@@ -223,19 +225,25 @@ function imageTable(
       }),
     )
   } else {
-    for (const [left, right] of beforeRows) {
-      rows.push(
-        new TableRow({
-          children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
-        }),
-      )
+    if (beforeRows.length > 0) {
+      rows.push(sectionLabelRow('áº¢nh hiá»‡n tráº¡ng'))
+      for (const [left, right] of beforeRows) {
+        rows.push(
+          new TableRow({
+            children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
+          }),
+        )
+      }
     }
-    for (const [left, right] of afterRows) {
-      rows.push(
-        new TableRow({
-          children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
-        }),
-      )
+    if (afterRows.length > 0) {
+      rows.push(sectionLabelRow('áº¢nh sau xá»­ lÃ½'))
+      for (const [left, right] of afterRows) {
+        rows.push(
+          new TableRow({
+            children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
+          }),
+        )
+      }
     }
   }
   return new Table({
@@ -281,8 +289,8 @@ function titleBlock(options: WordExportOptions): Paragraph[] {
 }
 
 /**
- * Dựng file Word: hết ảnh hiện trạng (2 ảnh/hàng) rồi mới sau xử lý; không trộn HT+XL cùng hàng.
- * khổ ngang A4, mỗi sự cố một trang, STT tuỳ chọn.
+ * Dá»±ng file Word: háº¿t áº£nh hiá»‡n tráº¡ng (2 áº£nh/hÃ ng) rá»“i má»›i sau xá»­ lÃ½; khÃ´ng trá»™n HT+XL cÃ¹ng hÃ ng.
+ * khá»• ngang A4, má»—i sá»± cá»‘ má»™t trang, STT tuá»³ chá»n.
  */
 export async function buildIncidentWordReport(
   items: IncidentRecord[],
@@ -314,9 +322,9 @@ export async function buildIncidentWordReport(
     const stt = options.showStt ? `${index}. ` : ''
     const kmText = formatKmDisplay(inc.km) || (inc.km ?? '')
     if (beforeUrls.length === 0 && afterUrls.length === 0) {
-      children.push(headingParagraph(`${stt}Hoàn thiện tại ${kmText} (chưa có ảnh)`))
+      children.push(headingParagraph(`${stt}HoÃ n thiá»‡n táº¡i ${kmText} (chÆ°a cÃ³ áº£nh)`))
     } else {
-      children.push(headingParagraph(`${stt}Ảnh hoàn thiện tại ${kmText}`))
+      children.push(headingParagraph(`${stt}áº¢nh hoÃ n thiá»‡n táº¡i ${kmText}`))
       children.push(imageTable(beforePrepared, afterPrepared, isFirstPage))
     }
     index++
@@ -332,7 +340,7 @@ export async function buildIncidentWordReport(
       {
         properties: {
           page: {
-            // docx tự hoán đổi width/height khi LANDSCAPE → truyền theo khổ dọc A4.
+            // docx tá»± hoÃ¡n Ä‘á»•i width/height khi LANDSCAPE â†’ truyá»n theo khá»• dá»c A4.
             size: {
               orientation: PageOrientation.LANDSCAPE,
               width: 11906,
