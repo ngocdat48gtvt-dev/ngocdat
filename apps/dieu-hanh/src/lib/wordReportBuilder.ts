@@ -222,7 +222,7 @@ function packPairs(slots: LabeledSlot[]): [LabeledSlot | null, LabeledSlot | nul
   return rows
 }
 
-/** Xếp hết ảnh hiện trạng (2 cột/hàng), rồi mới xếp ảnh sau thi công. */
+/** Pack HT block (packPairs), rồi XL block (packPairs) — không nhét XL vào ô trống HT. */
 function buildSlotRows(
   beforeList: (PreparedImage | null)[],
   afterList: (PreparedImage | null)[],
