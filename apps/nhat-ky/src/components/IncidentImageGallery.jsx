@@ -1,29 +1,45 @@
 import { useEffect, useState } from "react";
 
-function ImageThumb({ url, index, title, onOpen }) {
+function ImageThumb({ url, index, title, onOpen, selected, onToggle }) {
   const [error, setError] = useState(false);
 
   return (
-    <button
-      type="button"
-      className="incident-gallery-thumb"
-      onClick={onOpen}
-      aria-label={`${title} — ảnh ${index + 1}`}
-    >
-      <div className="incident-gallery-thumb-frame">
-        {error ? (
-          <span className="incident-gallery-thumb-error">Không tải được</span>
-        ) : (
-          <img
-            src={url}
-            alt={`${title} ${index + 1}`}
-            loading="lazy"
-            onError={() => setError(true)}
-          />
-        )}
-        <span className="incident-gallery-thumb-label">Ảnh {index + 1}</span>
-      </div>
-    </button>
+    <div className={`incident-gallery-thumb-wrap${selected ? " incident-gallery-thumb-wrap--selected" : ""}`}>
+      {onToggle ? (
+        <button
+          type="button"
+          className={`incident-gallery-select${selected ? " incident-gallery-select--on" : ""}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+          aria-label={selected ? "Bỏ chọn ảnh Word" : "Chọn ảnh Word"}
+          aria-pressed={selected}
+        >
+          {selected ? "✓" : ""}
+        </button>
+      ) : null}
+      <button
+        type="button"
+        className="incident-gallery-thumb"
+        onClick={onOpen}
+        aria-label={`${title} — ảnh ${index + 1}`}
+      >
+        <div className="incident-gallery-thumb-frame">
+          {error ? (
+            <span className="incident-gallery-thumb-error">Không tải được</span>
+          ) : (
+            <img
+              src={url}
+              alt={`${title} ${index + 1}`}
+              loading="lazy"
+              onError={() => setError(true)}
+            />
+          )}
+          <span className="incident-gallery-thumb-label">Ảnh {index + 1}</span>
+        </div>
+      </button>
+    </div>
   );
 }
 
@@ -95,13 +111,38 @@ function ImageLightbox({ state, onClose, onIndexChange }) {
   );
 }
 
-function ImageSection({ title, urls, onOpen }) {
+function ImageSection({
+  title,
+  urls,
+  onOpen,
+  selectedUrls,
+  onToggle,
+  onSelectAll,
+  onClearAll
+}) {
+  const selected = selectedUrls ?? [];
+  const allSelected = urls.length > 0 && urls.every((u) => selected.includes(u));
+
   return (
     <div className="incident-gallery-section">
-      <p className="incident-gallery-title">
-        {title}
-        {urls.length > 0 && <span className="incident-gallery-count">({urls.length})</span>}
-      </p>
+      <div className="incident-gallery-head">
+        <p className="incident-gallery-title">
+          {title}
+          {urls.length > 0 && <span className="incident-gallery-count">({urls.length})</span>}
+        </p>
+        {onSelectAll && urls.length > 0 ? (
+          <div className="incident-gallery-actions">
+            <button type="button" className="incident-gallery-select-all" onClick={allSelected ? onClearAll : onSelectAll}>
+              {allSelected ? "Bỏ chọn tất" : "Chọn tất"}
+            </button>
+            {selected.length > 0 ? (
+              <span className="incident-gallery-selected-count">
+                Đã chọn {selected.length}/{urls.length}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
       {urls.length === 0 ? (
         <p className="incident-gallery-empty">Chưa có ảnh</p>
       ) : (
@@ -113,6 +154,8 @@ function ImageSection({ title, urls, onOpen }) {
               index={index}
               title={title}
               onOpen={() => onOpen(index)}
+              selected={selected.includes(url)}
+              onToggle={onToggle ? () => onToggle(url) : undefined}
             />
           ))}
         </div>
@@ -124,8 +167,9 @@ function ImageSection({ title, urls, onOpen }) {
 export default function IncidentImageGallery({
   beforeUrls = [],
   afterUrls = [],
-  beforeTitle = "Trước thi công",
-  afterTitle = "Sau thi công"
+  beforeTitle = "Hiện trạng",
+  afterTitle = "Sau xử lý",
+  selection
 }) {
   const [lightbox, setLightbox] = useState(null);
 
@@ -140,11 +184,19 @@ export default function IncidentImageGallery({
           title={beforeTitle}
           urls={beforeUrls}
           onOpen={(index) => openSection(beforeTitle, beforeUrls, index)}
+          selectedUrls={selection?.beforeUrls}
+          onToggle={selection ? (url) => selection.onToggle("before", url) : undefined}
+          onSelectAll={selection ? () => selection.onSelectAll("before") : undefined}
+          onClearAll={selection ? () => selection.onClearAll("before") : undefined}
         />
         <ImageSection
           title={afterTitle}
           urls={afterUrls}
           onOpen={(index) => openSection(afterTitle, afterUrls, index)}
+          selectedUrls={selection?.afterUrls}
+          onToggle={selection ? (url) => selection.onToggle("after", url) : undefined}
+          onSelectAll={selection ? () => selection.onSelectAll("after") : undefined}
+          onClearAll={selection ? () => selection.onClearAll("after") : undefined}
         />
       </div>
       {lightbox && (

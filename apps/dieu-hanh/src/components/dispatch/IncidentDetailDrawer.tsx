@@ -10,9 +10,11 @@ import {
   beforeConstructionImages,
   computeKhoiLuong,
   progressLabel,
-  resolveSelectedImageUrl,
+  resolveSelectedImageUrls,
+  selectAllImageRefs,
   statusLabel,
   statusFromProgress,
+  toggleSelectedImageRef,
 } from '@/lib/incidentUtils'
 import { updateSelectedReportPhoto } from '@/services/incidentsService'
 import {
@@ -40,31 +42,69 @@ export function IncidentDetailDrawer({
   const { creatorLabel, reload, isCompanyAdmin } = useDispatch()
   const { user, profile } = useAuth()
   const [assignOpen, setAssignOpen] = useState(false)
-  const [selBefore, setSelBefore] = useState<string | null>(null)
-  const [selAfter, setSelAfter] = useState<string | null>(null)
+  const [selBefore, setSelBefore] = useState<string[]>([])
+  const [selAfter, setSelAfter] = useState<string[]>([])
 
   const beforeUrls = incident ? beforeConstructionImages(incident) : []
   const afterUrls = incident ? afterConstructionImages(incident) : []
 
   useEffect(() => {
     if (!incident) return
-    setSelBefore(resolveSelectedImageUrl(beforeUrls, incident.selectedBefore))
-    setSelAfter(resolveSelectedImageUrl(afterUrls, incident.selectedAfter))
+    setSelBefore(resolveSelectedImageUrls(beforeUrls, incident.selectedBefore))
+    setSelAfter(resolveSelectedImageUrls(afterUrls, incident.selectedAfter))
     // chỉ phụ thuộc id để khởi tạo lại khi mở sự cố khác
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incident?.id, incident?.selectedBefore, incident?.selectedAfter])
 
-  async function handleSelectPhoto(kind: 'before' | 'after', url: string) {
+  async function persistSelection(
+    kind: 'before' | 'after',
+    value: string,
+    nextBefore: string[],
+    nextAfter: string[],
+  ) {
     if (!incident) return
     const field = kind === 'before' ? 'selectedBefore' : 'selectedAfter'
-    if (kind === 'before') setSelBefore(url)
-    else setSelAfter(url)
+    if (kind === 'before') setSelBefore(nextBefore)
+    else setSelAfter(nextAfter)
     try {
-      await updateSelectedReportPhoto(incident.ownerUid, incident.id, field, url)
-      toast.success('Đã chọn ảnh cho báo cáo Word')
+      await updateSelectedReportPhoto(incident.ownerUid, incident.id, field, value)
+      toast.success('Đã cập nhật ảnh cho báo cáo Word')
     } catch {
       toast.error('Không lưu được lựa chọn ảnh')
+      setSelBefore(resolveSelectedImageUrls(beforeUrls, incident.selectedBefore))
+      setSelAfter(resolveSelectedImageUrls(afterUrls, incident.selectedAfter))
     }
+  }
+
+  function handleTogglePhoto(kind: 'before' | 'after', url: string) {
+    if (!incident) return
+    const pool = kind === 'before' ? beforeUrls : afterUrls
+    const ref = kind === 'before' ? incident.selectedBefore : incident.selectedAfter
+    const nextRef = toggleSelectedImageRef(pool, ref, url)
+    const nextBefore =
+      kind === 'before'
+        ? resolveSelectedImageUrls(beforeUrls, nextRef)
+        : selBefore
+    const nextAfter =
+      kind === 'after' ? resolveSelectedImageUrls(afterUrls, nextRef) : selAfter
+    void persistSelection(kind, nextRef, nextBefore, nextAfter)
+  }
+
+  function handleSelectAll(kind: 'before' | 'after') {
+    if (!incident) return
+    const pool = kind === 'before' ? beforeUrls : afterUrls
+    const nextRef = selectAllImageRefs(pool)
+    const nextBefore =
+      kind === 'before' ? pool : selBefore
+    const nextAfter = kind === 'after' ? pool : selAfter
+    void persistSelection(kind, nextRef, nextBefore, nextAfter)
+  }
+
+  function handleClearAll(kind: 'before' | 'after') {
+    if (!incident) return
+    const nextBefore = kind === 'before' ? [] : selBefore
+    const nextAfter = kind === 'after' ? [] : selAfter
+    void persistSelection(kind, '', nextBefore, nextAfter)
   }
 
   if (!incident) return null
@@ -170,16 +210,24 @@ export function IncidentDetailDrawer({
 
           {isCompanyAdmin ? (
             <p className="text-xs text-muted-foreground">
-              Bấm dấu <span className="font-medium text-foreground">✓</span> ở góc ảnh để chọn ảnh ghép báo cáo Word
-              (mỗi mục 1 ảnh; mặc định lấy ảnh đầu tiên). Ảnh đã chọn trên app cũng hiện sẵn dấu ✓.
+              Bấm dấu <span className="font-medium text-foreground">✓</span> ở góc ảnh để chọn nhiều ảnh ghép báo cáo Word
+              (Hiện trạng / Sau xử lý). Dùng <span className="font-medium text-foreground">Chọn tất</span> để chọn hết ảnh trong mục.
             </p>
           ) : null}
           <IncidentImageGallery
             beforeUrls={beforeUrls}
             afterUrls={afterUrls}
+            beforeTitle="Hiện trạng"
+            afterTitle="Sau xử lý"
             selection={
               isCompanyAdmin
-                ? { beforeUrl: selBefore, afterUrl: selAfter, onSelect: handleSelectPhoto }
+                ? {
+                    beforeUrls: selBefore,
+                    afterUrls: selAfter,
+                    onToggle: handleTogglePhoto,
+                    onSelectAll: handleSelectAll,
+                    onClearAll: handleClearAll,
+                  }
                 : undefined
             }
           />

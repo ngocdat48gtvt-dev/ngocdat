@@ -442,14 +442,61 @@ export function resolveSelectedImageUrl(pool, ref) {
   return matchByToken(trimmed);
 }
 
-export function reportBeforeImage(inc) {
+export function splitSelectedImageRefs(ref) {
+  const trimmed = String(ref || "").trim();
+  if (!trimmed) return [];
+  return trimmed.split("|").map((s) => s.trim()).filter(Boolean);
+}
+
+export function joinSelectedImageRefs(urls) {
+  return (urls || []).filter((u) => String(u || "").trim()).join("|");
+}
+
+export function resolveSelectedImageUrls(pool, ref) {
+  const out = [];
+  for (const part of splitSelectedImageRefs(ref)) {
+    const url = resolveSelectedImageUrl(pool, part);
+    if (url && !out.includes(url)) out.push(url);
+  }
+  return out;
+}
+
+export function isImageSelectedForReport(pool, ref, url) {
+  return resolveSelectedImageUrls(pool, ref).includes(url);
+}
+
+export function toggleSelectedImageRef(pool, ref, url) {
+  const current = resolveSelectedImageUrls(pool, ref);
+  const next = current.includes(url) ? current.filter((u) => u !== url) : [...current, url];
+  return joinSelectedImageRefs(next);
+}
+
+export function selectAllImageRefs(pool) {
+  return joinSelectedImageRefs(pool);
+}
+
+export function reportBeforeImages(inc) {
   const pool = beforeConstructionImages(inc);
-  return resolveSelectedImageUrl(pool, inc.selectedBefore) ?? pool[0] ?? null;
+  if (pool.length === 0) return [];
+  const picked = resolveSelectedImageUrls(pool, inc.selectedBefore);
+  return picked.length > 0 ? picked : pool[0] ? [pool[0]] : [];
+}
+
+export function reportAfterImages(inc) {
+  const pool = afterConstructionImages(inc);
+  if (pool.length === 0) return [];
+  const picked = resolveSelectedImageUrls(pool, inc.selectedAfter);
+  return picked.length > 0 ? picked : pool[0] ? [pool[0]] : [];
+}
+
+export function reportBeforeImage(inc) {
+  const list = reportBeforeImages(inc);
+  return list[0] ?? null;
 }
 
 export function reportAfterImage(inc) {
-  const pool = afterConstructionImages(inc);
-  return resolveSelectedImageUrl(pool, inc.selectedAfter) ?? pool[0] ?? null;
+  const list = reportAfterImages(inc);
+  return list[0] ?? null;
 }
 
 export function isCompletedToday(inc) {

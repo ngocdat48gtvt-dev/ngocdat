@@ -15,7 +15,7 @@ import {
   WidthType,
 } from 'docx'
 import type { IncidentRecord } from '@/types/incident'
-import { reportAfterImage, reportBeforeImage } from '@/lib/incidentUtils'
+import { reportAfterImages, reportBeforeImages } from '@/lib/incidentUtils'
 import { formatKmDisplay } from '@quanlysuco/shared'
 
 const FONT = 'Times New Roman'
@@ -179,11 +179,43 @@ function headingParagraph(text: string): Paragraph {
 
 const CELL_BORDER = { style: BorderStyle.SINGLE, size: 4, color: '000000' }
 
+function labelCell(text: string): TableCell {
+  return new TableCell({
+    width: { size: 50, type: WidthType.PERCENTAGE },
+    verticalAlign: VerticalAlign.CENTER,
+    children: [
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 40, after: 40 },
+        children: [
+          new TextRun({ text, bold: true, font: FONT, size: 24 }),
+        ],
+      }),
+    ],
+  })
+}
+
 function imageTable(
-  before: PreparedImage | null,
-  after: PreparedImage | null,
+  beforeList: (PreparedImage | null)[],
+  afterList: (PreparedImage | null)[],
   isFirstPage: boolean,
 ): Table {
+  const rowCount = Math.max(beforeList.length, afterList.length, 1)
+  const rows: TableRow[] = [
+    new TableRow({
+      children: [labelCell('Ảnh hiện trạng'), labelCell('Ảnh sau xử lý')],
+    }),
+  ]
+  for (let j = 0; j < rowCount; j++) {
+    rows.push(
+      new TableRow({
+        children: [
+          imageCell(beforeList[j] ?? null, isFirstPage),
+          imageCell(afterList[j] ?? null, isFirstPage),
+        ],
+      }),
+    )
+  }
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     alignment: AlignmentType.CENTER,
@@ -195,11 +227,7 @@ function imageTable(
       insideHorizontal: CELL_BORDER,
       insideVertical: CELL_BORDER,
     },
-    rows: [
-      new TableRow({
-        children: [imageCell(before, isFirstPage), imageCell(after, isFirstPage)],
-      }),
-    ],
+    rows,
   })
 }
 
@@ -247,23 +275,27 @@ export async function buildIncidentWordReport(
   for (let i = 0; i < items.length; i++) {
     const inc = items[i]
     const isFirstPage = i === 0
-    const beforeUrl = reportBeforeImage(inc)
-    const afterUrl = reportAfterImage(inc)
+    const beforeUrls = reportBeforeImages(inc)
+    const afterUrls = reportAfterImages(inc)
 
-    const [before, after] = await Promise.all([
-      beforeUrl ? prepareImage(beforeUrl) : Promise.resolve(null),
-      afterUrl ? prepareImage(afterUrl) : Promise.resolve(null),
+    const [beforePrepared, afterPrepared] = await Promise.all([
+      Promise.all(beforeUrls.map((url) => prepareImage(url))),
+      Promise.all(afterUrls.map((url) => prepareImage(url))),
     ])
-    if (beforeUrl && !before) failedImages++
-    if (afterUrl && !after) failedImages++
+    for (let j = 0; j < beforeUrls.length; j++) {
+      if (beforeUrls[j] && !beforePrepared[j]) failedImages++
+    }
+    for (let j = 0; j < afterUrls.length; j++) {
+      if (afterUrls[j] && !afterPrepared[j]) failedImages++
+    }
 
     const stt = options.showStt ? `${index}. ` : ''
     const kmText = formatKmDisplay(inc.km) || (inc.km ?? '')
-    if (!beforeUrl && !afterUrl) {
+    if (beforeUrls.length === 0 && afterUrls.length === 0) {
       children.push(headingParagraph(`${stt}Hoàn thiện tại ${kmText} (chưa có ảnh)`))
     } else {
       children.push(headingParagraph(`${stt}Ảnh hoàn thiện tại ${kmText}`))
-      children.push(imageTable(before, after, isFirstPage))
+      children.push(imageTable(beforePrepared, afterPrepared, isFirstPage))
     }
     index++
 

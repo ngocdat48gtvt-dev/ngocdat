@@ -297,14 +297,72 @@ export function resolveSelectedImageUrl(
   return matchByToken(photoToken(trimmed))
 }
 
+export function splitSelectedImageRefs(ref?: string): string[] {
+  const trimmed = (ref ?? '').trim()
+  if (!trimmed) return []
+  return trimmed.split('|').map((s) => s.trim()).filter(Boolean)
+}
+
+export function joinSelectedImageRefs(urls: string[]): string {
+  return urls.filter((u) => u.trim()).join('|')
+}
+
+/** Giải mọi ref đã chọn (URL hoặc token:) thành URL trong pool, giữ thứ tự. */
+export function resolveSelectedImageUrls(pool: string[], ref?: string): string[] {
+  const out: string[] = []
+  for (const part of splitSelectedImageRefs(ref)) {
+    const url = resolveSelectedImageUrl(pool, part)
+    if (url && !out.includes(url)) out.push(url)
+  }
+  return out
+}
+
+export function isImageSelectedForReport(
+  pool: string[],
+  ref: string | undefined,
+  url: string,
+): boolean {
+  return resolveSelectedImageUrls(pool, ref).includes(url)
+}
+
+export function toggleSelectedImageRef(
+  pool: string[],
+  ref: string | undefined,
+  url: string,
+): string {
+  const current = resolveSelectedImageUrls(pool, ref)
+  const next = current.includes(url)
+    ? current.filter((u) => u !== url)
+    : [...current, url]
+  return joinSelectedImageRefs(next)
+}
+
+export function selectAllImageRefs(pool: string[]): string {
+  return joinSelectedImageRefs(pool)
+}
+
+/** Ảnh hiện trạng cho Word — ưu tiên danh sách đã chọn; không tick thì chỉ ảnh đầu tiên. */
+export function reportBeforeImages(inc: IncidentRecord): string[] {
+  const pool = beforeConstructionImages(inc)
+  if (pool.length === 0) return []
+  const picked = resolveSelectedImageUrls(pool, inc.selectedBefore)
+  return picked.length > 0 ? picked : pool[0] ? [pool[0]] : []
+}
+
+/** Ảnh sau xử lý cho Word — ưu tiên danh sách đã chọn; không tick thì chỉ ảnh đầu tiên. */
+export function reportAfterImages(inc: IncidentRecord): string[] {
+  const pool = afterConstructionImages(inc)
+  if (pool.length === 0) return []
+  const picked = resolveSelectedImageUrls(pool, inc.selectedAfter)
+  return picked.length > 0 ? picked : pool[0] ? [pool[0]] : []
+}
+
 /** Ảnh hiện trạng dùng cho báo cáo Word: ưu tiên ảnh đã chọn, fallback ảnh đầu tiên. */
 export function reportBeforeImage(inc: IncidentRecord): string | null {
-  const pool = beforeConstructionImages(inc)
-  return resolveSelectedImageUrl(pool, inc.selectedBefore) ?? pool[0] ?? null
+  return reportBeforeImages(inc)[0] ?? null
 }
 
 /** Ảnh sau xử lý dùng cho báo cáo Word: ưu tiên ảnh đã chọn, fallback ảnh đầu tiên. */
 export function reportAfterImage(inc: IncidentRecord): string | null {
-  const pool = afterConstructionImages(inc)
-  return resolveSelectedImageUrl(pool, inc.selectedAfter) ?? pool[0] ?? null
+  return reportAfterImages(inc)[0] ?? null
 }

@@ -35,6 +35,8 @@ function mapCore(id, data) {
     note: data.note ?? "",
     beforeImages: data.beforeImages ?? [],
     afterImages: data.afterImages ?? [],
+    selectedBefore: data.selectedBefore ?? "",
+    selectedAfter: data.selectedAfter ?? "",
     status: data.status,
     progress: data.progress ?? 0,
     updates: data.updates ?? [],
@@ -211,4 +213,12 @@ export async function restoreIncident(uid, docId) {
 /** Xoá vĩnh viễn (không khôi phục được). */
 export async function permanentlyDeleteIncident(uid, docId) {
   await deleteDoc(doc(db, "users", uid, "incidents", docId));
+}
+
+/** Lưu danh sách ảnh đã chọn ghép Word (nhiều URL, phân tách bằng |). */
+export async function updateSelectedReportPhoto(uid, docId, field, value) {
+  await updateDoc(doc(db, "users", uid, "incidents", docId), {
+    [field]: String(value ?? ""),
+    updatedAt: serverTimestamp()
+  });
 }

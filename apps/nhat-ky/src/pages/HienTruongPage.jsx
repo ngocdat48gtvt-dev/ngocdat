@@ -553,6 +553,7 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
           incident={detailIncident}
           open={detailOpen && Boolean(detailIncident)}
           onClose={closeDetail}
+          uid={profile?.uid}
           suggestedSection={detailIncident ? suggestNhatKySection(detailIncident) || "" : ""}
           importNote={
             detailIncident && getImportRecord(importMap, detailIncident.id)

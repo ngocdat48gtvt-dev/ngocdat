@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   afterConstructionImages,
   beforeConstructionImages,
@@ -9,9 +10,13 @@ import {
   formatTimelineDate,
   positionLabel,
   progressLabelPct,
+  resolveSelectedImageUrls,
+  selectAllImageRefs,
   statusFromProgress,
-  statusLabel
+  statusLabel,
+  toggleSelectedImageRef
 } from "../utils/incidentUtils";
+import { updateSelectedReportPhoto } from "../services/incidentsService";
 import IncidentImageGallery from "./IncidentImageGallery";
 
 function DetailField({ label, value }) {
@@ -50,16 +55,72 @@ export default function IncidentDetailDrawer({
   incident,
   open,
   onClose,
+  uid,
   importNote = "",
   suggestedSection = ""
 }) {
+  const [selBefore, setSelBefore] = useState([]);
+  const [selAfter, setSelAfter] = useState([]);
+  const [saveError, setSaveError] = useState("");
+
+  const beforeUrls = incident ? beforeConstructionImages(incident) : [];
+  const afterUrls = incident ? afterConstructionImages(incident) : [];
+
+  useEffect(() => {
+    if (!incident) return;
+    setSelBefore(resolveSelectedImageUrls(beforeUrls, incident.selectedBefore));
+    setSelAfter(resolveSelectedImageUrls(afterUrls, incident.selectedAfter));
+    setSaveError("");
+  }, [incident?.id, incident?.selectedBefore, incident?.selectedAfter]);
+
+  async function persistSelection(kind, value, nextBefore, nextAfter) {
+    if (!incident || !uid) return;
+    const field = kind === "before" ? "selectedBefore" : "selectedAfter";
+    if (kind === "before") setSelBefore(nextBefore);
+    else setSelAfter(nextAfter);
+    try {
+      await updateSelectedReportPhoto(uid, incident.id, field, value);
+      setSaveError("");
+    } catch {
+      setSaveError("Không lưu được lựa chọn ảnh.");
+      setSelBefore(resolveSelectedImageUrls(beforeUrls, incident.selectedBefore));
+      setSelAfter(resolveSelectedImageUrls(afterUrls, incident.selectedAfter));
+    }
+  }
+
+  function handleToggle(kind, url) {
+    if (!incident) return;
+    const pool = kind === "before" ? beforeUrls : afterUrls;
+    const ref = kind === "before" ? incident.selectedBefore : incident.selectedAfter;
+    const nextRef = toggleSelectedImageRef(pool, ref, url);
+    const nextBefore =
+      kind === "before" ? resolveSelectedImageUrls(beforeUrls, nextRef) : selBefore;
+    const nextAfter =
+      kind === "after" ? resolveSelectedImageUrls(afterUrls, nextRef) : selAfter;
+    void persistSelection(kind, nextRef, nextBefore, nextAfter);
+  }
+
+  function handleSelectAll(kind) {
+    if (!incident) return;
+    const pool = kind === "before" ? beforeUrls : afterUrls;
+    const nextRef = selectAllImageRefs(pool);
+    const nextBefore = kind === "before" ? pool : selBefore;
+    const nextAfter = kind === "after" ? pool : selAfter;
+    void persistSelection(kind, nextRef, nextBefore, nextAfter);
+  }
+
+  function handleClearAll(kind) {
+    if (!incident) return;
+    const nextBefore = kind === "before" ? [] : selBefore;
+    const nextAfter = kind === "after" ? [] : selAfter;
+    void persistSelection(kind, "", nextBefore, nextAfter);
+  }
+
   if (!open || !incident) return null;
 
   const vol = computeKhoiLuong(incident);
   const volUnit = formatIncidentUnit(incident);
   const status = incident.status ?? statusFromProgress(incident.progress);
-  const beforeUrls = beforeConstructionImages(incident);
-  const afterUrls = afterConstructionImages(incident);
 
   return (
     <div className="incident-drawer-overlay" onClick={onClose}>
@@ -119,7 +180,26 @@ export default function IncidentDetailDrawer({
             </p>
           )}
 
-          <IncidentImageGallery beforeUrls={beforeUrls} afterUrls={afterUrls} />
+          <p className="incident-drawer-muted incident-drawer-photo-hint">
+            Tick góc ảnh để chọn nhiều ảnh ghép Word · «Chọn tất» chọn hết ảnh trong mục Hiện trạng / Sau xử lý.
+          </p>
+          {saveError ? <p className="incident-drawer-error">{saveError}</p> : null}
+
+          <IncidentImageGallery
+            beforeUrls={beforeUrls}
+            afterUrls={afterUrls}
+            selection={
+              uid
+                ? {
+                    beforeUrls: selBefore,
+                    afterUrls: selAfter,
+                    onToggle: handleToggle,
+                    onSelectAll: handleSelectAll,
+                    onClearAll: handleClearAll
+                  }
+                : undefined
+            }
+          />
 
           <div className="incident-drawer-section">
             <p className="incident-drawer-section-title">Lịch sử</p>

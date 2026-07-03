@@ -6,9 +6,11 @@ import { Button } from '@/components/ui/primitives'
 type SelectionKind = 'before' | 'after'
 
 export type GallerySelection = {
-  beforeUrl: string | null
-  afterUrl: string | null
-  onSelect: (kind: SelectionKind, url: string) => void
+  beforeUrls: string[]
+  afterUrls: string[]
+  onToggle: (kind: SelectionKind, url: string) => void
+  onSelectAll: (kind: SelectionKind) => void
+  onClearAll: (kind: SelectionKind) => void
 }
 
 type LightboxItem = {
@@ -128,23 +130,49 @@ function ImageSection({
   title,
   urls,
   onOpen,
-  selectedUrl,
-  onSelect,
+  selectedUrls,
+  onToggle,
+  onSelectAll,
+  onClearAll,
 }: {
   title: string
   urls: string[]
   onOpen: (index: number) => void
-  selectedUrl?: string | null
-  onSelect?: (url: string) => void
+  selectedUrls?: string[]
+  onToggle?: (url: string) => void
+  onSelectAll?: () => void
+  onClearAll?: () => void
 }) {
+  const selected = selectedUrls ?? []
+  const allSelected = urls.length > 0 && urls.every((u) => selected.includes(u))
   return (
     <div>
-      <p className="mb-2 text-sm font-semibold">
-        {title}
-        {urls.length > 0 ? (
-          <span className="ml-1.5 font-normal text-muted-foreground">({urls.length})</span>
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <p className="text-sm font-semibold">
+          {title}
+          {urls.length > 0 ? (
+            <span className="ml-1.5 font-normal text-muted-foreground">({urls.length})</span>
+          ) : null}
+        </p>
+        {onSelectAll && urls.length > 0 ? (
+          <div className="ml-auto flex flex-wrap gap-1.5">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={allSelected ? onClearAll : onSelectAll}
+            >
+              {allSelected ? 'Bỏ chọn tất' : 'Chọn tất'}
+            </Button>
+            {selected.length > 0 ? (
+              <span className="self-center text-xs text-muted-foreground">
+                Đã chọn {selected.length}/{urls.length}
+              </span>
+            ) : null}
+          </div>
         ) : null}
-      </p>
+      </div>
       {urls.length === 0 ? (
         <p className="text-sm text-muted-foreground">Chưa có ảnh</p>
       ) : (
@@ -156,8 +184,8 @@ function ImageSection({
               index={index}
               title={title}
               onOpen={() => onOpen(index)}
-              selected={selectedUrl != null && url === selectedUrl}
-              onSelect={onSelect ? () => onSelect(url) : undefined}
+              selected={selected.includes(url)}
+              onSelect={onToggle ? () => onToggle(url) : undefined}
             />
           ))}
         </div>
@@ -182,8 +210,8 @@ function ImageLightbox({
   const url = item?.url ?? ''
   const kind = item?.kind
   const title = item?.label ?? ''
-  const selectedUrl = kind === 'before' ? selection?.beforeUrl : selection?.afterUrl
-  const isSelected = selectedUrl != null && url === selectedUrl
+  const selectedUrls = kind === 'before' ? selection?.beforeUrls : selection?.afterUrls
+  const isSelected = selectedUrls?.includes(url) ?? false
   const canSelect = !!selection && !!kind
   const [ready, setReady] = useState(false)
   const [error, setError] = useState(false)
@@ -298,8 +326,8 @@ function ImageLightbox({
             size="sm"
             variant={isSelected ? 'secondary' : 'default'}
             className="gap-2"
-            onClick={() => selection!.onSelect(kind!, url)}
-            disabled={isSelected}
+            onClick={() => selection!.onToggle(kind!, url)}
+            aria-pressed={isSelected}
           >
             {isSelected ? (
               <>
@@ -382,8 +410,10 @@ export function IncidentImageGallery({
             title={beforeTitle}
             urls={beforeUrls}
             onOpen={(index) => openAt(index)}
-            selectedUrl={selection?.beforeUrl}
-            onSelect={selection ? (url) => selection.onSelect('before', url) : undefined}
+            selectedUrls={selection?.beforeUrls}
+            onToggle={selection ? (url) => selection.onToggle('before', url) : undefined}
+            onSelectAll={selection ? () => selection.onSelectAll('before') : undefined}
+            onClearAll={selection ? () => selection.onClearAll('before') : undefined}
           />
         ) : null}
         {!hideAfter ? (
@@ -391,8 +421,10 @@ export function IncidentImageGallery({
             title={afterTitle}
             urls={afterUrls}
             onOpen={(index) => openAt(afterOffset + index)}
-            selectedUrl={selection?.afterUrl}
-            onSelect={selection ? (url) => selection.onSelect('after', url) : undefined}
+            selectedUrls={selection?.afterUrls}
+            onToggle={selection ? (url) => selection.onToggle('after', url) : undefined}
+            onSelectAll={selection ? () => selection.onSelectAll('after') : undefined}
+            onClearAll={selection ? () => selection.onClearAll('after') : undefined}
           />
         ) : null}
       </div>
