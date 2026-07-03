@@ -175,23 +175,44 @@ function labelCell(text) {
   })
 }
 
+function pairRows(list) {
+  if (list.length === 0) return []
+  const rows = []
+  for (let i = 0; i < list.length; i += 2) {
+    rows.push([list[i] ?? null, list[i + 1] ?? null])
+  }
+  return rows
+}
+
 function imageTable(beforeList, afterList, isFirstPage) {
-  const ordered = [...beforeList, ...afterList]
+  const beforeRows = pairRows(beforeList)
+  const afterRows = pairRows(afterList)
   const rows = [
     new TableRow({
       children: [labelCell("Ảnh hiện trạng"), labelCell("Ảnh sau xử lý")],
     }),
   ]
-  const rowCount = Math.max(1, Math.ceil(ordered.length / 2))
-  for (let r = 0; r < rowCount; r++) {
+  if (beforeRows.length === 0 && afterRows.length === 0) {
     rows.push(
       new TableRow({
-        children: [
-          imageCell(ordered[r * 2] ?? null, isFirstPage),
-          imageCell(ordered[r * 2 + 1] ?? null, isFirstPage),
-        ],
+        children: [imageCell(null, isFirstPage), imageCell(null, isFirstPage)],
       }),
     )
+  } else {
+    for (const [left, right] of beforeRows) {
+      rows.push(
+        new TableRow({
+          children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
+        }),
+      )
+    }
+    for (const [left, right] of afterRows) {
+      rows.push(
+        new TableRow({
+          children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
+        }),
+      )
+    }
   }
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
@@ -236,7 +257,7 @@ function titleBlock(options) {
 }
 
 /**
- * Dựng file Word: hết ảnh hiện trạng (trái→phải) rồi sau xử lý, xếp lưới 2 cột/hàng;
+ * Dựng file Word: hết ảnh hiện trạng (2 ảnh/hàng) rồi mới sau xử lý; không trộn HT+XL cùng hàng.
  * khổ ngang A4, mỗi sự cố một trang, STT tuỳ chọn.
  */
 export async function buildIncidentWordReport(items, options, onProgress) {
