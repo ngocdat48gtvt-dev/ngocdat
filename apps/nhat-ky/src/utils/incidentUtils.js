@@ -278,6 +278,42 @@ export function afterConstructionImages(inc) {
   return uniqueImageUrls([...(inc.afterImages || []), ...completionImages(inc)]);
 }
 
+/** Ảnh local (path máy) — web không mở trực tiếp. */
+function isLocalOnlyForWeb(ref) {
+  const s = String(ref || "").trim();
+  if (!s || s.startsWith("http")) return false;
+  if (s.startsWith("images/")) return false;
+  if (s.startsWith("token:")) return false;
+  return true;
+}
+
+/**
+ * Danh sách ảnh hiển thị trên web: gộp trùng token, ưu tiên URL cloud, bỏ path local.
+ */
+export function webDisplayImageUrls(pool) {
+  const byToken = new Map();
+  for (const raw of pool || []) {
+    const s = String(raw || "").trim();
+    if (!s) continue;
+    const token = photoToken(s) || s;
+    const prev = byToken.get(token);
+    if (!prev) {
+      byToken.set(token, s);
+      continue;
+    }
+    if (s.startsWith("http") && !prev.startsWith("http")) {
+      byToken.set(token, s);
+    }
+  }
+  return [...byToken.values()].filter((s) => !isLocalOnlyForWeb(s));
+}
+
+export function countHiddenLocalImages(pool) {
+  const all = uniqueImageUrls(pool || []);
+  const shown = webDisplayImageUrls(all);
+  return Math.max(0, all.length - shown.length);
+}
+
 export function formatIncidentSize(inc) {
   const l = inc.dai ?? 0;
   const w = inc.rong ?? 0;

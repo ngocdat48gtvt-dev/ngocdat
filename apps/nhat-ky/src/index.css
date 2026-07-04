@@ -1167,22 +1167,26 @@ h1, h2 {
 
 .incident-gallery-select {
   position: absolute;
-  top: 6px;
-  right: 6px;
-  z-index: 2;
-  min-width: 44px;
-  min-height: 44px;
-  width: 44px;
-  height: 44px;
+  top: 4px;
+  right: 4px;
+  z-index: 3;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.9);
+  border: 1.5px solid rgba(255, 255, 255, 0.92);
   background: rgba(0, 0, 0, 0.35);
   color: #fff;
-  font-size: 18px;
+  font-size: 11px;
   font-weight: 700;
   line-height: 1;
   cursor: pointer;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }
 
 .incident-gallery-select--on {
@@ -1190,57 +1194,75 @@ h1, h2 {
   background: #f59e0b;
 }
 
-.incident-gallery-delete {
+.incident-gallery-order-badge {
   position: absolute;
-  left: 6px;
-  bottom: 28px;
-  z-index: 2;
-  min-width: 32px;
-  min-height: 32px;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.9);
-  background: rgba(229, 57, 53, 0.92);
-  color: #fff;
-  font-size: 18px;
-  font-weight: 700;
-  line-height: 1;
-  cursor: pointer;
+  top: 4px;
+  left: 4px;
+  z-index: 3;
   display: flex;
   align-items: center;
   justify-content: center;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #f59e0b;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+
+.incident-gallery-thumb-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 4px 6px 22px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.72));
+  pointer-events: none;
+}
+
+.incident-gallery-action-btn {
+  pointer-events: auto;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
   padding: 0;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
-.incident-gallery-delete:hover:not(:disabled) {
-  background: #c62828;
+.incident-gallery-action-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.65);
 }
 
-.incident-gallery-delete:disabled {
+.incident-gallery-action-btn--danger:hover:not(:disabled) {
+  background: rgba(198, 40, 40, 0.85);
+}
+
+.incident-gallery-action-btn:disabled {
   opacity: 0.6;
   cursor: wait;
 }
 
-.incident-gallery-order-badge {
-  position: absolute;
-  top: 6px;
-  left: 6px;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 28px;
-  min-height: 28px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: #f59e0b;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 700;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-  pointer-events: none;
+.incident-drawer-photo-sync-hint {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff8e1;
+  color: #5d4037;
+  font-size: 13px;
 }
 
 .incident-gallery-order-row {
@@ -1304,11 +1326,15 @@ h1, h2 {
 }
 
 .incident-gallery-thumb {
-  flex-shrink: 0;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   border: none;
   padding: 0;
   background: transparent;
   cursor: pointer;
+  z-index: 1;
 }
 
 .incident-gallery-thumb-frame {
@@ -1325,6 +1351,19 @@ h1, h2 {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
+}
+
+.incident-gallery-thumb-loading,
+.incident-gallery-thumb-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 8px;
+  font-size: 12px;
+  text-align: center;
 }
 
 .incident-gallery-thumb-label {
@@ -1332,33 +1371,13 @@ h1, h2 {
   left: 0;
   right: 0;
   bottom: 0;
-  padding: 6px 8px;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.65));
+  z-index: 2;
+  padding: 4px 8px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.55));
   color: #fff;
-  font-size: 11px;
+  font-size: 10px;
   text-align: left;
-}
-
-.incident-gallery-thumb-error {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  padding: 8px;
-  font-size: 12px;
-  color: #64748b;
-  text-align: center;
-}
-
-.incident-gallery-thumb-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  padding: 8px;
-  font-size: 12px;
-  color: #94a3b8;
-  text-align: center;
+  pointer-events: none;
 }
 
 .incident-lightbox-status {

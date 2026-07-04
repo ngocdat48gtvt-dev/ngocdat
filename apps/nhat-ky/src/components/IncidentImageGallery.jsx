@@ -31,6 +31,17 @@ function errorMessage(errorKind) {
   return "Không tải được";
 }
 
+function TrashIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M9 3h6l1 2h4v2H4V5h4l1-2zm1 6h2v9h-2V9zm4 0h2v9h-2V9zM7 9h2v9H7V9z"
+      />
+    </svg>
+  );
+}
+
 function ImageThumb({ url, index, title, onOpen, selected, onToggle, mergeOrder, onOrderChange, onDelete, deleting }) {
   const { displayUrl, loading, errorKind } = useResolvedImageUrl(url);
   const [error, setError] = useState(false);
@@ -58,47 +69,13 @@ function ImageThumb({ url, index, title, onOpen, selected, onToggle, mergeOrder,
     <div
       className={`incident-gallery-thumb-wrap${selected ? " incident-gallery-thumb-wrap--selected" : ""}`}
     >
-      {onToggle ? (
+      <div className="incident-gallery-thumb-frame">
         <button
           type="button"
-          className={`incident-gallery-select${selected ? " incident-gallery-select--on" : ""}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggle();
-          }}
-          aria-label={selected ? "Bỏ chọn ảnh Word" : "Chọn ảnh Word"}
-          aria-pressed={selected}
+          className="incident-gallery-thumb"
+          onClick={onOpen}
+          aria-label={`${title} — ảnh ${index + 1}`}
         >
-          {selected ? "✓" : ""}
-        </button>
-      ) : null}
-      {onDelete ? (
-        <button
-          type="button"
-          className="incident-gallery-delete"
-          disabled={deleting}
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete();
-          }}
-          aria-label={`Xóa ${title} — ảnh ${index + 1}`}
-          title="Xóa ảnh"
-        >
-          {deleting ? "…" : "×"}
-        </button>
-      ) : null}
-      {selected && mergeOrder != null ? (
-        <span className="incident-gallery-order-badge" aria-hidden="true">
-          {mergeOrder}
-        </span>
-      ) : null}
-      <button
-        type="button"
-        className="incident-gallery-thumb"
-        onClick={onOpen}
-        aria-label={`${title} — ảnh ${index + 1}`}
-      >
-        <div className="incident-gallery-thumb-frame">
           {loading ? (
             <span className="incident-gallery-thumb-loading">Đang tải…</span>
           ) : error || errorKind || !displayUrl ? (
@@ -113,9 +90,70 @@ function ImageThumb({ url, index, title, onOpen, selected, onToggle, mergeOrder,
               onError={() => setError(true)}
             />
           )}
-          <span className="incident-gallery-thumb-label">Ảnh {index + 1}</span>
-        </div>
-      </button>
+        </button>
+
+        {onToggle ? (
+          <button
+            type="button"
+            className={`incident-gallery-select${selected ? " incident-gallery-select--on" : ""}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle();
+            }}
+            aria-label={selected ? "Bỏ chọn ảnh Word" : "Chọn ảnh Word"}
+            aria-pressed={selected}
+          >
+            {selected ? "✓" : ""}
+          </button>
+        ) : null}
+
+        {selected && mergeOrder != null ? (
+          <span className="incident-gallery-order-badge" aria-hidden="true">
+            {mergeOrder}
+          </span>
+        ) : null}
+
+        {(onDelete || onOpen) && (
+          <div className="incident-gallery-thumb-bar">
+            {onOpen ? (
+              <button
+                type="button"
+                className="incident-gallery-action-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpen();
+                }}
+                aria-label="Xem ảnh"
+                title="Xem ảnh"
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"
+                  />
+                </svg>
+              </button>
+            ) : null}
+            {onDelete ? (
+              <button
+                type="button"
+                className="incident-gallery-action-btn incident-gallery-action-btn--danger"
+                disabled={deleting}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                }}
+                aria-label={`Xóa ${title} — ảnh ${index + 1}`}
+                title="Xóa ảnh"
+              >
+                {deleting ? "…" : <TrashIcon />}
+              </button>
+            ) : null}
+          </div>
+        )}
+
+        <span className="incident-gallery-thumb-label">Ảnh {index + 1}</span>
+      </div>
       {selected && onOrderChange ? (
         <div className="incident-gallery-order-row" onClick={(e) => e.stopPropagation()}>
           <label className="incident-gallery-order-label" htmlFor={`stt-${url.slice(-12)}-${index}`}>

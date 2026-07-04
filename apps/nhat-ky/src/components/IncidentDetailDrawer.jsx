@@ -19,7 +19,9 @@ import {
   selectAllReportImageSlots,
   statusFromProgress,
   statusLabel,
-  toggleReportImageSlot
+  toggleReportImageSlot,
+  webDisplayImageUrls,
+  countHiddenLocalImages
 } from "../utils/incidentUtils";
 import { updateReportImageSelection } from "../services/incidentsService";
 import { removeIncidentImage } from "../services/incidentPhotoService";
@@ -70,8 +72,12 @@ export default function IncidentDetailDrawer({
   const [localIncident, setLocalIncident] = useState(incident);
   const [deletingUrl, setDeletingUrl] = useState(null);
 
-  const beforeUrls = localIncident ? beforeConstructionImages(localIncident) : [];
-  const afterUrls = localIncident ? afterConstructionImages(localIncident) : [];
+  const beforeAll = localIncident ? beforeConstructionImages(localIncident) : [];
+  const afterAll = localIncident ? afterConstructionImages(localIncident) : [];
+  const beforeUrls = webDisplayImageUrls(beforeAll);
+  const afterUrls = webDisplayImageUrls(afterAll);
+  const hiddenPhotoCount =
+    countHiddenLocalImages(beforeAll) + countHiddenLocalImages(afterAll);
 
   useEffect(() => {
     if (!incident || !open) return;
@@ -211,8 +217,14 @@ export default function IncidentDetailDrawer({
           <p className="incident-drawer-muted incident-drawer-photo-hint">
             Bấm <span className="incident-drawer-hint-strong">✓</span> chọn ảnh, điền{" "}
             <span className="incident-drawer-hint-strong">STT</span> ở ô dưới mỗi ảnh (HT / XL xen kẽ
-            tùy STT). Bấm <span className="incident-drawer-hint-strong">×</span> để xóa ảnh.
+            tùy STT). Thùng rác ở góc dưới ảnh để xóa.
           </p>
+          {hiddenPhotoCount > 0 ? (
+            <p className="incident-drawer-muted incident-drawer-photo-sync-hint">
+              {hiddenPhotoCount} ảnh chưa có link cloud (chỉ lưu trên app). Dùng{" "}
+              <strong>Khôi phục ảnh cloud</strong> trên trang Hiện trường để bổ sung.
+            </p>
+          ) : null}
           {saveError ? <p className="incident-drawer-error">{saveError}</p> : null}
 
           <IncidentImageGallery

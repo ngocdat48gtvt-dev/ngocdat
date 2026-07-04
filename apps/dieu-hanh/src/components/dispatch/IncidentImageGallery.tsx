@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Check, ChevronLeft, ChevronRight, ImageIcon, Loader2, Star, Trash2, X } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, ImageIcon, Loader2, Search, Star, Trash2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/primitives'
 import {
@@ -119,97 +119,112 @@ function ThumbnailTile({
         selected && 'border-2 border-amber-500 ring-2 ring-amber-400/50',
       )}
     >
-      {onSelect ? (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            onSelect()
-          }}
-          className={cn(
-            'absolute right-1.5 top-1.5 z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 shadow transition',
-            selected
-              ? 'border-amber-500 bg-amber-500 text-white'
-              : 'border-white/90 bg-black/35 text-white/90 hover:bg-amber-500 hover:border-amber-500',
-          )}
-          title={selected ? 'Ảnh đang chọn cho báo cáo Word' : 'Chọn ảnh này cho báo cáo Word'}
-          aria-label={selected ? 'Ảnh đang chọn cho báo cáo' : 'Chọn ảnh cho báo cáo'}
-          aria-pressed={selected}
-        >
-          <Check className="h-4 w-4" strokeWidth={3} />
-        </button>
-      ) : null}
-      {onDelete ? (
-        <button
-          type="button"
-          disabled={deleting}
-          onClick={(e) => {
-            e.stopPropagation()
-            onDelete()
-          }}
-          className={cn(
-            'absolute bottom-8 left-1.5 z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 shadow transition',
-            'border-white/90 bg-red-600/90 text-white hover:bg-red-700 disabled:opacity-60',
-          )}
-          title="Xóa ảnh"
-          aria-label={`Xóa ${title} — ảnh ${index + 1}`}
-        >
-          {deleting ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Trash2 className="h-3.5 w-3.5" />
-          )}
-        </button>
-      ) : null}
-      {selected && mergeOrder != null ? (
-        <span className="absolute left-1.5 top-1.5 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-amber-500 text-xs font-bold text-white shadow">
-          {mergeOrder}
-        </span>
-      ) : null}
-      <button
-        type="button"
-        onClick={onOpen}
-        className="block w-full"
-        aria-label={`${title} — ảnh ${index + 1}`}
-      >
       <div className="relative aspect-[9/16] w-full bg-muted/60">
-        {resolving ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
-            <Loader2 className="h-6 w-6 animate-spin opacity-70" />
-            <span className="text-[10px]">Đang tải…</span>
-          </div>
-        ) : null}
-        {!resolving && (error || errorKind || !displayUrl) ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 px-2 text-center text-muted-foreground">
-            <ImageIcon className="h-8 w-8 opacity-60" strokeWidth={1.5} />
-            <span className="text-[10px]">{errorMessage(errorKind)}</span>
-          </div>
-        ) : null}
-        {!resolving && displayUrl && !error ? (
-          <img
-            src={displayUrl}
-            alt={`${title} ${index + 1}`}
-            loading="lazy"
-            decoding="async"
+        <button
+          type="button"
+          onClick={onOpen}
+          className="absolute inset-0 z-[1] block w-full"
+          aria-label={`${title} — ảnh ${index + 1}`}
+        >
+          {resolving ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
+              <Loader2 className="h-6 w-6 animate-spin opacity-70" />
+              <span className="text-[10px]">Đang tải…</span>
+            </div>
+          ) : null}
+          {!resolving && (error || errorKind || !displayUrl) ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 px-2 text-center text-muted-foreground">
+              <ImageIcon className="h-8 w-8 opacity-60" strokeWidth={1.5} />
+              <span className="text-[10px]">{errorMessage(errorKind)}</span>
+            </div>
+          ) : null}
+          {!resolving && displayUrl && !error ? (
+            <img
+              src={displayUrl}
+              alt={`${title} ${index + 1}`}
+              loading="lazy"
+              decoding="async"
+              className={cn(
+                'absolute inset-0 h-full w-full object-cover transition-opacity duration-300',
+                loaded ? 'opacity-100' : 'opacity-0',
+              )}
+              onLoad={() => {
+                setLoaded(true)
+                setError(false)
+              }}
+              onError={() => {
+                setError(true)
+                setLoaded(false)
+              }}
+            />
+          ) : null}
+        </button>
+
+        {onSelect ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onSelect()
+            }}
             className={cn(
-              'absolute inset-0 h-full w-full object-cover transition-opacity duration-300',
-              loaded ? 'opacity-100' : 'opacity-0',
+              'absolute right-1 top-1 z-10 flex h-[22px] w-[22px] items-center justify-center rounded-full border shadow transition',
+              selected
+                ? 'border-amber-500 bg-amber-500 text-white'
+                : 'border-white/90 bg-black/35 text-white/90 hover:bg-amber-500 hover:border-amber-500',
             )}
-            onLoad={() => {
-              setLoaded(true)
-              setError(false)
-            }}
-            onError={() => {
-              setError(true)
-              setLoaded(false)
-            }}
-          />
+            title={selected ? 'Ảnh đang chọn cho báo cáo Word' : 'Chọn ảnh này cho báo cáo Word'}
+            aria-label={selected ? 'Ảnh đang chọn cho báo cáo' : 'Chọn ảnh cho báo cáo'}
+            aria-pressed={selected}
+          >
+            <Check className="h-3 w-3" strokeWidth={3} />
+          </button>
         ) : null}
-        <span className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/55 to-transparent px-2 py-1.5 text-left text-[10px] font-medium text-white">
+
+        {selected && mergeOrder != null ? (
+          <span className="absolute left-1 top-1 z-10 flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white shadow">
+            {mergeOrder}
+          </span>
+        ) : null}
+
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center gap-2 bg-gradient-to-t from-black/75 to-transparent px-2 pb-5 pt-6">
+          <button
+            type="button"
+            className="pointer-events-auto flex h-[26px] w-[26px] items-center justify-center rounded-full bg-black/45 text-white hover:bg-black/65"
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpen()
+            }}
+            title="Xem ảnh"
+            aria-label="Xem ảnh"
+          >
+            <Search className="h-3.5 w-3.5" />
+          </button>
+          {onDelete ? (
+            <button
+              type="button"
+              disabled={deleting}
+              onClick={(e) => {
+                e.stopPropagation()
+                onDelete()
+              }}
+              className="pointer-events-auto flex h-[26px] w-[26px] items-center justify-center rounded-full bg-black/45 text-white hover:bg-red-700/90 disabled:opacity-60"
+              title="Xóa ảnh"
+              aria-label={`Xóa ${title} — ảnh ${index + 1}`}
+            >
+              {deleting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="h-3.5 w-3.5" />
+              )}
+            </button>
+          ) : null}
+        </div>
+
+        <span className="pointer-events-none absolute bottom-0 left-0 right-0 z-[2] bg-gradient-to-t from-black/55 to-transparent px-2 py-1 text-left text-[10px] font-medium text-white">
           Ảnh {index + 1}
         </span>
       </div>
-      </button>
       {selected && onOrderChange ? (
         <div
           className="flex items-center justify-center gap-1.5 border-t border-amber-300/80 bg-amber-50 px-2 py-1.5 dark:bg-amber-950/40"

@@ -11,6 +11,7 @@ import {
   assignReportSlotOrder,
   clearReportImageSlots,
   computeKhoiLuong,
+  countHiddenLocalImages,
   encodeReportImageOrder,
   legacyRefsFromReportSlots,
   progressLabel,
@@ -21,6 +22,7 @@ import {
   statusFromProgress,
   toggleReportImageSlot,
   type ReportImageSlot,
+  webDisplayImageUrls,
 } from '@/lib/incidentUtils'
 import { updateReportImageSelection } from '@/services/incidentsService'
 import { removeIncidentImage } from '@/services/incidentPhotoService'
@@ -53,8 +55,12 @@ export function IncidentDetailDrawer({
   const [localIncident, setLocalIncident] = useState(incident)
   const [deletingUrl, setDeletingUrl] = useState<string | null>(null)
 
-  const beforeUrls = localIncident ? beforeConstructionImages(localIncident) : []
-  const afterUrls = localIncident ? afterConstructionImages(localIncident) : []
+  const beforeAll = localIncident ? beforeConstructionImages(localIncident) : []
+  const afterAll = localIncident ? afterConstructionImages(localIncident) : []
+  const beforeUrls = webDisplayImageUrls(beforeAll)
+  const afterUrls = webDisplayImageUrls(afterAll)
+  const hiddenPhotoCount =
+    countHiddenLocalImages(beforeAll) + countHiddenLocalImages(afterAll)
 
   useEffect(() => {
     if (!incident || !open) return
@@ -239,8 +245,15 @@ export function IncidentDetailDrawer({
           <p className="text-xs text-muted-foreground">
             Bấm <span className="font-medium text-foreground">✓</span> chọn ảnh, điền{' '}
             <span className="font-medium text-foreground">STT</span> ở ô dưới mỗi ảnh (HT / XL xen
-            kẽ tùy STT). Bấm biểu tượng thùng rác để xóa ảnh.
+            kẽ tùy STT). Thùng rác ở góc dưới ảnh để xóa.
           </p>
+          {hiddenPhotoCount > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              {hiddenPhotoCount} ảnh chưa có link cloud (chỉ lưu trên app). Dùng{' '}
+              <span className="font-medium text-foreground">Khôi phục ảnh cloud</span> trên Hiện
+              trường để bổ sung.
+            </p>
+          ) : null}
           <IncidentImageGallery
             beforeUrls={beforeUrls}
             afterUrls={afterUrls}

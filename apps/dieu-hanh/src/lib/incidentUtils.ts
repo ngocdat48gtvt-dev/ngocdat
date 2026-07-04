@@ -239,9 +239,42 @@ export function beforeConstructionImages(inc: IncidentRecord): string[] {
   return uniqueImageUrls(inc.beforeImages ?? [])
 }
 
-/** Ảnh sau thi công — gộp xử lý + hoàn thành, bỏ trùng URL. */
+/** Ảnh sau thi công — gộp xử lý + hoàn thiện, bỏ trùng URL. */
 export function afterConstructionImages(inc: IncidentRecord): string[] {
   return uniqueImageUrls([...(inc.afterImages ?? []), ...completionImages(inc)])
+}
+
+function isLocalOnlyForWeb(ref: string): boolean {
+  const s = (ref ?? '').trim()
+  if (!s || s.startsWith('http')) return false
+  if (s.startsWith('images/')) return false
+  if (s.startsWith('token:')) return false
+  return true
+}
+
+/** Danh sách ảnh hiển thị web: gộp trùng token, ưu tiên URL cloud, bỏ path local. */
+export function webDisplayImageUrls(pool: string[]): string[] {
+  const byToken = new Map<string, string>()
+  for (const raw of pool || []) {
+    const s = String(raw || '').trim()
+    if (!s) continue
+    const token = photoToken(s) || s
+    const prev = byToken.get(token)
+    if (!prev) {
+      byToken.set(token, s)
+      continue
+    }
+    if (s.startsWith('http') && !prev.startsWith('http')) {
+      byToken.set(token, s)
+    }
+  }
+  return [...byToken.values()].filter((s) => !isLocalOnlyForWeb(s))
+}
+
+export function countHiddenLocalImages(pool: string[]): number {
+  const all = uniqueImageUrls(pool || [])
+  const shown = webDisplayImageUrls(all)
+  return Math.max(0, all.length - shown.length)
 }
 
 /**
