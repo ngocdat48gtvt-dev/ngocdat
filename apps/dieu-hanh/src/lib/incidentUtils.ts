@@ -269,6 +269,57 @@ export function photoToken(ref: string): string {
   return s
 }
 
+/** Cùng một ảnh (URL trùng hoặc cùng photoToken). */
+export function isSamePhotoUrl(a: string, b: string): boolean {
+  const x = (a ?? '').trim()
+  const y = (b ?? '').trim()
+  if (!x || !y) return false
+  if (x === y) return true
+  const tx = photoToken(x)
+  const ty = photoToken(y)
+  return tx !== '' && tx === ty
+}
+
+export function removeUrlFromImagePool(pool: string[], url: string): string[] {
+  return pool.filter((u) => !isSamePhotoUrl(u, url))
+}
+
+export function removeReportImageSlotByUrl(
+  slots: ReportImageSlot[],
+  kind: 'before' | 'after',
+  url: string,
+): ReportImageSlot[] {
+  return slots.filter((s) => !(s.kind === kind && isSamePhotoUrl(s.url, url)))
+}
+
+export function computeRemoveIncidentImagePatch(
+  inc: IncidentRecord,
+  kind: 'before' | 'after',
+  url: string,
+) {
+  const beforeImages =
+    kind === 'before'
+      ? removeUrlFromImagePool(inc.beforeImages ?? [], url)
+      : [...(inc.beforeImages ?? [])]
+  const afterImages =
+    kind === 'after'
+      ? removeUrlFromImagePool(inc.afterImages ?? [], url)
+      : [...(inc.afterImages ?? [])]
+  const slots = removeReportImageSlotByUrl(reportImageSlots(inc), kind, url)
+  const { selectedBefore, selectedAfter } = legacyRefsFromReportSlots(slots)
+  const sourcePool = kind === 'before' ? (inc.beforeImages ?? []) : (inc.afterImages ?? [])
+  const removedUrl = sourcePool.find((u) => isSamePhotoUrl(u, url)) ?? url
+  return {
+    beforeImages,
+    afterImages,
+    reportImageOrder: encodeReportImageOrder(slots),
+    selectedBefore,
+    selectedAfter,
+    slots,
+    removedUrl,
+  }
+}
+
 const SELECTED_TOKEN_PREFIX = 'token:'
 
 /**

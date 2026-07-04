@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Check, ChevronLeft, ChevronRight, ImageIcon, Loader2, Star, X } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, ImageIcon, Loader2, Star, Trash2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/primitives'
 
@@ -38,6 +38,8 @@ function ThumbnailTile({
   onSelect,
   mergeOrder,
   onOrderChange,
+  onDelete,
+  deleting,
 }: {
   url: string
   index: number
@@ -47,6 +49,8 @@ function ThumbnailTile({
   onSelect?: () => void
   mergeOrder?: number
   onOrderChange?: (order: number) => void
+  onDelete?: () => void
+  deleting?: boolean
 }) {
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState(false)
@@ -93,6 +97,28 @@ function ThumbnailTile({
           aria-pressed={selected}
         >
           <Check className="h-4 w-4" strokeWidth={3} />
+        </button>
+      ) : null}
+      {onDelete ? (
+        <button
+          type="button"
+          disabled={deleting}
+          onClick={(e) => {
+            e.stopPropagation()
+            onDelete()
+          }}
+          className={cn(
+            'absolute bottom-8 left-1.5 z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 shadow transition',
+            'border-white/90 bg-red-600/90 text-white hover:bg-red-700 disabled:opacity-60',
+          )}
+          title="Xóa ảnh"
+          aria-label={`Xóa ${title} — ảnh ${index + 1}`}
+        >
+          {deleting ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Trash2 className="h-3.5 w-3.5" />
+          )}
         </button>
       ) : null}
       {selected && mergeOrder != null ? (
@@ -185,6 +211,8 @@ function ImageSection({
   onClearAll,
   orderIndex,
   onOrderChange,
+  onDeletePhoto,
+  deletingUrl,
 }: {
   title: string
   urls: string[]
@@ -195,6 +223,8 @@ function ImageSection({
   onClearAll?: () => void
   orderIndex?: (url: string) => number | undefined
   onOrderChange?: (url: string, order: number) => void
+  onDeletePhoto?: (url: string) => void
+  deletingUrl?: string | null
 }) {
   const selected = selectedUrls ?? []
   const allSelected = urls.length > 0 && urls.every((u) => selected.includes(u))
@@ -245,6 +275,8 @@ function ImageSection({
                   ? (order) => onOrderChange(url, order)
                   : undefined
               }
+              onDelete={onDeletePhoto ? () => onDeletePhoto(url) : undefined}
+              deleting={deletingUrl === url}
             />
           ))}
         </div>
@@ -423,6 +455,9 @@ type Props = {
   hideAfter?: boolean
   /** Bật chọn ảnh để ghép báo cáo Word (nhớ ảnh đã chọn). */
   selection?: GallerySelection
+  /** Xóa từng ảnh (có hỏi xác nhận ở drawer). */
+  onDeletePhoto?: (kind: SelectionKind, url: string) => void
+  deletingUrl?: string | null
 }
 
 export function IncidentImageGallery({
@@ -433,6 +468,8 @@ export function IncidentImageGallery({
   hideBefore = false,
   hideAfter = false,
   selection,
+  onDeletePhoto,
+  deletingUrl,
 }: Props) {
   const [lightbox, setLightbox] = useState<LightboxState | null>(null)
 
@@ -483,6 +520,8 @@ export function IncidentImageGallery({
                 ? (url, order) => selection.onOrderChange!('before', url, order)
                 : undefined
             }
+            onDeletePhoto={onDeletePhoto ? (url) => onDeletePhoto('before', url) : undefined}
+            deletingUrl={deletingUrl}
           />
         ) : null}
         {!hideAfter ? (
@@ -504,6 +543,8 @@ export function IncidentImageGallery({
                 ? (url, order) => selection.onOrderChange!('after', url, order)
                 : undefined
             }
+            onDeletePhoto={onDeletePhoto ? (url) => onDeletePhoto('after', url) : undefined}
+            deletingUrl={deletingUrl}
           />
         ) : null}
       </div>

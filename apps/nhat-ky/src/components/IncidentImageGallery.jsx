@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-function ImageThumb({ url, index, title, onOpen, selected, onToggle, mergeOrder, onOrderChange }) {
+function ImageThumb({ url, index, title, onOpen, selected, onToggle, mergeOrder, onOrderChange, onDelete, deleting }) {
   const [error, setError] = useState(false);
   const [orderDraft, setOrderDraft] = useState(mergeOrder != null ? String(mergeOrder) : "");
 
@@ -34,6 +34,21 @@ function ImageThumb({ url, index, title, onOpen, selected, onToggle, mergeOrder,
           aria-pressed={selected}
         >
           {selected ? "✓" : ""}
+        </button>
+      ) : null}
+      {onDelete ? (
+        <button
+          type="button"
+          className="incident-gallery-delete"
+          disabled={deleting}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          aria-label={`Xóa ${title} — ảnh ${index + 1}`}
+          title="Xóa ảnh"
+        >
+          {deleting ? "…" : "×"}
         </button>
       ) : null}
       {selected && mergeOrder != null ? (
@@ -167,7 +182,9 @@ function ImageSection({
   onSelectAll,
   onClearAll,
   orderIndex,
-  onOrderChange
+  onOrderChange,
+  onDeletePhoto,
+  deletingUrl
 }) {
   const selected = selectedUrls ?? [];
   const allSelected = urls.length > 0 && urls.every((u) => selected.includes(u));
@@ -215,6 +232,8 @@ function ImageSection({
                   ? (order) => onOrderChange(url, order)
                   : undefined
               }
+              onDelete={onDeletePhoto ? () => onDeletePhoto(url) : undefined}
+              deleting={deletingUrl === url}
             />
           ))}
         </div>
@@ -228,7 +247,9 @@ export default function IncidentImageGallery({
   afterUrls = [],
   beforeTitle = "Hiện trạng",
   afterTitle = "Sau xử lý",
-  selection
+  selection,
+  onDeletePhoto,
+  deletingUrl
 }) {
   const [lightbox, setLightbox] = useState(null);
 
@@ -253,6 +274,8 @@ export default function IncidentImageGallery({
               ? (url, order) => selection.onOrderChange("before", url, order)
               : undefined
           }
+          onDeletePhoto={onDeletePhoto ? (url) => onDeletePhoto("before", url) : undefined}
+          deletingUrl={deletingUrl}
         />
         <ImageSection
           title={afterTitle}
@@ -268,6 +291,8 @@ export default function IncidentImageGallery({
               ? (url, order) => selection.onOrderChange("after", url, order)
               : undefined
           }
+          onDeletePhoto={onDeletePhoto ? (url) => onDeletePhoto("after", url) : undefined}
+          deletingUrl={deletingUrl}
         />
       </div>
       {lightbox && (

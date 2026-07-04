@@ -22,6 +22,7 @@ import {
   toggleReportImageSlot
 } from "../utils/incidentUtils";
 import { updateReportImageSelection } from "../services/incidentsService";
+import { removeIncidentImage } from "../services/incidentPhotoService";
 import IncidentImageGallery from "./IncidentImageGallery";
 
 function DetailField({ label, value }) {
@@ -66,25 +67,28 @@ export default function IncidentDetailDrawer({
 }) {
   const [reportSlots, setReportSlots] = useState([]);
   const [saveError, setSaveError] = useState("");
+  const [localIncident, setLocalIncident] = useState(incident);
+  const [deletingUrl, setDeletingUrl] = useState(null);
 
-  const beforeUrls = incident ? beforeConstructionImages(incident) : [];
-  const afterUrls = incident ? afterConstructionImages(incident) : [];
+  const beforeUrls = localIncident ? beforeConstructionImages(localIncident) : [];
+  const afterUrls = localIncident ? afterConstructionImages(localIncident) : [];
 
   useEffect(() => {
     if (!incident || !open) return;
+    setLocalIncident(incident);
     setReportSlots(reportImageSlots(incident));
     setSaveError("");
-  }, [incident?.id, open]);
+  }, [incident?.id, open, incident]);
 
   async function persistReportSlots(nextSlots) {
-    if (!incident || !uid) return;
+    if (!localIncident || !uid) return;
     setReportSlots(nextSlots);
     const { selectedBefore, selectedAfter } = legacyRefsFromReportSlots(nextSlots);
     const reportImageOrder = encodeReportImageOrder(nextSlots);
     try {
       await updateReportImageSelection(
         uid,
-        incident.id,
+        localIncident.id,
         reportImageOrder,
         selectedBefore,
         selectedAfter
@@ -92,36 +96,59 @@ export default function IncidentDetailDrawer({
       setSaveError("");
     } catch {
       setSaveError("Không lưu được lựa chọn ảnh.");
-      setReportSlots(reportImageSlots(incident));
+      setReportSlots(reportImageSlots(localIncident));
     }
   }
 
   function handleToggle(kind, url) {
-    if (!incident) return;
+    if (!localIncident) return;
     void persistReportSlots(toggleReportImageSlot(reportSlots, kind, url));
   }
 
   function handleSelectAll(kind) {
-    if (!incident) return;
+    if (!localIncident) return;
     const pool = kind === "before" ? beforeUrls : afterUrls;
     void persistReportSlots(selectAllReportImageSlots(reportSlots, kind, pool));
   }
 
   function handleClearAll(kind) {
-    if (!incident) return;
+    if (!localIncident) return;
     void persistReportSlots(clearReportImageSlots(reportSlots, kind));
   }
 
   function handleOrderChange(kind, url, order) {
-    if (!incident) return;
+    if (!localIncident) return;
     void persistReportSlots(assignReportSlotOrder(reportSlots, kind, url, order));
   }
 
-  if (!open || !incident) return null;
+  async function handleDeletePhoto(kind, url) {
+    if (!localIncident || !uid) return;
+    if (!window.confirm("Bạn có chắc muốn xóa ảnh này không?")) return;
+    setDeletingUrl(url);
+    setSaveError("");
+    try {
+      const patch = await removeIncidentImage(uid, localIncident.id, localIncident, kind, url);
+      setLocalIncident({
+        ...localIncident,
+        beforeImages: patch.beforeImages,
+        afterImages: patch.afterImages,
+        reportImageOrder: patch.reportImageOrder,
+        selectedBefore: patch.selectedBefore,
+        selectedAfter: patch.selectedAfter
+      });
+      setReportSlots(patch.slots);
+    } catch {
+      setSaveError("Không xóa được ảnh.");
+    } finally {
+      setDeletingUrl(null);
+    }
+  }
 
-  const vol = computeKhoiLuong(incident);
-  const volUnit = formatIncidentUnit(incident);
-  const status = incident.status ?? statusFromProgress(incident.progress);
+  if (!open || !incident || !localIncident) return null;
+
+  const vol = computeKhoiLuong(localIncident);
+  const volUnit = formatIncidentUnit(localIncident);
+  const status = localIncident.status ?? statusFromProgress(localIncident.progress);
 
   return (
     <div className="incident-drawer-overlay" onClick={onClose}>
@@ -134,7 +161,7 @@ export default function IncidentDetailDrawer({
       >
         <div className="incident-drawer-head">
           <h3 id="incident-drawer-title">
-            {incident.road || "—"} · {incident.km || "—"} · {incident.type || "—"}
+            {localIncident.road || "—"} · {localIncident.km || "—"} · {localIncident.type || "—"}
           </h3>
           <button type="button" className="incident-drawer-close" onClick={onClose} aria-label="Đóng">
             ×
@@ -143,21 +170,21 @@ export default function IncidentDetailDrawer({
 
         <div className="incident-drawer-body">
           <div className="incident-drawer-grid">
-            <DetailField label="Tuyến:" value={incident.road} />
-            <DetailField label="Lý trình:" value={incident.km} />
-            <DetailField label="Phía:" value={positionLabel(incident.position)} />
-            <DetailField label="Loại:" value={incident.type} />
-            <DetailField label="Nhóm:" value={incident.groupName} />
-            <DetailField label="Kích thước:" value={formatIncidentSize(incident)} />
+            <DetailField label="Tuyến:" value={localIncident.road} />
+            <DetailField label="Lý trình:" value={localIncident.km} />
+            <DetailField label="Phía:" value={positionLabel(localIncident.position)} />
+            <DetailField label="Loại:" value={localIncident.type} />
+            <DetailField label="Nhóm:" value={localIncident.groupName} />
+            <DetailField label="Kích thước:" value={formatIncidentSize(localIncident)} />
             <DetailField
               label="Khối lượng:"
-              value={vol > 0 ? `${formatKhoiLuong(incident)} ${volUnit !== "—" ? volUnit : ""}`.trim() : "—"}
+              value={vol > 0 ? `${formatKhoiLuong(localIncident)} ${volUnit !== "—" ? volUnit : ""}`.trim() : "—"}
             />
-            <DetailField label="Tiến độ:" value={progressLabelPct(incident.progress)} />
+            <DetailField label="Tiến độ:" value={progressLabelPct(localIncident.progress)} />
             <DetailField label="Trạng thái:" value={statusLabel(status)} />
-            <DetailField label="Người tạo:" value={incident.createdByName} />
-            <DetailField label="Ngày xảy ra:" value={incident.date} />
-            <DetailField label="Ngày hoàn thành:" value={incident.completedDate} />
+            <DetailField label="Người tạo:" value={localIncident.createdByName} />
+            <DetailField label="Ngày xảy ra:" value={localIncident.date} />
+            <DetailField label="Ngày hoàn thành:" value={localIncident.completedDate} />
           </div>
 
           {(importNote || suggestedSection) && (
@@ -175,16 +202,16 @@ export default function IncidentDetailDrawer({
             </div>
           )}
 
-          {incident.note && (
+          {localIncident.note && (
             <p className="incident-drawer-note">
-              <span className="incident-drawer-label">Ghi chú:</span> {incident.note}
+              <span className="incident-drawer-label">Ghi chú:</span> {localIncident.note}
             </p>
           )}
 
           <p className="incident-drawer-muted incident-drawer-photo-hint">
             Bấm <span className="incident-drawer-hint-strong">✓</span> chọn ảnh, điền{" "}
             <span className="incident-drawer-hint-strong">STT</span> ở ô dưới mỗi ảnh (HT / XL xen kẽ
-            tùy STT).
+            tùy STT). Bấm <span className="incident-drawer-hint-strong">×</span> để xóa ảnh.
           </p>
           {saveError ? <p className="incident-drawer-error">{saveError}</p> : null}
 
@@ -208,11 +235,13 @@ export default function IncidentDetailDrawer({
                   }
                 : undefined
             }
+            onDeletePhoto={uid ? handleDeletePhoto : undefined}
+            deletingUrl={deletingUrl}
           />
 
           <div className="incident-drawer-section">
             <p className="incident-drawer-section-title">Lịch sử</p>
-            <IncidentTimeline incident={incident} />
+            <IncidentTimeline incident={localIncident} />
           </div>
         </div>
       </div>

@@ -1190,6 +1190,39 @@ h1, h2 {
   background: #f59e0b;
 }
 
+.incident-gallery-delete {
+  position: absolute;
+  left: 6px;
+  bottom: 28px;
+  z-index: 2;
+  min-width: 32px;
+  min-height: 32px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  background: rgba(229, 57, 53, 0.92);
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.incident-gallery-delete:hover:not(:disabled) {
+  background: #c62828;
+}
+
+.incident-gallery-delete:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
 .incident-gallery-order-badge {
   position: absolute;
   top: 6px;

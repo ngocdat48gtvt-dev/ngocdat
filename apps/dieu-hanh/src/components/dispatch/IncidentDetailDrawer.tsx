@@ -23,6 +23,7 @@ import {
   type ReportImageSlot,
 } from '@/lib/incidentUtils'
 import { updateReportImageSelection } from '@/services/incidentsService'
+import { removeIncidentImage } from '@/services/incidentPhotoService'
 import {
   canAssignRework,
   getIncidentRework,
@@ -49,25 +50,28 @@ export function IncidentDetailDrawer({
   const { user, profile } = useAuth()
   const [assignOpen, setAssignOpen] = useState(false)
   const [reportSlots, setReportSlots] = useState<ReportImageSlot[]>([])
+  const [localIncident, setLocalIncident] = useState(incident)
+  const [deletingUrl, setDeletingUrl] = useState<string | null>(null)
 
-  const beforeUrls = incident ? beforeConstructionImages(incident) : []
-  const afterUrls = incident ? afterConstructionImages(incident) : []
+  const beforeUrls = localIncident ? beforeConstructionImages(localIncident) : []
+  const afterUrls = localIncident ? afterConstructionImages(localIncident) : []
 
   useEffect(() => {
     if (!incident || !open) return
+    setLocalIncident(incident)
     setReportSlots(reportImageSlots(incident))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incident?.id, open])
+  }, [incident?.id, open, incident])
 
   async function persistReportSlots(nextSlots: ReportImageSlot[]) {
-    if (!incident) return
+    if (!localIncident) return
     setReportSlots(nextSlots)
     const { selectedBefore, selectedAfter } = legacyRefsFromReportSlots(nextSlots)
     const reportImageOrder = encodeReportImageOrder(nextSlots)
     try {
       await updateReportImageSelection(
-        incident.ownerUid,
-        incident.id,
+        localIncident.ownerUid,
+        localIncident.id,
         reportImageOrder,
         selectedBefore,
         selectedAfter,
@@ -75,47 +79,78 @@ export function IncidentDetailDrawer({
       toast.success('Đã cập nhật thứ tự ảnh cho báo cáo Word')
     } catch {
       toast.error('Không lưu được lựa chọn ảnh')
-      setReportSlots(reportImageSlots(incident))
+      setReportSlots(reportImageSlots(localIncident))
     }
   }
 
   function handleTogglePhoto(kind: 'before' | 'after', url: string) {
-    if (!incident) return
+    if (!localIncident) return
     void persistReportSlots(toggleReportImageSlot(reportSlots, kind, url))
   }
 
   function handleSelectAll(kind: 'before' | 'after') {
-    if (!incident) return
+    if (!localIncident) return
     const pool = kind === 'before' ? beforeUrls : afterUrls
     void persistReportSlots(selectAllReportImageSlots(reportSlots, kind, pool))
   }
 
   function handleClearAll(kind: 'before' | 'after') {
-    if (!incident) return
+    if (!localIncident) return
     void persistReportSlots(clearReportImageSlots(reportSlots, kind))
   }
 
   function handleOrderChange(kind: 'before' | 'after', url: string, order: number) {
-    if (!incident) return
+    if (!localIncident) return
     void persistReportSlots(assignReportSlotOrder(reportSlots, kind, url, order))
   }
 
-  if (!incident) return null
+  async function handleDeletePhoto(kind: 'before' | 'after', url: string) {
+    if (!localIncident || !user) return
+    if (!window.confirm('Bạn có chắc muốn xóa ảnh này không?')) return
+    setDeletingUrl(url)
+    try {
+      const patch = await removeIncidentImage(
+        localIncident.ownerUid,
+        localIncident.id,
+        localIncident,
+        kind,
+        url,
+      )
+      setLocalIncident({
+        ...localIncident,
+        beforeImages: patch.beforeImages,
+        afterImages: patch.afterImages,
+        reportImageOrder: patch.reportImageOrder,
+        selectedBefore: patch.selectedBefore,
+        selectedAfter: patch.selectedAfter,
+      })
+      setReportSlots(patch.slots)
+      toast.success('Đã xóa ảnh')
+      reload()
+    } catch {
+      toast.error('Không xóa được ảnh')
+    } finally {
+      setDeletingUrl(null)
+    }
+  }
 
-  const vol = computeKhoiLuong(incident)
-  const volUnit = incident.unit?.trim() || 'm³'
-  const creator = creatorLabel(incident.ownerUid, incident.createdByName)
-  const status = incident.status ?? statusFromProgress(incident.progress)
-  const rw = getIncidentRework(incident)
+  if (!localIncident) return null
+
+  const incidentView = localIncident
+  const vol = computeKhoiLuong(incidentView)
+  const volUnit = incidentView.unit?.trim() || 'm³'
+  const creator = creatorLabel(incidentView.ownerUid, incidentView.createdByName)
+  const status = incidentView.status ?? statusFromProgress(incidentView.progress)
+  const rw = getIncidentRework(incidentView)
   const size =
-    incident.dai || incident.rong || incident.cao
-      ? `${incident.dai ?? 0} × ${incident.rong ?? 0} × ${incident.cao ?? 0} ${incident.unit ?? ''}`
+    incidentView.dai || incidentView.rong || incidentView.cao
+      ? `${incidentView.dai ?? 0} × ${incidentView.rong ?? 0} × ${incidentView.cao ?? 0} ${incidentView.unit ?? ''}`
       : '—'
 
   const assignedBy =
     profile?.displayName?.trim() || user?.email?.trim() || 'Admin'
 
-  const showAssignButton = isCompanyAdmin && canAssignRework(incident)
+  const showAssignButton = isCompanyAdmin && canAssignRework(incidentView)
   const submissionUrls = rw.submissionImages
 
   return (
@@ -123,7 +158,7 @@ export function IncidentDetailDrawer({
       <Dialog
         open={open}
         onClose={onClose}
-        title={`${incident.road ?? '—'} · ${incident.km ?? '—'}`}
+        title={`${incidentView.road ?? '—'} · ${incidentView.km ?? '—'}`}
         className="sm:max-w-3xl"
       >
         <div className="space-y-5 text-sm">
@@ -151,17 +186,17 @@ export function IncidentDetailDrawer({
 
           <div className="grid gap-2 sm:grid-cols-2">
             <p>
-              <span className="text-muted-foreground">Tuyến:</span> {incident.road || '—'}
+              <span className="text-muted-foreground">Tuyến:</span> {incidentView.road || '—'}
             </p>
             <p>
-              <span className="text-muted-foreground">Lý trình:</span> {incident.km || '—'}
+              <span className="text-muted-foreground">Lý trình:</span> {incidentView.km || '—'}
             </p>
             <p>
               <span className="text-muted-foreground">Phía:</span>{' '}
-              {positionLabel(incident.position)}
+              {positionLabel(incidentView.position)}
             </p>
             <p>
-              <span className="text-muted-foreground">Loại:</span> {incident.type || '—'}
+              <span className="text-muted-foreground">Loại:</span> {incidentView.type || '—'}
             </p>
             <p>
               <span className="text-muted-foreground">Kích thước:</span> {size}
@@ -172,7 +207,7 @@ export function IncidentDetailDrawer({
             </p>
             <p>
               <span className="text-muted-foreground">Tiến độ:</span>{' '}
-              {progressLabel(incident.progress)}
+              {progressLabel(incidentView.progress)}
             </p>
             <p>
               <span className="text-muted-foreground">Trạng thái:</span> {statusLabel(status)}
@@ -181,17 +216,17 @@ export function IncidentDetailDrawer({
               <span className="text-muted-foreground">{creatorFieldLabel}:</span> {creator}
             </p>
             <p>
-              <span className="text-muted-foreground">Ngày xảy ra:</span> {incident.date || '—'}
+              <span className="text-muted-foreground">Ngày xảy ra:</span> {incidentView.date || '—'}
             </p>
             <p>
               <span className="text-muted-foreground">Ngày hoàn thành:</span>{' '}
-              {incident.completedDate?.trim() || '—'}
+              {incidentView.completedDate?.trim() || '—'}
             </p>
           </div>
 
-          {incident.note ? (
+          {incidentView.note ? (
             <p>
-              <span className="text-muted-foreground">Ghi chú:</span> {incident.note}
+              <span className="text-muted-foreground">Ghi chú:</span> {incidentView.note}
             </p>
           ) : null}
 
@@ -204,7 +239,7 @@ export function IncidentDetailDrawer({
           <p className="text-xs text-muted-foreground">
             Bấm <span className="font-medium text-foreground">✓</span> chọn ảnh, điền{' '}
             <span className="font-medium text-foreground">STT</span> ở ô dưới mỗi ảnh (HT / XL xen
-            kẽ tùy STT).
+            kẽ tùy STT). Bấm biểu tượng thùng rác để xóa ảnh.
           </p>
           <IncidentImageGallery
             beforeUrls={beforeUrls}
@@ -229,6 +264,8 @@ export function IncidentDetailDrawer({
                   }
                 : undefined
             }
+            onDeletePhoto={user ? handleDeletePhoto : undefined}
+            deletingUrl={deletingUrl}
           />
 
           {submissionUrls.length > 0 ? (
@@ -245,13 +282,13 @@ export function IncidentDetailDrawer({
 
           <div>
             <p className="mb-3 font-semibold">Lịch sử</p>
-            <IncidentFullTimeline incident={incident} />
+            <IncidentFullTimeline incident={incidentView} />
           </div>
         </div>
       </Dialog>
 
       <ReworkAssignDialog
-        incident={incident}
+        incident={incidentView}
         open={assignOpen}
         onClose={() => setAssignOpen(false)}
         assignedBy={assignedBy}
