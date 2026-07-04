@@ -15,15 +15,14 @@ import {
   WidthType,
 } from 'docx'
 
-import { reportAfterImages, reportBeforeImages } from "../utils/incidentUtils";
+import { reportImageSlotsForExport } from "../utils/incidentUtils";
 import { formatKmDisplay } from "@quanlysuco/shared";
 
 const FONT = 'Times New Roman'
 
-// Kích thước ảnh (px @96dpi) — khớp WordExporter.kt: bề ngang ~342.9pt, cao tối đa 380/440pt.
 const IMG_WIDTH_PX = 457
-const IMG_MAX_HEIGHT_FIRST_PX = 507
-const IMG_MAX_HEIGHT_PX = 587
+const IMG_MAX_HEIGHT_REPORT_ROW_PX = Math.round((400 * 96) / 72)
+const IMG_MAX_HEIGHT_FULL_ROW_PX = Math.round((500 * 96) / 72)
 const RESIZE_MAX_SIDE = 1200
 const JPEG_QUALITY = 0.82
 
@@ -42,11 +41,6 @@ function isLocalHost() {
   return h === 'localhost' || h === '127.0.0.1' || h === '[::1]'
 }
 
-/**
- * Lấy blob ảnh. Ưu tiên proxy cùng origin (/api/img-proxy) để tránh CORS của
- * Firebase Storage; nếu lỗi (vd. chạy local dev không có serverless) thì thử
- * fetch trực tiếp.
- */
 async function fetchImageBlob(url) {
   const candidates = [];
   if (!isLocalHost() && typeof window !== 'undefined') {
@@ -67,11 +61,6 @@ async function fetchImageBlob(url) {
   return null
 }
 
-/**
- * Tải ảnh từ URL Firebase Storage, resize (cạnh dài ≤ 1200) và nén JPEG q82.
- * fetch → blob (object URL same-origin nên canvas không bị taint).
- * Trả về null nếu lỗi mạng/CORS — ô Word để trống.
- */
 async function prepareImage(url) {
   let objectUrl = null;
   try {
@@ -110,44 +99,41 @@ async function prepareImage(url) {
   }
 }
 
-function displaySize(img, isFirstPage) {
-  const maxHeight = isFirstPage ? IMG_MAX_HEIGHT_FIRST_PX : IMG_MAX_HEIGHT_PX
+function displaySize(img, maxHeightPx) {
   const ratio = img.height / img.width
   let width = IMG_WIDTH_PX
   let height = Math.round(width * ratio)
-  if (height > maxHeight) {
-    height = maxHeight
+  if (height > maxHeightPx) {
+    height = maxHeightPx
     width = Math.round(height / ratio)
   }
   return { width, height }
 }
 
-function imageCell(img, isFirstPage) {
-  let content;
-  if (img) {
-    const { width, height } = displaySize(img, isFirstPage)
-    content = new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { before: 0, after: 0 },
-      children: [
-        new ImageRun({
-          type: 'jpg',
-          data: img.data,
-          transformation: { width, height },
-        }),
-      ],
-    })
-  } else {
-    content = new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { before: 0, after: 0 },
-      children: [],
-    })
+function rowMaxHeightPx(rowIndex, isFirstReportPage) {
+  if (rowIndex === 0) {
+    return isFirstReportPage
+      ? Math.round((320 * 96) / 72)
+      : IMG_MAX_HEIGHT_REPORT_ROW_PX
   }
-  return new TableCell({
-    width: { size: 50, type: WidthType.PERCENTAGE },
-    verticalAlign: VerticalAlign.CENTER,
-    children: [content],
+  return IMG_MAX_HEIGHT_FULL_ROW_PX
+}
+
+function incidentHeadingRow(text) {
+  return new TableRow({
+    cantSplit: true,
+    children: [
+      new TableCell({
+        columnSpan: 2,
+        verticalAlign: VerticalAlign.TOP,
+        children: [
+          new Paragraph({
+            spacing: { before: 40, after: 40 },
+            children: [new TextRun({ text, bold: true, font: FONT, size: 26 })],
+          }),
+        ],
+      }),
+    ],
   })
 }
 
@@ -159,22 +145,38 @@ function headingParagraph(text) {
 }
 
 const CELL_BORDER = { style: BorderStyle.SINGLE, size: 4, color: '000000' }
+const NO_BORDER = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }
 
-function labelCell(text) {
-  return new TableCell({
-    width: { size: 50, type: WidthType.PERCENTAGE },
-    verticalAlign: VerticalAlign.CENTER,
-    children: [
-      new Paragraph({
-        alignment: AlignmentType.CENTER,
-        spacing: { before: 40, after: 40 },
-        children: [new TextRun({ text, bold: true, font: FONT, size: 24 })],
-      }),
-    ],
+const LABEL_BEFORE = 'Ảnh hiện trạng'
+const LABEL_AFTER = 'Ảnh sau xử lý'
+
+function makeImageTable(rows) {
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    alignment: AlignmentType.CENTER,
+    borders: {
+      top: NO_BORDER,
+      bottom: NO_BORDER,
+      left: NO_BORDER,
+      right: NO_BORDER,
+      insideHorizontal: NO_BORDER,
+      insideVertical: NO_BORDER,
+    },
+    rows,
   })
 }
 
-function makeImageTable(rows) {
+function labelParagraph(slot) {
+  const label = slot.kind === 'before' ? LABEL_BEFORE : LABEL_AFTER
+  return new Paragraph({
+    alignment: AlignmentType.CENTER,
+    spacing: { before: 20, after: 40 },
+    children: [new TextRun({ text: label, bold: true, font: FONT, size: 24 })],
+  })
+}
+
+function borderedImageTable(img, maxHeightPx) {
+  const { width, height } = displaySize(img, maxHeightPx)
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     alignment: AlignmentType.CENTER,
@@ -183,25 +185,27 @@ function makeImageTable(rows) {
       bottom: CELL_BORDER,
       left: CELL_BORDER,
       right: CELL_BORDER,
-      insideHorizontal: CELL_BORDER,
-      insideVertical: CELL_BORDER,
+      insideHorizontal: NO_BORDER,
+      insideVertical: NO_BORDER,
     },
-    rows,
-  })
-}
-
-function sectionLabelRow(text) {
-  return new TableRow({
-    children: [
-      new TableCell({
-        columnSpan: 2,
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        verticalAlign: VerticalAlign.CENTER,
+    rows: [
+      new TableRow({
         children: [
-          new Paragraph({
-            alignment: AlignmentType.CENTER,
-            spacing: { before: 60, after: 60 },
-            children: [new TextRun({ text, bold: true, font: FONT, size: 24 })],
+          new TableCell({
+            verticalAlign: VerticalAlign.CENTER,
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 0, after: 0 },
+                children: [
+                  new ImageRun({
+                    type: 'jpg',
+                    data: img.data,
+                    transformation: { width, height },
+                  }),
+                ],
+              }),
+            ],
           }),
         ],
       }),
@@ -209,54 +213,101 @@ function sectionLabelRow(text) {
   })
 }
 
-function pairRows(list) {
-  if (list.length === 0) return []
+function labeledSlotCell(slot, maxHeightPx) {
+  if (!slot) {
+    return new TableCell({
+      width: { size: 50, type: WidthType.PERCENTAGE },
+      borders: {
+        top: NO_BORDER,
+        bottom: NO_BORDER,
+        left: NO_BORDER,
+        right: NO_BORDER,
+      },
+      children: [new Paragraph({ children: [] })],
+    })
+  }
+  const children = [labelParagraph(slot)]
+  if (slot.image) {
+    children.push(borderedImageTable(slot.image, maxHeightPx))
+  }
+  return new TableCell({
+    width: { size: 50, type: WidthType.PERCENTAGE },
+    verticalAlign: VerticalAlign.TOP,
+    borders: {
+      top: NO_BORDER,
+      bottom: NO_BORDER,
+      left: NO_BORDER,
+      right: NO_BORDER,
+    },
+    children,
+  })
+}
+
+function imagePairRows(left, right, maxHeightPx) {
+  const hasImage = Boolean(left?.image || right?.image)
+  return [
+    new TableRow({
+      cantSplit: hasImage,
+      children: [
+        labeledSlotCell(left, maxHeightPx),
+        labeledSlotCell(right, maxHeightPx),
+      ],
+    }),
+  ]
+}
+
+function packPairs(slots) {
   const rows = []
-  for (let i = 0; i < list.length; i += 2) {
-    rows.push([list[i] ?? null, list[i + 1] ?? null])
+  for (let i = 0; i < slots.length; i += 2) {
+    rows.push([slots[i] ?? null, slots[i + 1] ?? null])
   }
   return rows
 }
 
-function imageTableBlocks(beforeList, afterList, isFirstPage) {
-  const beforeRows = pairRows(beforeList)
-  const afterRows = pairRows(afterList)
-  const blocks = []
-  if (beforeRows.length === 0 && afterRows.length === 0) {
-    blocks.push(
-      makeImageTable([
-        new TableRow({
-          children: [imageCell(null, isFirstPage), imageCell(null, isFirstPage)],
-        }),
-      ]),
-    )
-    return blocks
-  }
-  if (beforeRows.length > 0) {
-    const rows = [sectionLabelRow('Ảnh hiện trạng')]
-    for (const [left, right] of beforeRows) {
-      rows.push(
-        new TableRow({
-          children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
-        }),
-      )
+function buildSlotRowsFromOrdered(slots) {
+  if (slots.length === 0) return []
+  return packPairs(slots)
+}
+
+function imageTableBlocks(orderedSlots, isFirstReportPage, incidentHeading) {
+  const rows = buildSlotRowsFromOrdered(orderedSlots)
+  const breakFromRow = orderedSlots.length >= 3 ? 1 : null
+  if (rows.length === 0) {
+    const h = rowMaxHeightPx(0, isFirstReportPage)
+    const tableRows = []
+    if (incidentHeading?.trim()) {
+      tableRows.push(incidentHeadingRow(incidentHeading.trim()))
     }
-    blocks.push(makeImageTable(rows))
+    tableRows.push(...imagePairRows(null, null, h))
+    return [makeImageTable(tableRows)]
   }
-  if (afterRows.length > 0) {
-    if (beforeRows.length > 0) {
+
+  const blocks = []
+  let tableRows = []
+  let headingPending = incidentHeading?.trim() ?? ''
+
+  const flushTable = () => {
+    if (tableRows.length === 0 && !headingPending) return
+    const out = []
+    if (headingPending) {
+      out.push(incidentHeadingRow(headingPending))
+      headingPending = ''
+    }
+    out.push(...tableRows)
+    blocks.push(makeImageTable(out))
+    tableRows = []
+  }
+
+  for (let i = 0; i < rows.length; i++) {
+    if (breakFromRow !== null && i >= breakFromRow && tableRows.length > 0) {
+      flushTable()
       blocks.push(new Paragraph({ children: [new PageBreak()] }))
     }
-    const rows = [sectionLabelRow('Ảnh sau xử lý')]
-    for (const [left, right] of afterRows) {
-      rows.push(
-        new TableRow({
-          children: [imageCell(left, isFirstPage), imageCell(right, isFirstPage)],
-        }),
-      )
-    }
-    blocks.push(makeImageTable(rows))
+    const rowHeight = rowMaxHeightPx(i, isFirstReportPage)
+    const [left, right] = rows[i]
+    tableRows.push(...imagePairRows(left, right, rowHeight))
   }
+  flushTable()
   return blocks
 }
 
@@ -288,7 +339,7 @@ function titleBlock(options) {
 }
 
 /**
- * Dựng file Word: hết ảnh hiện trạng (2 ảnh/hàng) rồi mới sau xử lý; không trộn HT+XL cùng hàng.
+ * Dựng file Word: xếp theo thứ tự ghép tùy biến (2 ảnh/hàng trái→phải);
  * khổ ngang A4, mỗi sự cố một trang, STT tuỳ chọn.
  */
 export async function buildIncidentWordReport(items, options, onProgress) {
@@ -300,27 +351,25 @@ export async function buildIncidentWordReport(items, options, onProgress) {
   for (let i = 0; i < items.length; i++) {
     const inc = items[i]
     const isFirstPage = i === 0
-    const beforeUrls = reportBeforeImages(inc)
-    const afterUrls = reportAfterImages(inc)
-
-    const [beforePrepared, afterPrepared] = await Promise.all([
-      Promise.all(beforeUrls.map((url) => prepareImage(url))),
-      Promise.all(afterUrls.map((url) => prepareImage(url))),
-    ])
-    for (let j = 0; j < beforeUrls.length; j++) {
-      if (beforeUrls[j] && !beforePrepared[j]) failedImages++
-    }
-    for (let j = 0; j < afterUrls.length; j++) {
-      if (afterUrls[j] && !afterPrepared[j]) failedImages++
+    const slots = reportImageSlotsForExport(inc)
+    const prepared = await Promise.all(slots.map((s) => prepareImage(s.url)))
+    const orderedSlots = slots.map((s, j) => ({
+      kind: s.kind,
+      image: prepared[j] ?? null,
+    }))
+    for (let j = 0; j < slots.length; j++) {
+      if (slots[j].url && !prepared[j]) failedImages++
     }
 
     const stt = options.showStt ? `${index}. ` : ''
     const kmText = formatKmDisplay(inc.km) || (inc.km ?? '')
-    if (beforeUrls.length === 0 && afterUrls.length === 0) {
-      children.push(headingParagraph(`${stt}Hoàn thiện tại ${kmText} (chưa có ảnh)`))
+    if (slots.length === 0) {
+      children.push(
+        headingParagraph(`${stt}Hoàn thiện tại ${kmText} (chưa có ảnh)`),
+      )
     } else {
-      children.push(headingParagraph(`${stt}Ảnh hoàn thiện tại ${kmText}`))
-      children.push(...imageTableBlocks(beforePrepared, afterPrepared, isFirstPage))
+      const kmHeading = `${stt}Ảnh hoàn thiện tại ${kmText}`
+      children.push(...imageTableBlocks(orderedSlots, isFirstPage, kmHeading))
     }
     index++
 
@@ -335,7 +384,6 @@ export async function buildIncidentWordReport(items, options, onProgress) {
       {
         properties: {
           page: {
-            // docx tự hoán đổi width/height khi LANDSCAPE → truyền theo khổ dọc A4.
             size: {
               orientation: PageOrientation.LANDSCAPE,
               width: 11906,

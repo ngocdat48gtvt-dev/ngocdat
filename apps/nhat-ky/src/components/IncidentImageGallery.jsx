@@ -1,10 +1,27 @@
 import { useEffect, useState } from "react";
 
-function ImageThumb({ url, index, title, onOpen, selected, onToggle }) {
+function ImageThumb({ url, index, title, onOpen, selected, onToggle, mergeOrder, onOrderChange }) {
   const [error, setError] = useState(false);
+  const [orderDraft, setOrderDraft] = useState(mergeOrder != null ? String(mergeOrder) : "");
+
+  useEffect(() => {
+    setOrderDraft(mergeOrder != null ? String(mergeOrder) : "");
+  }, [mergeOrder]);
+
+  function commitOrder() {
+    if (!onOrderChange) return;
+    const n = parseInt(orderDraft, 10);
+    if (!Number.isFinite(n) || n < 1) {
+      setOrderDraft(mergeOrder != null ? String(mergeOrder) : "1");
+      return;
+    }
+    onOrderChange(n);
+  }
 
   return (
-    <div className={`incident-gallery-thumb-wrap${selected ? " incident-gallery-thumb-wrap--selected" : ""}`}>
+    <div
+      className={`incident-gallery-thumb-wrap${selected ? " incident-gallery-thumb-wrap--selected" : ""}`}
+    >
       {onToggle ? (
         <button
           type="button"
@@ -18,6 +35,11 @@ function ImageThumb({ url, index, title, onOpen, selected, onToggle }) {
         >
           {selected ? "✓" : ""}
         </button>
+      ) : null}
+      {selected && mergeOrder != null ? (
+        <span className="incident-gallery-order-badge" aria-hidden="true">
+          {mergeOrder}
+        </span>
       ) : null}
       <button
         type="button"
@@ -39,6 +61,31 @@ function ImageThumb({ url, index, title, onOpen, selected, onToggle }) {
           <span className="incident-gallery-thumb-label">Ảnh {index + 1}</span>
         </div>
       </button>
+      {selected && onOrderChange ? (
+        <div className="incident-gallery-order-row" onClick={(e) => e.stopPropagation()}>
+          <label className="incident-gallery-order-label" htmlFor={`stt-${url.slice(-12)}-${index}`}>
+            STT
+          </label>
+          <input
+            id={`stt-${url.slice(-12)}-${index}`}
+            type="number"
+            min={1}
+            inputMode="numeric"
+            className="incident-gallery-order-input"
+            value={orderDraft}
+            onChange={(e) => setOrderDraft(e.target.value)}
+            onBlur={commitOrder}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commitOrder();
+                e.target.blur();
+              }
+            }}
+            aria-label="Số thứ tự ghép Word"
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -118,7 +165,9 @@ function ImageSection({
   selectedUrls,
   onToggle,
   onSelectAll,
-  onClearAll
+  onClearAll,
+  orderIndex,
+  onOrderChange
 }) {
   const selected = selectedUrls ?? [];
   const allSelected = urls.length > 0 && urls.every((u) => selected.includes(u));
@@ -132,7 +181,11 @@ function ImageSection({
         </p>
         {onSelectAll && urls.length > 0 ? (
           <div className="incident-gallery-actions">
-            <button type="button" className="incident-gallery-select-all" onClick={allSelected ? onClearAll : onSelectAll}>
+            <button
+              type="button"
+              className="incident-gallery-select-all"
+              onClick={allSelected ? onClearAll : onSelectAll}
+            >
               {allSelected ? "Bỏ chọn tất" : "Chọn tất"}
             </button>
             {selected.length > 0 ? (
@@ -156,6 +209,12 @@ function ImageSection({
               onOpen={() => onOpen(index)}
               selected={selected.includes(url)}
               onToggle={onToggle ? () => onToggle(url) : undefined}
+              mergeOrder={orderIndex?.(url)}
+              onOrderChange={
+                onOrderChange && selected.includes(url)
+                  ? (order) => onOrderChange(url, order)
+                  : undefined
+              }
             />
           ))}
         </div>
@@ -188,6 +247,12 @@ export default function IncidentImageGallery({
           onToggle={selection ? (url) => selection.onToggle("before", url) : undefined}
           onSelectAll={selection ? () => selection.onSelectAll("before") : undefined}
           onClearAll={selection ? () => selection.onClearAll("before") : undefined}
+          orderIndex={selection?.orderIndex ? (url) => selection.orderIndex("before", url) : undefined}
+          onOrderChange={
+            selection?.onOrderChange
+              ? (url, order) => selection.onOrderChange("before", url, order)
+              : undefined
+          }
         />
         <ImageSection
           title={afterTitle}
@@ -197,6 +262,12 @@ export default function IncidentImageGallery({
           onToggle={selection ? (url) => selection.onToggle("after", url) : undefined}
           onSelectAll={selection ? () => selection.onSelectAll("after") : undefined}
           onClearAll={selection ? () => selection.onClearAll("after") : undefined}
+          orderIndex={selection?.orderIndex ? (url) => selection.orderIndex("after", url) : undefined}
+          onOrderChange={
+            selection?.onOrderChange
+              ? (url, order) => selection.onOrderChange("after", url, order)
+              : undefined
+          }
         />
       </div>
       {lightbox && (

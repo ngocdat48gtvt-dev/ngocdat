@@ -15,7 +15,7 @@
   WidthType,
 } from 'docx'
 import type { IncidentRecord } from '@/types/incident'
-import { reportImageSlots } from '@/lib/incidentUtils'
+import { reportImageSlotsForExport } from '@/lib/incidentUtils'
 import { formatKmDisplay } from '@quanlysuco/shared'
 
 const FONT = 'Times New Roman'
@@ -141,18 +141,31 @@ function displaySize(img: PreparedImage, maxHeightPx: number): { width: number; 
   return { width, height }
 }
 
-function rowMaxHeightPx(
-  rowIndex: number,
-  breakBeforeRow: number | null,
-  isFirstReportPage: boolean,
-): number {
-  if (breakBeforeRow !== null && rowIndex >= breakBeforeRow) {
-    return IMG_MAX_HEIGHT_FULL_ROW_PX
-  }
-  if (rowIndex === 0 && isFirstReportPage) {
-    return IMG_MAX_HEIGHT_REPORT_ROW_PX
+function rowMaxHeightPx(rowIndex: number, isFirstReportPage: boolean): number {
+  if (rowIndex === 0) {
+    return isFirstReportPage
+      ? Math.round((320 * 96) / 72)
+      : IMG_MAX_HEIGHT_REPORT_ROW_PX
   }
   return IMG_MAX_HEIGHT_FULL_ROW_PX
+}
+
+function incidentHeadingRow(text: string): TableRow {
+  return new TableRow({
+    cantSplit: true,
+    children: [
+      new TableCell({
+        columnSpan: 2,
+        verticalAlign: VerticalAlign.TOP,
+        children: [
+          new Paragraph({
+            spacing: { before: 40, after: 40 },
+            children: [new TextRun({ text, bold: true, font: FONT, size: 26 })],
+          }),
+        ],
+      }),
+    ],
+  })
 }
 
 function headingParagraph(text: string): Paragraph {
@@ -292,55 +305,54 @@ function packPairs(slots: LabeledSlot[]): [LabeledSlot | null, LabeledSlot | nul
 /** Xếp theo thứ tự ghép tùy biến — 2 ô/hàng trái→phải. */
 function buildSlotRowsFromOrdered(
   slots: LabeledSlot[],
-): { rows: [LabeledSlot | null, LabeledSlot | null][]; breakBeforeRow: number | null } {
-  if (slots.length === 0) {
-    return { rows: [], breakBeforeRow: null }
-  }
-
-  if (
-    slots.length === 3 &&
-    slots[0].kind === 'before' &&
-    slots[1].kind === 'before' &&
-    slots[2].kind === 'after'
-  ) {
-    return {
-      rows: [
-        [slots[0], slots[1]],
-        [slots[2], null],
-      ],
-      breakBeforeRow: 1,
-    }
-  }
-
-  return { rows: packPairs(slots), breakBeforeRow: null }
+): [LabeledSlot | null, LabeledSlot | null][] {
+  if (slots.length === 0) return []
+  return packPairs(slots)
 }
 
 function imageTableBlocks(
   orderedSlots: LabeledSlot[],
   isFirstReportPage: boolean,
+  incidentHeading?: string,
 ): (Paragraph | Table)[] {
-  const { rows, breakBeforeRow } = buildSlotRowsFromOrdered(orderedSlots)
+  const rows = buildSlotRowsFromOrdered(orderedSlots)
+  const breakFromRow = orderedSlots.length >= 3 ? 1 : null
   if (rows.length === 0) {
-    const h = rowMaxHeightPx(0, null, isFirstReportPage)
-    return [makeImageTable(imagePairRows(null, null, h))]
+    const h = rowMaxHeightPx(0, isFirstReportPage)
+    const tableRows: TableRow[] = []
+    if (incidentHeading?.trim()) {
+      tableRows.push(incidentHeadingRow(incidentHeading.trim()))
+    }
+    tableRows.push(...imagePairRows(null, null, h))
+    return [makeImageTable(tableRows)]
   }
 
   const blocks: (Paragraph | Table)[] = []
   let tableRows: TableRow[] = []
+  let headingPending = incidentHeading?.trim() ?? ''
+
+  const flushTable = () => {
+    if (tableRows.length === 0 && !headingPending) return
+    const out: TableRow[] = []
+    if (headingPending) {
+      out.push(incidentHeadingRow(headingPending))
+      headingPending = ''
+    }
+    out.push(...tableRows)
+    blocks.push(makeImageTable(out))
+    tableRows = []
+  }
 
   for (let i = 0; i < rows.length; i++) {
-    if (breakBeforeRow === i && tableRows.length > 0) {
-      blocks.push(makeImageTable(tableRows))
+    if (breakFromRow !== null && i >= breakFromRow && tableRows.length > 0) {
+      flushTable()
       blocks.push(new Paragraph({ children: [new PageBreak()] }))
-      tableRows = []
     }
-    const rowHeight = rowMaxHeightPx(i, breakBeforeRow, isFirstReportPage)
+    const rowHeight = rowMaxHeightPx(i, isFirstReportPage)
     const [left, right] = rows[i]
     tableRows.push(...imagePairRows(left, right, rowHeight))
   }
-  if (tableRows.length > 0) {
-    blocks.push(makeImageTable(tableRows))
-  }
+  flushTable()
   return blocks
 }
 
@@ -388,7 +400,7 @@ export async function buildIncidentWordReport(
   for (let i = 0; i < items.length; i++) {
     const inc = items[i]
     const isFirstPage = i === 0
-    const slots = reportImageSlots(inc)
+    const slots = reportImageSlotsForExport(inc)
     const prepared = await Promise.all(slots.map((s) => prepareImage(s.url)))
     const orderedSlots: LabeledSlot[] = slots.map((s, j) => ({
       kind: s.kind,
@@ -405,8 +417,8 @@ export async function buildIncidentWordReport(
         headingParagraph(`${stt}Ho\u00E0n thi\u1EC7n t\u1EA1i ${kmText} (ch\u01B0a c\u00F3 \u1EA3nh)`),
       )
     } else {
-      children.push(headingParagraph(`${stt}\u1EA2nh ho\u00E0n thi\u1EC7n t\u1EA1i ${kmText}`))
-      children.push(...imageTableBlocks(orderedSlots, isFirstPage))
+      const kmHeading = `${stt}\u1EA2nh ho\u00E0n thi\u1EC7n t\u1EA1i ${kmText}`
+      children.push(...imageTableBlocks(orderedSlots, isFirstPage, kmHeading))
     }
     index++
 

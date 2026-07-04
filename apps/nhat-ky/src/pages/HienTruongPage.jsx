@@ -41,6 +41,7 @@ import HienTruongResizableTh from "../components/HienTruongResizableTh";
 import { IconEye, IconPencil, IconTrash } from "../components/HienTruongActionIcons";
 import { HIEN_TRUONG_DISPATCH_COLS, useHienTruongDispatchColWidths } from "../hooks/useHienTruongDispatchColWidths";
 import WordExportDialog from "../components/WordExportDialog";
+import RecoverPhotosModal from "../components/RecoverPhotosModal";
 
 const EMPTY_FILTERS = {
   road: "",
@@ -71,6 +72,7 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
   const [wordOpen, setWordOpen] = useState(false);
   const [formState, setFormState] = useState({ open: false, mode: "edit", incident: null });
   const [showTrash, setShowTrash] = useState(false);
+  const [recoverOpen, setRecoverOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const { widths, tableWidth, startColumnResize } = useHienTruongDispatchColWidths();
 
@@ -263,6 +265,26 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
     }
   }
 
+  function handleRecoverDone({ recovered, cancelled, error }) {
+    if (error) {
+      setImportMessage(`Lỗi khôi phục ảnh: ${error}`);
+      return;
+    }
+    if (cancelled) {
+      setImportMessage(
+        recovered > 0
+          ? `Đã dừng. Đã bổ sung ảnh cho ${recovered} sự cố.`
+          : "Đã dừng khôi phục ảnh."
+      );
+      return;
+    }
+    setImportMessage(
+      recovered > 0
+        ? `Đã bổ sung ảnh cho ${recovered} sự cố. Danh sách sẽ cập nhật tự động.`
+        : "Không tìm thấy ảnh thiếu để khôi phục."
+    );
+  }
+
   function openDetail(inc) {
     setDetailIncident(inc);
     setDetailOpen(true);
@@ -341,6 +363,14 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
           </button>
           <button type="button" className="btn-secondary btn-primary--compact" onClick={() => setShowTrash(true)}>
             Thùng rác
+          </button>
+          <button
+            type="button"
+            className="btn-secondary btn-primary--compact hientruong-recover-btn"
+            onClick={() => setRecoverOpen(true)}
+            title="Quét Storage, bổ sung ảnh thiếu trên Firestore"
+          >
+            Khôi phục ảnh cloud
           </button>
           <button
             type="button"
@@ -592,6 +622,14 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
       <IncidentTrashModal open={showTrash} uid={profile?.uid} onClose={() => setShowTrash(false)} onChanged={() => void reload()} />
 
       <WordExportDialog open={wordOpen} onClose={() => setWordOpen(false)} items={filtered} filters={filters} />
+
+      <RecoverPhotosModal
+        open={recoverOpen}
+        uid={profile?.uid}
+        incidents={items}
+        onClose={() => setRecoverOpen(false)}
+        onDone={handleRecoverDone}
+      />
     </div>
   );
 }

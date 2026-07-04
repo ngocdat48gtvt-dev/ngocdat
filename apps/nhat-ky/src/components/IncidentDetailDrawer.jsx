@@ -1,23 +1,27 @@
 import { useEffect, useState } from "react";
 import {
   afterConstructionImages,
+  assignReportSlotOrder,
   beforeConstructionImages,
   buildIncidentTimelineEvents,
+  clearReportImageSlots,
   computeKhoiLuong,
+  encodeReportImageOrder,
   formatIncidentSize,
   formatIncidentUnit,
   formatKhoiLuong,
   formatTimelineDate,
+  legacyRefsFromReportSlots,
   positionLabel,
   progressLabelPct,
-  resolveSelectedImageUrls,
-  selectAllImageRefs,
+  reportImageSlots,
+  reportSlotOrderIndex,
+  selectAllReportImageSlots,
   statusFromProgress,
   statusLabel,
-  toggleSelectedImageRef,
-  joinSelectedImageRefs
+  toggleReportImageSlot
 } from "../utils/incidentUtils";
-import { updateSelectedReportPhoto } from "../services/incidentsService";
+import { updateReportImageSelection } from "../services/incidentsService";
 import IncidentImageGallery from "./IncidentImageGallery";
 
 function DetailField({ label, value }) {
@@ -60,8 +64,7 @@ export default function IncidentDetailDrawer({
   importNote = "",
   suggestedSection = ""
 }) {
-  const [selBefore, setSelBefore] = useState([]);
-  const [selAfter, setSelAfter] = useState([]);
+  const [reportSlots, setReportSlots] = useState([]);
   const [saveError, setSaveError] = useState("");
 
   const beforeUrls = incident ? beforeConstructionImages(incident) : [];
@@ -69,54 +72,49 @@ export default function IncidentDetailDrawer({
 
   useEffect(() => {
     if (!incident || !open) return;
-    setSelBefore(resolveSelectedImageUrls(beforeUrls, incident.selectedBefore));
-    setSelAfter(resolveSelectedImageUrls(afterUrls, incident.selectedAfter));
+    setReportSlots(reportImageSlots(incident));
     setSaveError("");
-    // Chỉ nạp lại khi mở drawer / đổi sự cố — khớp app Android.
   }, [incident?.id, open]);
 
-  async function persistSelection(kind, value, nextBefore, nextAfter) {
+  async function persistReportSlots(nextSlots) {
     if (!incident || !uid) return;
-    const field = kind === "before" ? "selectedBefore" : "selectedAfter";
-    if (kind === "before") setSelBefore(nextBefore);
-    else setSelAfter(nextAfter);
+    setReportSlots(nextSlots);
+    const { selectedBefore, selectedAfter } = legacyRefsFromReportSlots(nextSlots);
+    const reportImageOrder = encodeReportImageOrder(nextSlots);
     try {
-      await updateSelectedReportPhoto(uid, incident.id, field, value);
+      await updateReportImageSelection(
+        uid,
+        incident.id,
+        reportImageOrder,
+        selectedBefore,
+        selectedAfter
+      );
       setSaveError("");
     } catch {
       setSaveError("Không lưu được lựa chọn ảnh.");
-      setSelBefore(resolveSelectedImageUrls(beforeUrls, incident.selectedBefore));
-      setSelAfter(resolveSelectedImageUrls(afterUrls, incident.selectedAfter));
+      setReportSlots(reportImageSlots(incident));
     }
   }
 
   function handleToggle(kind, url) {
     if (!incident) return;
-    const pool = kind === "before" ? beforeUrls : afterUrls;
-    const currentRef =
-      kind === "before" ? joinSelectedImageRefs(selBefore) : joinSelectedImageRefs(selAfter);
-    const nextRef = toggleSelectedImageRef(pool, currentRef, url);
-    const nextBefore =
-      kind === "before" ? resolveSelectedImageUrls(beforeUrls, nextRef) : selBefore;
-    const nextAfter =
-      kind === "after" ? resolveSelectedImageUrls(afterUrls, nextRef) : selAfter;
-    void persistSelection(kind, nextRef, nextBefore, nextAfter);
+    void persistReportSlots(toggleReportImageSlot(reportSlots, kind, url));
   }
 
   function handleSelectAll(kind) {
     if (!incident) return;
     const pool = kind === "before" ? beforeUrls : afterUrls;
-    const nextRef = selectAllImageRefs(pool);
-    const nextBefore = kind === "before" ? pool : selBefore;
-    const nextAfter = kind === "after" ? pool : selAfter;
-    void persistSelection(kind, nextRef, nextBefore, nextAfter);
+    void persistReportSlots(selectAllReportImageSlots(reportSlots, kind, pool));
   }
 
   function handleClearAll(kind) {
     if (!incident) return;
-    const nextBefore = kind === "before" ? [] : selBefore;
-    const nextAfter = kind === "after" ? [] : selAfter;
-    void persistSelection(kind, "", nextBefore, nextAfter);
+    void persistReportSlots(clearReportImageSlots(reportSlots, kind));
+  }
+
+  function handleOrderChange(kind, url, order) {
+    if (!incident) return;
+    void persistReportSlots(assignReportSlotOrder(reportSlots, kind, url, order));
   }
 
   if (!open || !incident) return null;
@@ -184,7 +182,9 @@ export default function IncidentDetailDrawer({
           )}
 
           <p className="incident-drawer-muted incident-drawer-photo-hint">
-            Tick góc ảnh để chọn nhiều ảnh ghép Word · «Chọn tất» chọn hết ảnh trong mục Hiện trạng / Sau xử lý.
+            Bấm <span className="incident-drawer-hint-strong">✓</span> chọn ảnh, điền{" "}
+            <span className="incident-drawer-hint-strong">STT</span> ở ô dưới mỗi ảnh (HT / XL xen kẽ
+            tùy STT).
           </p>
           {saveError ? <p className="incident-drawer-error">{saveError}</p> : null}
 
@@ -194,8 +194,14 @@ export default function IncidentDetailDrawer({
             selection={
               uid
                 ? {
-                    beforeUrls: selBefore,
-                    afterUrls: selAfter,
+                    beforeUrls: reportSlots
+                      .filter((s) => s.kind === "before")
+                      .map((s) => s.url),
+                    afterUrls: reportSlots
+                      .filter((s) => s.kind === "after")
+                      .map((s) => s.url),
+                    orderIndex: (kind, url) => reportSlotOrderIndex(reportSlots, kind, url),
+                    onOrderChange: handleOrderChange,
                     onToggle: handleToggle,
                     onSelectAll: handleSelectAll,
                     onClearAll: handleClearAll

@@ -427,6 +427,37 @@ export function reportImageSlots(inc: IncidentRecord): ReportImageSlot[] {
   return [...before, ...after]
 }
 
+function hasExplicitReportSelection(inc: IncidentRecord): boolean {
+  return Boolean(
+    (inc.reportImageOrder ?? '').trim() ||
+      (inc.selectedBefore ?? '').trim() ||
+      (inc.selectedAfter ?? '').trim(),
+  )
+}
+
+/** Mặc định Word: 1 ảnh hiện trạng đầu + 1 ảnh xử lý đầu (khi chưa chọn). */
+export function defaultExportReportSlots(
+  beforePool: string[],
+  afterPool: string[],
+): ReportImageSlot[] {
+  const out: ReportImageSlot[] = []
+  if (beforePool[0]) out.push({ kind: 'before', url: beforePool[0] })
+  if (afterPool[0]) out.push({ kind: 'after', url: afterPool[0] })
+  return out
+}
+
+/** Thứ tự ghép Word khi xuất — mặc định 1 HT + 1 XL nếu người dùng chưa chọn ảnh. */
+export function reportImageSlotsForExport(inc: IncidentRecord): ReportImageSlot[] {
+  const beforePool = beforeConstructionImages(inc)
+  const afterPool = afterConstructionImages(inc)
+  if (!hasExplicitReportSelection(inc)) {
+    return defaultExportReportSlots(beforePool, afterPool)
+  }
+  const slots = reportImageSlots(inc)
+  if (slots.length > 0) return slots
+  return defaultExportReportSlots(beforePool, afterPool)
+}
+
 export function reportSlotOrderIndex(
   slots: ReportImageSlot[],
   kind: ReportImageKind,

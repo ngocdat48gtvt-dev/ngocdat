@@ -37,6 +37,7 @@ function mapCore(id, data) {
     afterImages: data.afterImages ?? [],
     selectedBefore: data.selectedBefore ?? "",
     selectedAfter: data.selectedAfter ?? "",
+    reportImageOrder: data.reportImageOrder ?? "",
     status: data.status,
     progress: data.progress ?? 0,
     updates: data.updates ?? [],
@@ -146,6 +147,7 @@ export async function createIncident(uid, input) {
     afterImages: [],
     selectedBefore: "",
     selectedAfter: "",
+    reportImageOrder: "",
     status,
     progress,
     locked: false,
@@ -215,7 +217,23 @@ export async function permanentlyDeleteIncident(uid, docId) {
   await deleteDoc(doc(db, "users", uid, "incidents", docId));
 }
 
-/** Lưu danh sách ảnh đã chọn ghép Word (nhiều URL, phân tách bằng |). */
+/** Lưu thứ tự ảnh ghép báo cáo Word (+ đồng bộ selectedBefore/selectedAfter). */
+export async function updateReportImageSelection(
+  uid,
+  docId,
+  reportImageOrder,
+  selectedBefore,
+  selectedAfter
+) {
+  await updateDoc(doc(db, "users", uid, "incidents", docId), {
+    reportImageOrder: String(reportImageOrder ?? ""),
+    selectedBefore: String(selectedBefore ?? ""),
+    selectedAfter: String(selectedAfter ?? ""),
+    updatedAt: serverTimestamp()
+  });
+}
+
+/** @deprecated dùng updateReportImageSelection */
 export async function updateSelectedReportPhoto(uid, docId, field, value) {
   await updateDoc(doc(db, "users", uid, "incidents", docId), {
     [field]: String(value ?? ""),

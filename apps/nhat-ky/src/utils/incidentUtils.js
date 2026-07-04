@@ -423,11 +423,32 @@ export function isHighVolumeM3(inc) {
   return computeVolumeM3(inc) > HIGH_VOLUME_M3_THRESHOLD;
 }
 
-export function photoToken(url) {
-  const s = String(url || "").trim();
+/**
+ * Chuẩn hoá tên ảnh để đối chiếu (port PhotoPathUtils.photoToken của app):
+ * lấy tên file (bỏ query/path), URL-decode, bỏ tiền tố timestamp 13 số,
+ * bỏ dấu tiếng Việt, lowercase, bỏ ký tự không phải chữ/số.
+ */
+export function photoToken(ref) {
+  let s = String(ref ?? "").trim();
   if (!s) return "";
-  const parts = s.split("/");
-  return parts[parts.length - 1]?.split("?")[0] ?? s;
+  s = s.split(/[?#]/)[0];
+  const slash = s.lastIndexOf("/");
+  if (slash >= 0) s = s.slice(slash + 1);
+  try {
+    s = decodeURIComponent(s);
+  } catch {
+    /* giữ nguyên nếu decode lỗi */
+  }
+  const slash2 = s.lastIndexOf("/");
+  if (slash2 >= 0) s = s.slice(slash2 + 1);
+  s = s.replace(/^\d{13}[-_]?/, "");
+  s = s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D");
+  s = s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return s;
 }
 
 export function resolveSelectedImageUrl(pool, ref) {
@@ -498,6 +519,135 @@ export function reportBeforeImage(inc) {
 export function reportAfterImage(inc) {
   const list = reportAfterImages(inc);
   return list[0] ?? null;
+}
+
+const REPORT_ORDER_BEFORE = "b";
+const REPORT_ORDER_AFTER = "a";
+
+/** Mã hoá thứ tự ghép Word: `b:url|a:url|…` (thứ tự = STT ghép). */
+export function encodeReportImageOrder(slots) {
+  return slots
+    .map((s) => `${s.kind === "before" ? REPORT_ORDER_BEFORE : REPORT_ORDER_AFTER}:${s.url}`)
+    .join("|");
+}
+
+function parseReportOrderPart(part) {
+  const trimmed = part.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith(`${REPORT_ORDER_BEFORE}:`)) {
+    return { kind: "before", ref: trimmed.slice(2) };
+  }
+  if (trimmed.startsWith(`${REPORT_ORDER_AFTER}:`)) {
+    return { kind: "after", ref: trimmed.slice(2) };
+  }
+  return null;
+}
+
+export function decodeReportImageOrder(order, beforePool, afterPool) {
+  const out = [];
+  for (const part of splitSelectedImageRefs(order)) {
+    const parsed = parseReportOrderPart(part);
+    if (!parsed) continue;
+    const pool = parsed.kind === "before" ? beforePool : afterPool;
+    const url = resolveSelectedImageUrl(pool, parsed.ref);
+    if (!url) continue;
+    if (!out.some((s) => s.kind === parsed.kind && s.url === url)) {
+      out.push({ kind: parsed.kind, url });
+    }
+  }
+  return out;
+}
+
+/** Thứ tự ghép Word — ưu tiên reportImageOrder; không có thì HT rồi XL (legacy). */
+export function reportImageSlots(inc) {
+  const beforePool = beforeConstructionImages(inc);
+  const afterPool = afterConstructionImages(inc);
+  const fromOrder = decodeReportImageOrder(inc.reportImageOrder, beforePool, afterPool);
+  if (fromOrder.length > 0) return fromOrder;
+
+  const before = reportBeforeImages(inc).map((url) => ({ kind: "before", url }));
+  const after = reportAfterImages(inc).map((url) => ({ kind: "after", url }));
+  return [...before, ...after];
+}
+
+function hasExplicitReportSelection(inc) {
+  return Boolean(
+    (inc.reportImageOrder ?? "").trim() ||
+      (inc.selectedBefore ?? "").trim() ||
+      (inc.selectedAfter ?? "").trim()
+  );
+}
+
+/** Mặc định Word: 1 ảnh hiện trạng đầu + 1 ảnh xử lý đầu (khi chưa chọn). */
+export function defaultExportReportSlots(beforePool, afterPool) {
+  const out = [];
+  if (beforePool[0]) out.push({ kind: "before", url: beforePool[0] });
+  if (afterPool[0]) out.push({ kind: "after", url: afterPool[0] });
+  return out;
+}
+
+/** Thứ tự ghép Word khi xuất — mặc định 1 HT + 1 XL nếu người dùng chưa chọn ảnh. */
+export function reportImageSlotsForExport(inc) {
+  const beforePool = beforeConstructionImages(inc);
+  const afterPool = afterConstructionImages(inc);
+  if (!hasExplicitReportSelection(inc)) {
+    return defaultExportReportSlots(beforePool, afterPool);
+  }
+  const slots = reportImageSlots(inc);
+  if (slots.length > 0) return slots;
+  return defaultExportReportSlots(beforePool, afterPool);
+}
+
+export function reportSlotOrderIndex(slots, kind, url) {
+  const idx = slots.findIndex((s) => s.kind === kind && s.url === url);
+  return idx >= 0 ? idx + 1 : undefined;
+}
+
+export function toggleReportImageSlot(slots, kind, url) {
+  const idx = slots.findIndex((s) => s.kind === kind && s.url === url);
+  if (idx >= 0) return slots.filter((_, i) => i !== idx);
+  return [...slots, { kind, url }];
+}
+
+export function selectAllReportImageSlots(slots, kind, pool) {
+  const kept = slots.filter((s) => s.kind !== kind);
+  const added = pool.map((url) => ({ kind, url }));
+  return [...kept, ...added];
+}
+
+export function clearReportImageSlots(slots, kind) {
+  return slots.filter((s) => s.kind !== kind);
+}
+
+export function moveReportImageSlot(slots, index, delta) {
+  const next = index + delta;
+  if (index < 0 || index >= slots.length || next < 0 || next >= slots.length) return slots;
+  const copy = [...slots];
+  const [item] = copy.splice(index, 1);
+  copy.splice(next, 0, item);
+  return copy;
+}
+
+/** Đặt STT ghép (1-based) cho ảnh — chèn/di chuyển trong danh sách. */
+export function assignReportSlotOrder(slots, kind, url, order) {
+  const slot = slots.find((s) => s.kind === kind && s.url === url) ?? { kind, url };
+  const without = slots.filter((s) => !(s.kind === kind && s.url === url));
+  const clamped = Math.max(1, Math.min(Math.round(order) || 1, without.length + 1));
+  const copy = [...without];
+  copy.splice(clamped - 1, 0, slot);
+  return copy;
+}
+
+/** Đồng bộ selectedBefore/selectedAfter (app Android) từ thứ tự ghép. */
+export function legacyRefsFromReportSlots(slots) {
+  return {
+    selectedBefore: joinSelectedImageRefs(
+      slots.filter((s) => s.kind === "before").map((s) => s.url)
+    ),
+    selectedAfter: joinSelectedImageRefs(
+      slots.filter((s) => s.kind === "after").map((s) => s.url)
+    )
+  };
 }
 
 export function isCompletedToday(inc) {
