@@ -2,6 +2,40 @@ import { useCallback, useEffect, useState } from 'react'
 import { Check, ChevronLeft, ChevronRight, ImageIcon, Loader2, Star, Trash2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/primitives'
+import {
+  resolveDisplayImageUrl,
+  type ImageResolveError,
+} from '@/services/imageUrlService'
+
+function errorMessage(errorKind: ImageResolveError): string {
+  if (errorKind === 'local') return 'Chỉ có trên app'
+  if (errorKind === 'auth') return 'Cần đăng nhập lại'
+  return 'Không tải được'
+}
+
+function useResolvedImageUrl(raw: string) {
+  const [displayUrl, setDisplayUrl] = useState<string | null>(null)
+  const [resolving, setResolving] = useState(true)
+  const [errorKind, setErrorKind] = useState<ImageResolveError>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setResolving(true)
+    setErrorKind(null)
+    setDisplayUrl(null)
+    void resolveDisplayImageUrl(raw).then(({ url, errorKind: kind }) => {
+      if (cancelled) return
+      setDisplayUrl(url)
+      setErrorKind(kind)
+      setResolving(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [raw])
+
+  return { displayUrl, resolving, errorKind }
+}
 
 type SelectionKind = 'before' | 'after'
 
@@ -55,6 +89,12 @@ function ThumbnailTile({
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState(false)
   const [orderDraft, setOrderDraft] = useState(String(mergeOrder ?? ''))
+  const { displayUrl, resolving, errorKind } = useResolvedImageUrl(url)
+
+  useEffect(() => {
+    setLoaded(false)
+    setError(false)
+  }, [url, displayUrl])
 
   useEffect(() => {
     setOrderDraft(mergeOrder != null ? String(mergeOrder) : '')
@@ -133,21 +173,21 @@ function ThumbnailTile({
         aria-label={`${title} — ảnh ${index + 1}`}
       >
       <div className="relative aspect-[9/16] w-full bg-muted/60">
-        {!loaded && !error ? (
+        {resolving ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
             <Loader2 className="h-6 w-6 animate-spin opacity-70" />
             <span className="text-[10px]">Đang tải…</span>
           </div>
         ) : null}
-        {error ? (
+        {!resolving && (error || errorKind || !displayUrl) ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 px-2 text-center text-muted-foreground">
             <ImageIcon className="h-8 w-8 opacity-60" strokeWidth={1.5} />
-            <span className="text-[10px]">Không tải được</span>
-            <span className="text-[10px] text-primary">Bấm thử lại</span>
+            <span className="text-[10px]">{errorMessage(errorKind)}</span>
           </div>
-        ) : (
+        ) : null}
+        {!resolving && displayUrl && !error ? (
           <img
-            src={url}
+            src={displayUrl}
             alt={`${title} ${index + 1}`}
             loading="lazy"
             decoding="async"
@@ -164,7 +204,7 @@ function ThumbnailTile({
               setLoaded(false)
             }}
           />
-        )}
+        ) : null}
         <span className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/55 to-transparent px-2 py-1.5 text-left text-[10px] font-medium text-white">
           Ảnh {index + 1}
         </span>
@@ -298,14 +338,15 @@ function ImageLightbox({
 }) {
   const { items, index } = state
   const item = items[index]
-  const url = item?.url ?? ''
+  const rawUrl = item?.url ?? ''
   const kind = item?.kind
   const title = item?.label ?? ''
   const selectedUrls = kind === 'before' ? selection?.beforeUrls : selection?.afterUrls
-  const isSelected = selectedUrls?.includes(url) ?? false
+  const isSelected = selectedUrls?.includes(rawUrl) ?? false
   const canSelect = !!selection && !!kind
   const [ready, setReady] = useState(false)
   const [error, setError] = useState(false)
+  const { displayUrl, resolving, errorKind } = useResolvedImageUrl(rawUrl)
 
   const go = useCallback(
     (delta: number) => {
@@ -318,7 +359,7 @@ function ImageLightbox({
   useEffect(() => {
     setReady(false)
     setError(false)
-  }, [url])
+  }, [rawUrl, displayUrl])
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -374,18 +415,19 @@ function ImageLightbox({
         ) : null}
 
         <div className="flex max-h-full max-w-full items-center justify-center p-2">
-          {!ready && !error ? (
+          {resolving ? (
             <div className="flex flex-col items-center gap-3 text-white/80">
               <Loader2 className="h-10 w-10 animate-spin" />
               <span className="text-sm">Đang tải…</span>
             </div>
           ) : null}
-          {error ? (
-            <p className="text-sm text-white/70">Không tải được ảnh</p>
-          ) : (
+          {!resolving && (error || errorKind || !displayUrl) ? (
+            <p className="text-sm text-white/70">{errorMessage(errorKind)}</p>
+          ) : null}
+          {!resolving && displayUrl && !error ? (
             <img
-              key={url}
-              src={url}
+              key={displayUrl}
+              src={displayUrl}
               alt=""
               className={cn(
                 'max-h-[calc(100dvh-8rem)] max-w-full object-contain transition-opacity duration-300 ease-out',
@@ -395,7 +437,7 @@ function ImageLightbox({
               onLoad={() => setReady(true)}
               onError={() => setError(true)}
             />
-          )}
+          ) : null}
         </div>
 
         {items.length > 1 ? (
@@ -417,7 +459,7 @@ function ImageLightbox({
             size="sm"
             variant={isSelected ? 'secondary' : 'default'}
             className="gap-2"
-            onClick={() => selection!.onToggle(kind!, url)}
+            onClick={() => selection!.onToggle(kind!, rawUrl)}
             aria-pressed={isSelected}
           >
             {isSelected ? (
@@ -433,7 +475,7 @@ function ImageLightbox({
         ) : null}
         <div>
           <a
-            href={url}
+            href={displayUrl || rawUrl}
             target="_blank"
             rel="noreferrer"
             className="text-xs text-white/60 underline-offset-2 hover:text-white hover:underline"

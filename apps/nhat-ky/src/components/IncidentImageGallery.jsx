@@ -1,8 +1,44 @@
 import { useEffect, useState } from "react";
+import { resolveDisplayImageUrl } from "../services/imageUrlService";
+
+function useResolvedImageUrl(raw) {
+  const [displayUrl, setDisplayUrl] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [errorKind, setErrorKind] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setErrorKind(null);
+    setDisplayUrl(null);
+    void resolveDisplayImageUrl(raw).then(({ url, errorKind: kind }) => {
+      if (cancelled) return;
+      setDisplayUrl(url);
+      setErrorKind(kind);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [raw]);
+
+  return { displayUrl, loading, errorKind };
+}
+
+function errorMessage(errorKind) {
+  if (errorKind === "local") return "Chỉ có trên app";
+  if (errorKind === "auth") return "Cần đăng nhập lại";
+  return "Không tải được";
+}
 
 function ImageThumb({ url, index, title, onOpen, selected, onToggle, mergeOrder, onOrderChange, onDelete, deleting }) {
+  const { displayUrl, loading, errorKind } = useResolvedImageUrl(url);
   const [error, setError] = useState(false);
   const [orderDraft, setOrderDraft] = useState(mergeOrder != null ? String(mergeOrder) : "");
+
+  useEffect(() => {
+    setError(false);
+  }, [url, displayUrl]);
 
   useEffect(() => {
     setOrderDraft(mergeOrder != null ? String(mergeOrder) : "");
@@ -63,11 +99,15 @@ function ImageThumb({ url, index, title, onOpen, selected, onToggle, mergeOrder,
         aria-label={`${title} — ảnh ${index + 1}`}
       >
         <div className="incident-gallery-thumb-frame">
-          {error ? (
-            <span className="incident-gallery-thumb-error">Không tải được</span>
+          {loading ? (
+            <span className="incident-gallery-thumb-loading">Đang tải…</span>
+          ) : error || errorKind || !displayUrl ? (
+            <span className="incident-gallery-thumb-error">
+              {errorMessage(errorKind)}
+            </span>
           ) : (
             <img
-              src={url}
+              src={displayUrl}
               alt={`${title} ${index + 1}`}
               loading="lazy"
               onError={() => setError(true)}
@@ -107,7 +147,8 @@ function ImageThumb({ url, index, title, onOpen, selected, onToggle, mergeOrder,
 
 function ImageLightbox({ state, onClose, onIndexChange }) {
   const { urls, index, title } = state;
-  const url = urls[index];
+  const rawUrl = urls[index];
+  const { displayUrl, loading, errorKind } = useResolvedImageUrl(rawUrl);
 
   useEffect(() => {
     function onKey(e) {
@@ -152,7 +193,13 @@ function ImageLightbox({ state, onClose, onIndexChange }) {
             ‹
           </button>
         )}
-        <img src={url} alt="" className="incident-lightbox-img" />
+        {!loading && displayUrl ? (
+          <img src={displayUrl} alt="" className="incident-lightbox-img" />
+        ) : null}
+        {loading ? <p className="incident-lightbox-status">Đang tải…</p> : null}
+        {!loading && (!displayUrl || errorKind) ? (
+          <p className="incident-lightbox-status">{errorMessage(errorKind)}</p>
+        ) : null}
         {urls.length > 1 && (
           <button
             type="button"
@@ -165,7 +212,7 @@ function ImageLightbox({ state, onClose, onIndexChange }) {
         )}
       </div>
       <div className="incident-lightbox-foot">
-        <a href={url} target="_blank" rel="noreferrer">
+        <a href={displayUrl || rawUrl} target="_blank" rel="noreferrer">
           Mở ảnh gốc
         </a>
       </div>
