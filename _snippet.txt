@@ -1,0 +1,31 @@
+ block (packPairs), rồi XL block (packPairs) — không nhét XL vào ô trống HT. */
+function buildSlotRows(
+  beforeList: (PreparedImage | null)[],
+  afterList: (PreparedImage | null)[],
+): { rows: [LabeledSlot | null, LabeledSlot | null][]; breakBeforeRow: number | null } {
+  const before: LabeledSlot[] = beforeList.map((image) => ({ kind: 'before', image }))
+  const after: LabeledSlot[] = afterList.map((image) => ({ kind: 'after', image }))
+
+  if (before.length === 0 && after.length === 0) {
+    return { rows: [], breakBeforeRow: null }
+  }
+
+  // 1 HT + 1 XL: cùng 1 hàng, cùng trang
+  if (before.length === 1 && after.length === 1) {
+    return { rows: [[before[0], after[0]]], breakBeforeRow: null }
+  }
+
+  const rows = packPairs(before)
+  let breakBeforeRow: number | null = null
+
+  if (after.length > 0) {
+    // 2 HT + 1 XL: trang 1 đủ 2 ảnh HT, ảnh sau thi công sang trang mới
+    if (before.length === 2 && after.length === 1) {
+      breakBeforeRow = rows.length
+    }
+    rows.push(...packPairs(after))
+  }
+
+  return { rows, breakBeforeRow }
+}
+

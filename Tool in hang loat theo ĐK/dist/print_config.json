@@ -1,0 +1,154 @@
+{
+    "profiles": {
+        "BBNT": {
+            "sheet_var": "PYC",
+            "cell_var": "K2",
+            "cell_check": "W2",
+            "from": "3",
+            "to": "15",
+            "roi_rac": "",
+            "printer": "pdfFactory Pro",
+            "mode_pdf": true,
+            "mapping": {
+                "BB": [
+                    "PYC",
+                    "BBNT"
+                ],
+                "BT": [
+                    "LMBT",
+                    "PYC",
+                    "BBNT"
+                ],
+                "HT": [
+                    "PYC",
+                    "HT"
+                ],
+                "3TP": [
+                    "PYC",
+                    "3TP"
+                ],
+                "4TP": [
+                    "PYC",
+                    "4TP"
+                ]
+            },
+            "autofit_map": {},
+            "hidden_mapping_sheets": [
+                "DM NT",
+                "Data",
+                "List",
+                "MMNL",
+                "XDASetPrint"
+            ],
+            "hide_mapping_columns": true,
+            "sheet_print_order": [
+                "DM NT",
+                "List",
+                "MMNL",
+                "Data",
+                "LMBT",
+                "PYC",
+                "XDASetPrint",
+                "BBNT",
+                "4TP",
+                "3TP",
+                "HT",
+                "NKTC",
+                "KL KM410",
+                "MM",
+                "VL",
+                "KL410",
+                "HM439",
+                "HM440+250",
+                "HM440+620",
+                "HM442+620",
+                "HM410+530",
+                "KL (2)",
+                "Sheet1",
+                "KL Km439+440",
+                "KL Km440+200",
+                "KL Km442+600",
+                "KL Km440+600",
+                "KL442+620",
+                "Sheet2",
+                "Lay mau ",
+                "\u0110\u1ea7u v\u00e0o"
+            ]
+        },
+        "in ho so": {
+            "sheet_var": "PYC",
+            "cell_var": "K2",
+            "cell_check": "W2",
+            "from": "3",
+            "to": "20",
+            "roi_rac": "",
+            "printer": "pdfFactory Pro",
+            "mode_pdf": true,
+            "mapping": {
+                "BB": [
+                    "PYC",
+                    "BBNT"
+                ],
+                "BT": [
+                    "LMBT",
+                    "PYC",
+                    "BBNT"
+                ],
+                "HT": [
+                    "PYC",
+                    "HT"
+                ],
+                "3TP": [
+                    "PYC",
+                    "3TP"
+                ],
+                "4TP": [
+                    "PYC",
+                    "4TP"
+                ]
+            },
+            "autofit_map": {},
+            "hidden_mapping_sheets": [
+                "DM NT",
+                "Data",
+                "List",
+                "MMNL",
+                "XDASetPrint"
+            ],
+            "hide_mapping_columns": true,
+            "sheet_print_order": [
+                "DM NT",
+                "List",
+                "MMNL",
+                "Data",
+                "LMBT",
+                "PYC",
+                "XDASetPrint",
+                "BBNT",
+                "4TP",
+                "3TP",
+                "HT",
+                "NKTC",
+                "KL KM410",
+                "MM",
+                "VL",
+                "KL410",
+                "HM439",
+                "HM440+250",
+                "HM440+620",
+                "HM442+620",
+                "HM410+530",
+                "KL (2)",
+                "Sheet1",
+                "KL Km439+440",
+                "KL Km440+200",
+                "KL Km442+600",
+                "KL Km440+600",
+                "KL442+620",
+                "Sheet2",
+                "Lay mau ",
+                "\u0110\u1ea7u v\u00e0o"
+            ]
+        }
+    }
+}

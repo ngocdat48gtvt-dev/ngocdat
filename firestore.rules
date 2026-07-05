@@ -1,0 +1,311 @@
+rules_version = '2';
+
+// =============================================================================
+// Quản lý sự cố đường bộ — Firestore Security Rules
+// =============================================================================
+//
+// Ba nhóm quyền:
+//   1. isGlobalSeller()     — Bạn (license-admin): toàn quyền users/leads/devices
+//   2. isCompanyAdmin()     — Lãnh đạo công ty (dieu-hanh-web): 1 ADMIN / companyId
+//   3. isCompanyUser()      — Hạt trưởng (app + web): USER, chỉ dữ liệu của mình
+//
+// KHÔNG dùng role ADMIN trên user doc cho seller — seller chỉ qua email bên dưới.
+//
+// Deploy: Firebase Console → Firestore → Rules, hoặc `firebase deploy --only firestore:rules`
+// Indexes: firestore.indexes.json (collection group "incidents")
+// =============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // -------------------------------------------------------------------------
+    // Helpers — xác thực
+    // -------------------------------------------------------------------------
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Người bán app (license-admin). Thêm email Gmail của bạn vào mảng.
+    function isGlobalSeller() {
+      return isSignedIn()
+        && request.auth.token.email in [
+          'ngocdat48gtvt@gmail.com'
+          // ,'email2@gmail.com'
+        ];
+    }
+
+    function authUserPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function authUserExists() {
+      return isSignedIn() && exists(authUserPath());
+    }
+
+    function authUserDoc() {
+      return get(authUserPath()).data;
+    }
+
+    function myCompanyId() {
+      return authUserDoc().companyId;
+    }
+
+    function targetUserDoc(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data;
+    }
+
+    function targetUserExists(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId));
+    }
+
+    function targetUserCompanyId(userId) {
+      return targetUserDoc(userId).companyId;
+    }
+
+    // License Android: user doc phải active
+    function licenseOk(userId) {
+      return targetUserExists(userId) && targetUserDoc(userId).active == true;
+    }
+
+    // Lãnh đạo công ty — web dieu-hanh (admin chính + admin phụ cùng companyId)
+    function isCompanyAdmin() {
+      return authUserExists()
+        && authUserDoc().active == true
+        && authUserDoc().role == 'ADMIN'
+        && myCompanyId() is string
+        && myCompanyId().size() > 0;
+    }
+
+    // ADMIN cùng công ty được sửa danh mục master_data của admin chính
+    function canCompanyAdminWriteCatalog(userId) {
+      return isCompanyAdmin()
+        && targetUserExists(userId)
+        && targetUserCompanyId(userId) == myCompanyId()
+        && targetUserDoc(userId).role == 'ADMIN';
+    }
+
+    // ADMIN cùng công ty có thể đọc profile / incidents / master_data của USER
+    function sameCompanyAsTarget(userId) {
+      return isCompanyAdmin()
+        && targetUserExists(userId)
+        && targetUserCompanyId(userId) == myCompanyId();
+    }
+
+    // USER hiện trường (app) đọc profile + danh mục của ADMIN cùng companyId
+    function sameCompanyPeer(userId) {
+      return authUserExists()
+        && licenseOk(request.auth.uid)
+        && myCompanyId() is string
+        && myCompanyId().size() > 0
+        && targetUserExists(userId)
+        && targetUserCompanyId(userId) == myCompanyId();
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers — sự cố (khóa 24h core fields)
+    // -------------------------------------------------------------------------
+
+    function incidentCoreLocked(data) {
+      return false;
+    }
+
+    function incidentCoreFieldsChanged() {
+      let r = resource.data;
+      let n = request.resource.data;
+      return ('road' in n && n.road != r.road)
+        || ('km' in n && n.km != r.km)
+        || ('groupName' in n && n.groupName != r.groupName)
+        || ('type' in n && n.type != r.type)
+        || ('dai' in n && n.dai != r.dai)
+        || ('rong' in n && n.rong != r.rong)
+        || ('cao' in n && n.cao != r.cao)
+        || ('unit' in n && n.unit != r.unit)
+        || ('date' in n && n.date != r.date);
+    }
+
+    // ADMIN đọc user cùng công ty (hỗ trợ query where companyId == …)
+    function isSameCompanyUserDoc() {
+      return isCompanyAdmin()
+        && resource.data.companyId is string
+        && resource.data.companyId.size() > 0
+        && resource.data.companyId == myCompanyId();
+    }
+
+    // Đọc incident theo đường dẫn users/{userId}/incidents/...
+    function canReadIncident(userId) {
+      return (isOwner(userId) && licenseOk(userId))
+        || isGlobalSeller()
+        || sameCompanyAsTarget(userId)
+        || incidentMatchesMyCompany();
+    }
+
+    // Ghi incident: chủ tài khoản app (hạt trưởng), license active
+    function canWriteIncident(userId) {
+      return isOwner(userId) && licenseOk(userId);
+    }
+
+    // Sự cố thuộc công ty ADMIN: có companyId khớp, hoặc chưa ghi companyId nhưng owner cùng công ty
+    function incidentBelongsToAdminCompany(data, userId) {
+      return (data.companyId is string && data.companyId.size() > 0 && data.companyId == myCompanyId())
+        || (
+          (!('companyId' in data) || data.companyId == null || data.companyId == '')
+          && targetUserCompanyId(userId) == myCompanyId()
+        );
+    }
+
+    // ADMIN công ty — sửa / xóa sự cố nhân viên cùng companyId (web điều hành)
+    function canCompanyAdminWriteIncident(userId) {
+      return isCompanyAdmin()
+        && targetUserExists(userId)
+        && targetUserCompanyId(userId) == myCompanyId()
+        && incidentBelongsToAdminCompany(resource.data, userId);
+    }
+
+    // Collection group: lọc theo companyId trên document incident
+    function incidentMatchesMyCompany() {
+      return resource.data.companyId is string
+        && resource.data.companyId.size() > 0
+        && resource.data.companyId == myCompanyId();
+    }
+
+    // -------------------------------------------------------------------------
+    // Leads (landing page → license-admin)
+    // -------------------------------------------------------------------------
+
+    function leadCreateCommonValid(d) {
+      return d.source == 'landing_page'
+        && d.name is string && d.name.size() >= 2 && d.name.size() <= 120
+        && d.phone is string && d.phone.size() >= 9 && d.phone.size() <= 20
+        && d.email is string && d.email.size() >= 5 && d.email.size() <= 120
+        && d.company is string && d.company.size() <= 120
+        && d.productId is string && d.productId.size() <= 80
+        && d.province is string && d.province.size() >= 2 && d.province.size() <= 300
+        && d.note is string && d.note.size() <= 500
+        && d.leadType is string && d.leadType.size() <= 32
+        && d.createdAt == request.time;
+    }
+
+    // Khớp website/js/main.js — đăng ký / mua (Telegram + collection leads)
+    function isValidLeadCreate() {
+      let d = request.resource.data;
+      let trialKeys = [
+        'name', 'phone', 'email', 'company', 'productId', 'province', 'note',
+        'status', 'source', 'leadType', 'createdAt',
+      ];
+      let purchaseKeys = [
+        'name', 'phone', 'email', 'company', 'productId', 'province', 'note',
+        'status', 'source', 'leadType', 'createdAt', 'amount', 'transferNote',
+      ];
+      return leadCreateCommonValid(d) && (
+        (d.keys().hasOnly(trialKeys)
+          && d.status == 'new'
+          && (d.leadType == 'trial' || d.leadType == 'consultation'))
+        || (d.keys().hasOnly(purchaseKeys)
+          && d.status == 'pending_payment'
+          && d.leadType == 'purchase'
+          && d.amount is number
+          && d.transferNote is string
+          && d.transferNote.size() <= 200)
+      );
+    }
+
+    match /leads/{leadId} {
+      allow create: if isValidLeadCreate();
+      allow read, update, delete: if isGlobalSeller();
+    }
+
+    // -------------------------------------------------------------------------
+    // users/{userId}
+    // -------------------------------------------------------------------------
+
+    match /users/{userId} {
+
+      // Đọc: chính mình | seller | ADMIN cùng companyId | USER cùng công ty (đọc ADMIN / danh mục)
+      allow read: if isOwner(userId)
+        || isGlobalSeller()
+        || sameCompanyAsTarget(userId)
+        || sameCompanyPeer(userId)
+        || isSameCompanyUserDoc();
+
+      // Tạo user doc: seller hoặc app ghi sessionId/activeDevices lần đầu
+      allow create: if isGlobalSeller()
+        || (isOwner(userId)
+          && request.resource.data.keys().hasOnly(['sessionId', 'activeDevices']));
+
+      // Sửa: seller toàn quyền; app chỉ sessionId/activeDevices (không tự đổi role/companyId)
+      allow update: if isGlobalSeller()
+        || (isOwner(userId)
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['sessionId', 'activeDevices']));
+
+      allow delete: if isGlobalSeller();
+
+      // ----- incidents -----
+      match /incidents/{docId} {
+        allow read: if canReadIncident(userId);
+
+        allow create: if canWriteIncident(userId);
+
+        allow update: if (canWriteIncident(userId)
+            && (!incidentCoreLocked(resource.data) || !incidentCoreFieldsChanged()))
+          || canCompanyAdminWriteIncident(userId);
+
+        allow delete: if canWriteIncident(userId)
+          || canCompanyAdminWriteIncident(userId);
+      }
+
+      // ----- master_data (roads, groups, types) -----
+      match /master_data/{docId} {
+        allow read: if (isOwner(userId) && licenseOk(userId))
+          || isGlobalSeller()
+          || sameCompanyAsTarget(userId)
+          || sameCompanyPeer(userId)
+          || (isCompanyAdmin() && userId == request.auth.uid);
+
+        allow write: if isGlobalSeller()
+          || (isCompanyAdmin() && userId == request.auth.uid)
+          || canCompanyAdminWriteCatalog(userId)
+          || (isOwner(userId) && licenseOk(userId));
+      }
+
+      // ----- nhat_ky_meta — web Nhật ký tuần đường (importMap), không đụng incidents -----
+      match /nhat_ky_meta/{docId} {
+        allow read, write: if isOwner(userId) && licenseOk(userId);
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Collection group: query collectionGroup('incidents') — dieu-hanh-web ADMIN
+    // Bổ sung khi filter theo incident.companyId (song song rule users/.../incidents)
+    // -------------------------------------------------------------------------
+
+    match /{path=**}/incidents/{incidentId} {
+      allow read: if isGlobalSeller()
+        || (isCompanyAdmin() && incidentMatchesMyCompany());
+      allow write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // devices — quản lý thiết bị (license-admin)
+    // -------------------------------------------------------------------------
+
+    match /devices/{deviceId} {
+      allow read, write, delete: if isGlobalSeller();
+    }
+
+    // VeBinhDo AutoCAD — licenses/{licenseKey} (machine binding)
+    match /licenses/{licenseId} {
+      allow read, write, delete: if isGlobalSeller();
+    }
+
+    // Chặn mọi collection khác
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

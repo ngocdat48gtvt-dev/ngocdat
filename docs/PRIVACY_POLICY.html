@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chính sách quyền riêng tư — Quản lý sự cố đường bộ</title>
+  <meta name="description" content="Chính sách quyền riêng tư của ứng dụng Quản lý sự cố đường bộ (Android và iOS)." />
+  <style>
+    :root { --text: #1a1a2e; --muted: #555; --accent: #1976d2; --bg: #f7f9fc; --card: #fff; }
+    * { box-sizing: border-box; }
+    body { font-family: "Segoe UI", system-ui, -apple-system, sans-serif; line-height: 1.65; color: var(--text); background: var(--bg); margin: 0; padding: 24px 16px 48px; }
+    .wrap { max-width: 720px; margin: 0 auto; background: var(--card); padding: 32px 28px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.06); }
+    h1 { font-size: 1.5rem; margin: 0 0 8px; color: var(--accent); }
+    .meta { color: var(--muted); font-size: 0.9rem; margin-bottom: 28px; }
+    h2 { font-size: 1.1rem; margin: 28px 0 12px; border-bottom: 1px solid #e8ecf0; padding-bottom: 6px; }
+    p, li { font-size: 0.95rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin: 12px 0; }
+    th, td { border: 1px solid #e0e4e8; padding: 10px 12px; text-align: left; vertical-align: top; }
+    th { background: #f0f4f8; }
+    a { color: var(--accent); }
+    footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #e8ecf0; font-size: 0.85rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <article class="wrap">
+    <h1>Chính sách quyền riêng tư</h1>
+    <p class="meta">
+      <strong>Ứng dụng:</strong> Quản lý sự cố đường bộ<br />
+      <strong>Android:</strong> com.tuanduong.quanlysuco<br />
+      <strong>iOS:</strong> com.tuanduong.quanlysuco<br />
+      <strong>Có hiệu lực:</strong> 4 tháng 7 năm 2026<br />
+      <strong>Cập nhật lần cuối:</strong> 4 tháng 7 năm 2026
+    </p>
+
+    <p>
+      Chính sách này mô tả cách ứng dụng <strong>Quản lý sự cố đường bộ</strong> (“ứng dụng”, “chúng tôi”)
+      thu thập, sử dụng, lưu trữ và bảo vệ thông tin khi bạn sử dụng trên thiết bị Android hoặc iOS.
+      Bằng việc cài đặt và sử dụng ứng dụng, bạn đồng ý với các điều khoản dưới đây.
+    </p>
+
+    <h2>1. Phạm vi áp dụng</h2>
+    <p>
+      Ứng dụng dành cho cán bộ, kỹ sư và nhân sự hiện trường được tổ chức cấp tài khoản
+      để ghi nhận, quản lý và báo cáo sự cố trên tuyến đường.
+      Ứng dụng không nhắm tới trẻ em dưới 13 tuổi và không cố ý thu thập dữ liệu từ trẻ em.
+    </p>
+
+    <h2>2. Dữ liệu chúng tôi thu thập</h2>
+    <table>
+      <thead>
+        <tr><th>Loại dữ liệu</th><th>Ví dụ</th><th>Mục đích</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Thông tin tài khoản</td>
+          <td>Địa chỉ email, mật khẩu (xử lý bởi Firebase Authentication)</td>
+          <td>Đăng nhập, xác thực license, bảo mật phiên làm việc</td>
+        </tr>
+        <tr>
+          <td>Dữ liệu sự cố</td>
+          <td>Tuyến đường, lý trình, loại sự cố, kích thước, khối lượng, ngày, ghi chú</td>
+          <td>Lưu trữ, thống kê, báo cáo công việc</td>
+        </tr>
+        <tr>
+          <td>Ảnh và tệp đính kèm</td>
+          <td>Ảnh chụp trước/sau sự cố, ảnh chọn từ thư viện</td>
+          <td>Minh chứng hiện trường; xuất báo cáo Word/Excel</td>
+        </tr>
+        <tr>
+          <td>Vị trí gần đúng</td>
+          <td>Tọa độ GPS (chỉ khi bạn cho phép)</td>
+          <td>Hiển thị thời tiết khu vực (tùy chọn)</td>
+        </tr>
+        <tr>
+          <td>Âm thanh / giọng nói</td>
+          <td>Nội dung bạn nói khi dùng tính năng nhập giọng</td>
+          <td>Điền nhanh biểu mẫu sự cố (chỉ khi bạn chủ động bật micro)</td>
+        </tr>
+        <tr>
+          <td>Thông tin thiết bị</td>
+          <td>Mã thiết bị, mã phiên đăng nhập</td>
+          <td>Giới hạn số thiết bị theo license; chống dùng chung tài khoản trái phép</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>3. Nơi lưu trữ dữ liệu</h2>
+    <ul>
+      <li><strong>Trên thiết bị của bạn:</strong> cơ sở dữ liệu cục bộ (SQLite), ảnh trong bộ nhớ ứng dụng, cache license offline (tối đa 24 giờ sau lần xác thực online gần nhất).</li>
+      <li><strong>Trên đám mây:</strong> Google Firebase (Authentication, Cloud Firestore, Cloud Storage) do đơn vị quản trị cấu hình.</li>
+    </ul>
+
+    <h2>4. Chia sẻ dữ liệu với bên thứ ba</h2>
+    <p>Chúng tôi <strong>không bán</strong> dữ liệu cá nhân của bạn. Dữ liệu có thể được xử lý bởi:</p>
+    <ul>
+      <li><strong>Google Firebase / Google Cloud</strong> — xác thực, lưu trữ và đồng bộ dữ liệu sự cố, lưu ảnh.</li>
+      <li><strong>Open-Meteo</strong> — khi bạn sử dụng tính năng thời tiết, ứng dụng có thể gửi tọa độ khu vực (không gửi email hay họ tên) để lấy dự báo thời tiết.</li>
+    </ul>
+    <p>Dữ liệu có thể được tiết lộ khi pháp luật yêu cầu hoặc để bảo vệ quyền lợi hợp pháp của tổ chức vận hành ứng dụng.</p>
+
+    <h2>5. Quyền truy cập trên thiết bị</h2>
+    <p>Ứng dụng có thể yêu cầu các quyền sau (bạn có thể từ chối hoặc thu hồi bất cứ lúc nào):</p>
+    <ul>
+      <li><strong>Internet</strong> — đăng nhập, đồng bộ cloud, kiểm tra license.</li>
+      <li><strong>Camera</strong> — chụp ảnh sự cố.</li>
+      <li><strong>Thư viện ảnh</strong> — chọn và lưu ảnh sự cố.</li>
+      <li><strong>Vị trí (khi sử dụng)</strong> — hiển thị thời tiết khu vực.</li>
+      <li><strong>Micro và nhận dạng giọng nói</strong> — nhập liệu bằng giọng nói.</li>
+    </ul>
+    <p>
+      <strong>Android:</strong> thu hồi quyền trong <em>Cài đặt → Ứng dụng → Quản lý sự cố → Quyền</em>.<br />
+      <strong>iOS:</strong> thu hồi quyền trong <em>Cài đặt → Quyền riêng tư &amp; Bảo mật</em> (Camera, Ảnh, Vị trí, Micro, Nhận dạng giọng nói).
+    </p>
+
+    <h2>6. Bảo mật</h2>
+    <p>
+      Dữ liệu truyền giữa thiết bị và máy chủ được bảo vệ bằng HTTPS/TLS.
+      Tài khoản chỉ hoạt động khi được quản trị viên kích hoạt trên hệ thống.
+      Bạn có trách nhiệm bảo mật mật khẩu và không chia sẻ tài khoản.
+    </p>
+
+    <h2>7. Thời gian lưu giữ</h2>
+    <ul>
+      <li>Dữ liệu trên cloud: theo chính sách lưu trữ của tổ chức quản trị (Firestore).</li>
+      <li>Dữ liệu trên máy: tồn tại đến khi bạn đăng xuất (xóa cơ sở dữ liệu local) hoặc gỡ cài đặt ứng dụng.</li>
+      <li>Cache license offline: tối đa 24 giờ kể từ lần xác thực online thành công.</li>
+    </ul>
+
+    <h2>8. Quyền của bạn và xóa dữ liệu</h2>
+    <ul>
+      <li>Yêu cầu truy cập, chỉnh sửa hoặc xóa dữ liệu sự cố thông qua quản trị viên tổ chức hoặc email liên hệ bên dưới.</li>
+      <li>Đăng xuất trong ứng dụng để xóa dữ liệu lưu trên thiết bị.</li>
+      <li>Gỡ cài đặt ứng dụng để xóa dữ liệu cục bộ còn lại trên thiết bị.</li>
+      <li>Yêu cầu xóa tài khoản và dữ liệu cloud bằng cách gửi email tới địa chỉ liên hệ; chúng tôi xử lý trong thời hạn hợp lý.</li>
+    </ul>
+
+    <h2>9. Thay đổi chính sách</h2>
+    <p>
+      Chúng tôi có thể cập nhật chính sách này. Phiên bản mới sẽ được đăng tại cùng địa chỉ URL
+      kèm ngày cập nhật. Việc tiếp tục sử dụng ứng dụng sau khi cập nhật được hiểu là bạn chấp nhận thay đổi.
+    </p>
+
+    <h2>10. Liên hệ</h2>
+    <p>
+      Mọi câu hỏi về quyền riêng tư, yêu cầu xóa dữ liệu hoặc tài khoản, vui lòng liên hệ:<br />
+      <strong>Đơn vị:</strong> Quản lý sự cố đường bộ<br />
+      <strong>Email:</strong> <a href="mailto:ngocdat48gtvt@gmail.com">ngocdat48gtvt@gmail.com</a>
+    </p>
+
+    <footer>
+      © 2026 Quản lý sự cố đường bộ. Ứng dụng Quản lý sự cố đường bộ — com.tuanduong.quanlysuco
+    </footer>
+  </article>
+</body>
+</html>

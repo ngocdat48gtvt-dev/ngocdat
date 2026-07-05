@@ -10,6 +10,7 @@ import SoBaoDuong from "./pages/SoBaoDuong";
 import SoTrafficDuty from "./pages/SoTrafficDuty";
 import SoTngt from "./pages/SoTngt";
 import SoHanhLang from "./pages/SoHanhLang";
+import SoDemXe from "./pages/SoDemXe";
 import HienTruongPage from "./pages/HienTruongPage";
 import ThongKeKhoiLuong from "./pages/ThongKeKhoiLuong";
 import DanhMucBaoDuong from "./pages/DanhMucBaoDuong";
@@ -98,6 +99,13 @@ function NhatKySubNav({ page, setPage }) {
       </button>
       <button
         type="button"
+        className={page === "sodemxe" ? "nav-active" : ""}
+        onClick={() => setPage("sodemxe")}
+      >
+        SỔ ĐẾM XE
+      </button>
+      <button
+        type="button"
         className={page === "thongke" ? "nav-active" : ""}
         onClick={() => setPage("thongke")}
       >
@@ -176,6 +184,7 @@ function NhatKyWorkspace({
       {page === "sohanhlang" && (
         <SoHanhLang onGoEdit={() => setPage("nhaplieu")} storageTick={storageTick} />
       )}
+      {page === "sodemxe" && <SoDemXe />}
       {page === "thongke" && <ThongKeKhoiLuong storageTick={storageTick} />}
       {page === "baoduongdata" && <DanhMucBaoDuong />}
       {page === "hosocong" && <HoSoCong />}

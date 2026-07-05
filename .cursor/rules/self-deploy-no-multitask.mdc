@@ -1,0 +1,15 @@
+---
+description: User tự deploy; agent không dùng Multitask/subagent
+alwaysApply: true
+---
+
+# Tự deploy & làm việc trực tiếp
+
+- **Deploy:** Không chạy deploy/push lên Vercel hoặc `quanlysuco.git` trừ khi user yêu cầu rõ. Sau khi sửa, đưa lệnh để user tự chạy.
+- **Git:** Không commit/push monorepo trừ khi user yêu cầu rõ.
+- **Agent:** Không dùng Multitask Mode, Task tool, hay background subagent — xử lý trực tiếp, tối giản token.
+- **Deploy nhat-ky** (user tự chạy):
+  ```bash
+  cd apps/nhat-ky && npm run deploy:website
+  cd ../website && git add nhat-ky/ && git commit -m "..." && git push origin main
+  ```

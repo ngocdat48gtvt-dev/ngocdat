@@ -1,0 +1,209 @@
+CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
+1775460208915Độc lập - Tự do - Hạnh phúc
+SỔ THEO DÕI ĐẾM XE
+Đơn vị quản lý, bảo dưỡng thường xuyên: Công ty Cổ phần QLSC và XDCT giao thông II Sơn La
+Tên Hạt: 1.37 Lý trình quản lý: Km356+800 – Km404+000
+Tên đường: Quốc lộ 37
+Bắt đầu ngày: ………../……………/……………..
+Hết quyển ngày: ………../……………/……………..
+Sơn La, năm 2025
+Phụ lục số 03
+HƯỚNG DẪN LẬP, GHI CHÉP SỔ ĐẾM XE
+- Căn cứ Thông tư 41/2024/TT-BGTVT ngày 15/11/2024 của Bộ Giao thông vận tải quy định về quản lý, vận hành, khai thác và bảo trì kết cấu hạ tầng đường bộ;
+- Căn cứ Tiêu chuẩn quốc gia TCVN 14182:2024 Bảo dưỡng thường xuyên đường bộ - Yêu cầu kỹ thuật, ban hành kèm theo quyết định số 1628/QĐ-BKHCN ngày 18/07/2024 của Bộ Khoa học và Công nghệ;
+- Căn cứ Hợp đồng số 01/2024/HĐ-DVSNC ký ngày 29/3/2024 giữa Sở Giao thông vận tải Sơn La với Liên danh Công ty cổ phần QLSC và XDCT giao thông II Sơn La - Công ty cổ phần phát triển xây dựng và thương mại số 909 - Công ty cổ phần đường bộ 224.
+I. MỤC ĐÍCH
+Công tác đếm xe là nội dung rất cần thiết cho quản lý giao thông vận tải trên đường bộ, quản lý vận hành giao thông và quy hoạch hệ thống đường bộ. Giúp cho cơ quan quản lý nắm bắt được lưu lượng xe trên tuyến quản lý, dự báo lượng giao thông (lưu lượng và thành phần giao thông), dự báo lượng hành khách hoặc nhu cầu đi lại của dân cư.
+II. YÊU CẦU
+1. Điều tra giao thông: Tùy thuộc nhiệm vụ cụ thể được phân công hay theo điều kiện hợp đồng, đơn vị thực hiện BDTX đường bộ xây dựng thời gian tiến hành đếm xe, địa điểm đếm xe, nhân xự đếm xe khi bắt đầu thực hiện hợp đồng; thực hiện điều tra giao thông, bao gồm đếm xác định lưu lượng, thành phần xe và điều tra tải trọng xe. Phân loại xe để đếm theo tiêu chuẩn thiết kế đường bộ. Số liệu điều tra giao thông được lập thành báo cáo, cập nhật và lưu giữ trong hệ thống quản lý của đơn vị.
+2. Thời gian đếm xe: Thực hiện theo kế hoạch được lập bởi đơn vị thực hiện BDTX đường bộ. Thời gian đếm xe tại các trạm đếm có thể tham khảo hướng dẫn sau: Mỗi quý 1 lần, mỗi lần đếm 3 ngày liên tục ở mỗi trạm chính, được thực hiện vào các ngày 5, 6, 7 trong tháng cuối quý. Hai ngày đầu đếm 16/24h (từ 5h đến 21 h), ngày thứ ba đếm 24/24h (từ 0h ngày hôm trước đến 0h ngày hôm sau) để xác định lưu lượng xe trung bình của tháng đó. Trạm phụ có thể tổ chức đếm trong 2 ngày liên tục (ngày 5, 6), với ngày đầu đếm 16/24h (từ 5h đến 21h) và ngày thứ hai đếm 24/24h tương tự như ngày thứ 3 ở trạm chính.
+3. Phương pháp đếm xe: Có thể bằng thủ công hoặc đếm xe tự động.
+- Đếm thủ công do con người thực hiện. Đếm trên cả 2 hướng đi về của dòng xe trên 1 mặt cắt ngang của đường.
+- Đếm xe tự động sử dụng thiết bị đếm được thực hiện tùy theo hướng dẫn của từng loại thiết bị. Số liệu đếm được lưu trữ trong máy. Khi sử dụng thiết bị đếm xe, phải duy trì thường xuyên hoạt động của trạm đếm xe bằng thiết bị chuyên dụng với các số liệu được ghi vào máy tính để truyền dữ liệu về cơ quan quản lý cấp trên.
+- Biều mẫu báo cáo đếm xe và phân loại các phương tiện theo phương pháp đếm thủ công có biều mẫu kèm theo. Khi sử dụng thiết bị đếm xe thì báo cáo sẽ được xuất trực tiếp từ chương trình tương thích với thiết bị.
+4. Sổ đếm xe được ghi cho từng năm, hết năm đơn vị đưa vào lưu trữ.
+III. QUY CÁCH HỒ SƠ
+1. Loại hồ sơ: Sổ theo dõi đến xe Khổ A4 dọc.
+2. Bìa hồ sơ: Trên bìa hồ sơ ghi rõ tên đơn vị trúng thầu QL, BDTX; Tên hạt quản lý; Lý trình quản lý; Tên đường; Thời gian bắt đầu ghi chép từ ngày…./…/…; đến ngày…./…/….; địa điểm..năm .......
+3. Hướng dẫn ghi sổ.
+4. Nội dung: Gồm 2 bảng tổng hợp, cụ thể: Bảng 1: Bảng tổng hợp lưu lượng xe qua lại/ ngày; Bảng 2: Đếm xe theo phân loại phương tiện (chiều đi, chiều về) (có mẫu đính kèm).
+4.1 Hướng dẫn ghi Bảng tổng hợp lưu lượng xe qua lại/ngày
+(01) Ghi chép số thứ tự của các chủng loại xe.
+(02) Hướng xe chạy (VD: Cò Mạ - Thuận Châu; Thuận Châu - Cò Mạ).
+(03) Các chủng loại xe cần đếm.
+(04) Thống kê số lượng đếm xe được của từng ngày thứ nhất, theo từng chủng loại xe.
+(05) Thống kê số lượng đếm xe được của từng ngày thứ hai, theo từng chủng loại xe.
+(06) Thống kê số lượng đếm xe được của từng ngày thứ ba, theo từng chủng loại xe.
+(07) Ghi chú
+Người giám sát: Do Tuần kiểm tuyến giám sát (Theo quy định điểm b, Khoản 3 điều 16 Thông tư 37/2018/TT-BGTVT của bộ Giao thông vận tải và Công văn số 5357/TCĐBVN của Tổng cục đường bộ Việt Nam ngày 30/8/2017).
+Tổ trưởng tổ đếm xe: Người được đơn vị quản lý đường bộ phân công làm tổ trưởng tổ đếm xe tại trạm.
+BẢNG TỔNG HỢP LƯU LƯỢNG XE QUA LẠI / NGÀY
+Tháng…. năm….
+TT
+HƯỚNG XE CHẠY
+CHỦNG LOẠI XE
+SỐ LƯỢNG
+GHI CHÚ
+Ngày …
+Ngày …
+Ngày ….
+(01)
+(02)
+(03)
+(04)
+(05)
+(06)
+(07)
+4.2 Hướng dẫn ghi Đếm theo phân loại phương tiện (chiều đi, chiều về)
+(01) Tên đường thực hiện đến xe
+(02) Lý trình tại vị trí đếm xe
+(03), (04) Hướng của xe chạy (VD: Cò Mạ - Thuận Châu; Thuận Châu - Cò Mạ).
+(05) Ghi cụ thể ngày đếm xe.
+(06) Ngày thứ mấy (VD: Thứ 2, thứ 3,...)
+(07) Ghi thời gian bắt đầu đếm xe.
+(08) Ghi thời gian kết thúc đếm xe.
+(09) Số liệu xe đi qua (ví dụ: mỗi xe là một gạch /, có thể gạch hình
+ĐẾM THEO PHÂN LOẠI PHƯƠNG TIỆN
+Tên đường: ………….
+Tên Hạt:………….., lý trình đếm xe:…………..
+Ngày ….. tháng ….. năm …………...
+Đường: (01)……………
+Lý trình: (02) ……………………….
+Hướng xe chạy từ: (03) ……………
+Đến: (04) …………………..
+Ngày…..tháng…..năm…….... (05)
+Ngày trong tuần: (06)……………….
+Thời gian bắt đầu đếm: (07) ………....
+Thời gian kết thúc đếm: (08) …...…………
+CHỦNG LOẠI XE
+SỐ LIỆU ĐẾM (09)
+CỘNG (10)
+Xe con
+Xe tải hạng nhẹ (2 trục 4 bánh)
+Xe tải hạng trung (2 trục 6 bánh)
+Xe tải hạng nặng (3 trục)
+Xe tải hạng nặng (trên 4 trục trở lên)
+Xe khách nhỏ (4 bánh, dưới 20 chỗ)
+Xe khách Lớn (6 bánh, trên 20 chỗ)
+Máy kéo/ Xe công nông
+Xe máy/ Xe lam
+Xe đạp/ Xích lô/ Xe súc vật kéo
+CỘNG
+BẢNG TỔNG HỢP LƯU LƯỢNG XE QUA LẠI / NGÀY
+Tháng…. năm ……
+TT
+HƯỚNG XE CHẠY
+CHỦNG LOẠI XE
+SỐ LƯỢNG
+GHI CHÚ
+Ngày …
+Ngày …
+Ngày …
+1
+Xe con
+2
+Xe tải hạng nhẹ (2 trục 4 bánh)
+3
+Xe tải hạng trung (2 trục 6 bánh)
+4
+Xe tải hạng nặng (3 trục)
+5
+Xe chạy từ: ……..
+Xe tải hạng nặng (trên 4 trục trở lên)
+6
+Đến: ……..
+Xe khách nhỏ (4 bánh, dưới 20 chỗ)
+7
+Xe khách Lớn (6 bánh, trên 20 chỗ)
+8
+Máy kéo/ Xe công nông
+9
+Xe máy/ Xe lam
+10
+Xe đạp/ Xích lô/ Xe súc vật kéo
+Tổng
+1
+Xe con
+2
+Xe tải hạng nhẹ (2 trục 4 bánh)
+3
+Xe tải hạng trung (2 trục 6 bánh)
+4
+Xe chạy từ: ……..
+Xe tải hạng nặng (3 trục)
+5
+Đến: ……..
+Xe tải hạng nặng (trên 4 trục trở lên)
+6
+Xe khách nhỏ (4 bánh, dưới 20 chỗ)
+7
+Xe khách Lớn (6 bánh, trên 20 chỗ)
+8
+Máy kéo/ Xe công nông
+9
+Xe máy/ Xe lam
+10
+Xe đạp/ Xích lô/ Xe súc vật kéo
+Tổng
+Người giám sát
+Tổ trưởng tổ đếm xe
+Biểu mẫu báo cáo: (cho 1 trạm)
+Bảng số 01
+ĐẾM THEO PHÂN LOẠI PHƯƠNG TIỆN
+Tên đường: QL.37
+Tên Hạt: 1.37, lý trình đếm xe: Km365+750
+Ngày ….. tháng ….. năm 2025
+Đường: QL.37
+Lý trình: Km365+750
+Hướng xe chạy từ: Mường Cơi
+Đến: Phù Yên
+Ngày…..tháng…..năm…....
+Ngày trong tuần:
+Thời gian bắt đầu đếm: ………....
+Thời gian kết thúc đếm:………………………....
+CHỦNG LOẠI XE
+SỐ LIỆU ĐẾM
+CỘNG
+Xe con
+Xe tải hạng nhẹ (2 trục 4 bánh)
+Xe tải hạng trung (2 trục 6 bánh)
+Xe tải hạng nặng (3 trục)
+Xe tải hạng nặng (trên 4 trục trở lên)
+Xe khách nhỏ (4 bánh, dưới 20 chỗ)
+Xe khách Lớn (6 bánh, trên 20 chỗ)
+Máy kéo/ Xe công nông
+Xe máy/ Xe lam
+Xe đạp/ Xích lô/ Xe súc vật kéo
+CỘNG
+NGƯỜI GIÁM SÁT
+TỔ TRƯỞNG TỔ ĐẾM XE
+Biểu mẫu báo cáo: (cho 1 trạm)
+Bảng số 01
+ĐẾM THEO PHÂN LOẠI PHƯƠNG TIỆN
+Tên đường: QL.37
+Tên Hạt: 1.37, lý trình đếm xe: Km365+750
+Ngày ….. tháng ….. năm 2025
+Đường: QL.37
+Lý trình: Km365+750
+Hướng xe chạy từ: Phù Yên
+Đến: Mường Cơi
+Ngày…..tháng…..năm…....
+Ngày trong tuần:
+Thời gian bắt đầu đếm: ………....
+Thời gian kết thúc đếm:………………………....
+CHỦNG LOẠI XE
+SỐ LIỆU ĐẾM
+CỘNG
+Xe con
+Xe tải hạng nhẹ (2 trục 4 bánh)
+Xe tải hạng trung (2 trục 6 bánh)
+Xe tải hạng nặng (3 trục)
+Xe tải hạng nặng (trên 4 trục trở lên)
+Xe khách nhỏ (4 bánh, dưới 20 chỗ)
+Xe khách Lớn (6 bánh, trên 20 chỗ)
+Máy kéo/ Xe công nông
+Xe máy/ Xe lam
+Xe đạp/ Xích lô/ Xe súc vật kéo
+CỘNG
+NGƯỜI GIÁM SÁT
+TỔ TRƯỞNG TỔ ĐẾM XE

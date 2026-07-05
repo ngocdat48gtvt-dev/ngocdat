@@ -1,0 +1,83 @@
+{
+    "profiles": {
+        "in ho so": {
+            "sheet_var": "PYC",
+            "cell_var": "K2",
+            "cell_check": "W2",
+            "from": "1",
+            "to": "10",
+            "roi_rac": "",
+            "printer": "pdfFactory Pro",
+            "mode_pdf": true,
+            "mapping": {
+                "BB": [
+                    "DM NT",
+                    "PYC",
+                    "BBNT"
+                ],
+                "BT": [
+                    "LMBT",
+                    "PYC",
+                    "BBNT"
+                ],
+                "HT": [
+                    "PYC",
+                    "HT"
+                ],
+                "3TP": [
+                    "PYC",
+                    "3TP"
+                ],
+                "4TP": [
+                    "PYC",
+                    "4TP"
+                ]
+            },
+            "autofit_map": {
+                "PYC": "13,15,16",
+                "BBNT": "12,31,34",
+                "4TP": "14",
+                "3TP": "14"
+            }
+        },
+        "2": {
+            "sheet_var": "PYC",
+            "cell_var": "K2",
+            "cell_check": "W2",
+            "from": "3",
+            "to": "100",
+            "roi_rac": "",
+            "printer": "pdfFactory Pro",
+            "mode_pdf": true,
+            "mapping": {
+                "BB": [
+                    "PYC",
+                    "BBNT"
+                ],
+                "BT": [
+                    "LMBT",
+                    "PYC",
+                    "BBNT"
+                ],
+                "HT": [
+                    "PYC",
+                    "HT"
+                ],
+                "3TP": [
+                    "PYC",
+                    "3TP"
+                ],
+                "4TP": [
+                    "PYC",
+                    "4TP"
+                ]
+            },
+            "autofit_map": {
+                "PYC": "13,15,16",
+                "BBNT": "12,31,34",
+                "4TP": "14",
+                "3TP": "14"
+            }
+        }
+    }
+}

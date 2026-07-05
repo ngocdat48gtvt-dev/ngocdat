@@ -7218,3 +7218,1095 @@ body.stats-col-resizing {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
+
+/* ── Sổ đếm xe (demxe-*) ── */
+.demxe-workspace {
+  min-height: 0;
+}
+
+.demxe-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.demxe-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  flex-shrink: 0;
+}
+
+.demxe-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.demxe-tab {
+  padding: 6px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+}
+
+.demxe-tab--active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
+.demxe-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.demxe-print-wrap {
+  position: relative;
+}
+
+.demxe-print-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 50;
+  min-width: 200px;
+  margin-top: 4px;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+.demxe-print-menu button {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.demxe-print-menu button:hover {
+  background: #f1f5f9;
+}
+
+.demxe-pane {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+}
+
+.demxe-sidebar-add-day {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.demxe-day-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  max-height: calc(100vh - 280px);
+  overflow-y: auto;
+}
+
+.demxe-day-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.demxe-day-btn--active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.demxe-day-btn-meta {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.demxe-day-empty {
+  font-size: 12px;
+  color: #94a3b8;
+  padding: 8px 4px;
+}
+
+.demxe-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+}
+
+.demxe-input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 1px #2563eb;
+}
+
+.demxe-cover-sheet {
+  max-width: 210mm;
+  margin: 0 auto;
+  padding: 24mm 20mm;
+  background: #fff;
+  border: 3px double #1e293b;
+  min-height: 297mm;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.demxe-cover-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.demxe-cover-nation {
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.demxe-cover-motto {
+  margin: 0;
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.demxe-cover-title {
+  text-align: center;
+  font-size: 22px;
+  font-weight: 700;
+  margin: 32px 0 40px;
+}
+
+.demxe-cover-body {
+  font-size: 14px;
+  line-height: 2;
+}
+
+.demxe-cover-line {
+  margin: 0 0 8px;
+}
+
+.demxe-cover-line--split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+}
+
+.demxe-cover-inline-input {
+  border: none;
+  border-bottom: 1px dotted #64748b;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  padding: 0 2px;
+  min-width: 64px;
+}
+
+.demxe-cover-inline-input:focus {
+  outline: none;
+  border-bottom-color: #2563eb;
+  background: #f8fafc;
+}
+
+.demxe-cover-inline-input--full {
+  width: min(100%, 420px);
+}
+
+.demxe-cover-inline-input--hat {
+  width: 72px;
+}
+
+.demxe-cover-inline-input--km {
+  width: min(100%, 240px);
+}
+
+.demxe-cover-inline-input--footer {
+  width: 96px;
+  text-align: center;
+}
+
+.demxe-cover-inline-input--year {
+  width: 56px;
+  text-align: center;
+}
+
+.demxe-cover-inline-value {
+  border-bottom: 1px dotted #64748b;
+  padding: 0 2px 1px;
+}
+
+.demxe-cover-date-wrap {
+  display: inline-flex;
+  vertical-align: baseline;
+}
+
+.demxe-cover-date-wrap .vi-date-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+
+.demxe-cover-date {
+  width: 132px;
+  min-width: 132px;
+}
+
+.demxe-cover-dates {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.demxe-cover-footer {
+  text-align: center;
+  margin-top: auto;
+  padding-top: 48px;
+  font-style: italic;
+}
+
+.demxe-guide-panel {
+  max-width: 800px;
+  margin: 0 auto;
+  line-height: 1.55;
+  font-size: 14px;
+}
+
+.demxe-guide-appendix {
+  text-align: center;
+  font-weight: 600;
+}
+
+.demxe-guide-title {
+  text-align: center;
+  font-size: 18px;
+  margin: 8px 0 20px;
+}
+
+.demxe-guide-section {
+  margin-bottom: 16px;
+}
+
+.demxe-guide-section h3 {
+  font-size: 15px;
+  margin: 0 0 6px;
+}
+
+.demxe-guide-section ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.demxe-entry-layout {
+  max-width: 900px;
+}
+
+.demxe-entry-header h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.demxe-entry-meta {
+  margin: 0 0 16px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.demxe-entry-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.demxe-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.demxe-field span {
+  font-weight: 600;
+  color: #475569;
+}
+
+.demxe-count-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.demxe-count-table th,
+.demxe-count-table td {
+  border: 1px solid #94a3b8;
+  padding: 6px 8px;
+  vertical-align: middle;
+}
+
+.demxe-count-table th {
+  background: #f1f5f9;
+  font-weight: 700;
+  text-align: center;
+}
+
+.demxe-count-input {
+  max-width: 120px;
+  text-align: center;
+}
+
+.demxe-total-cell--sum {
+  font-weight: 700;
+  text-align: center;
+  background: #f8fafc;
+}
+
+.demxe-count-total-row td {
+  font-weight: 700;
+  background: #f8fafc;
+}
+
+.demxe-dir-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.demxe-dir-tab {
+  padding: 5px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.demxe-dir-tab--active {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.demxe-entry-actions {
+  margin-top: 12px;
+}
+
+.demxe-del-btn {
+  color: #b91c1c;
+}
+
+.demxe-empty-pane,
+.demxe-empty-hint {
+  color: #64748b;
+  font-size: 14px;
+}
+
+.demxe-summary-sheet {
+  max-width: 100%;
+}
+
+.demxe-summary-title {
+  text-align: center;
+  font-size: 16px;
+  margin: 0 0 16px;
+}
+
+.demxe-summary-scroll {
+  overflow-x: auto;
+}
+
+.demxe-summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  min-width: 640px;
+}
+
+.demxe-summary-table th,
+.demxe-summary-table td {
+  border: 1px solid #94a3b8;
+  padding: 5px 6px;
+}
+
+.demxe-summary-table th {
+  background: #f1f5f9;
+  font-weight: 700;
+  text-align: center;
+}
+
+.demxe-summary-stt,
+.demxe-summary-num {
+  text-align: center;
+}
+
+.demxe-summary-note {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #64748b;
+  font-style: italic;
+}
+
+.demxe-count-sheet--a4 {
+  max-width: 210mm;
+  margin: 0 auto 16px;
+  padding: 14mm 16mm;
+  background: #fff;
+  border: 1px solid #1e293b;
+  page-break-after: always;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.demxe-count-sheet--editable {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.demxe-pane {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  background: #e8ecf0;
+}
+
+.demxe-form-ref {
+  margin: 0 0 4px;
+  font-size: 12px;
+}
+
+.demxe-form-ref--center {
+  text-align: center;
+}
+
+.demxe-form-subline {
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+
+.demxe-form-subline--center {
+  text-align: center;
+}
+
+.demxe-form-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+}
+
+.demxe-form-toolbar-hint {
+  color: #64748b;
+}
+
+.demxe-grid-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  margin-bottom: 0;
+}
+
+.demxe-info-table {
+  margin-bottom: 0;
+  border-bottom: none;
+}
+
+.demxe-info-table td,
+.demxe-info-table .demxe-info-label {
+  border: 1px solid #0f172a;
+  padding: 0;
+  vertical-align: middle;
+  height: 32px;
+}
+
+.demxe-info-label {
+  width: 22%;
+  padding: 4px 8px !important;
+  background: #fff;
+  font-weight: normal;
+  white-space: nowrap;
+}
+
+.demxe-info-table .demxe-xcell {
+  width: 28%;
+}
+
+.demxe-data-table {
+  margin-top: -1px;
+}
+
+.demxe-col-type {
+  width: 52%;
+  text-align: left;
+  padding: 5px 8px !important;
+}
+
+.demxe-col-count,
+.demxe-col-sum {
+  width: 24%;
+  text-align: center;
+}
+
+.demxe-xcell {
+  padding: 0 !important;
+  height: 30px;
+  position: relative;
+}
+
+.demxe-xcell--edit {
+  background: #fff;
+}
+
+.demxe-xcell--readonly {
+  text-align: center;
+  vertical-align: middle;
+  background: #f8fafc;
+  font-variant-numeric: tabular-nums;
+}
+
+.demxe-xcell-input {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 30px;
+  margin: 0;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.demxe-xcell-input--center {
+  text-align: center;
+}
+
+.demxe-xcell-input:focus {
+  background: #cce5ff;
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+  z-index: 1;
+  position: relative;
+}
+
+.demxe-count-sheet--editable .demxe-data-table tbody tr:hover .demxe-xcell--edit .demxe-xcell-input:not(:focus) {
+  background: #f0f7ff;
+}
+
+.demxe-xcell-readonly {
+  display: block;
+  padding: 4px 8px;
+}
+
+.demxe-form-title {
+  text-align: center;
+  font-size: 15px;
+  font-weight: bold;
+  margin: 8px 0 10px;
+  letter-spacing: 0.02em;
+}
+
+.demxe-form-meta-grid,
+.demxe-form-meta-grid--edit,
+.demxe-meta-input,
+.demxe-count-sheet--editable .demxe-official-table .demxe-count-input {
+  /* legacy — replaced by xcell grid */
+}
+
+.demxe-count-sheet-title {
+  text-align: center;
+  margin: 0 0 12px;
+}
+
+.demxe-sheet-num {
+  text-align: center;
+  font-weight: 600;
+}
+
+.demxe-print-hidden {
+  display: none;
+}
+
+@media print {
+  .demxe-toolbar,
+  .demxe-sidebar,
+  .demxe-entry-actions,
+  .demxe-dir-tabs,
+  .nhat-ky-header,
+  .road-workspace-nav,
+  .demxe-print-hidden {
+    display: none !important;
+  }
+
+  .demxe-workspace {
+    display: block !important;
+  }
+
+  .demxe-main,
+  .demxe-pane,
+  .nhaplieu-review-pane {
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+
+  .demxe-count-input {
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  /* In bìa */
+  .demxe-workspace.demxe-print--cover .demxe-pane > *:not(.demxe-cover-sheet),
+  .demxe-workspace.demxe-print--cover .demxe-entry-layout {
+    display: none !important;
+  }
+
+  .demxe-workspace.demxe-print--cover .demxe-cover-sheet {
+    border: none;
+    min-height: auto;
+  }
+
+  /* In hướng dẫn */
+  .demxe-workspace.demxe-print--guide .demxe-pane > *:not(.demxe-guide-panel) {
+    display: none !important;
+  }
+
+  /* In tổng hợp */
+  .demxe-workspace.demxe-print--summary .demxe-pane > *:not(.demxe-summary-sheet) {
+    display: none !important;
+  }
+
+  /* In phiếu — dùng vùng ẩn */
+  .demxe-workspace.demxe-print--entry .demxe-pane,
+  .demxe-workspace.demxe-print--all .demxe-pane {
+    display: none !important;
+  }
+
+  .demxe-workspace.demxe-print--entry .demxe-print-hidden,
+  .demxe-workspace.demxe-print--all .demxe-print-hidden {
+    display: block !important;
+  }
+
+  .demxe-workspace.demxe-print--one-day .demxe-print-hidden .demxe-cover-sheet,
+  .demxe-workspace.demxe-print--one-day .demxe-print-hidden .demxe-guide-panel,
+  .demxe-workspace.demxe-print--one-day .demxe-print-hidden .demxe-summary-sheet,
+  .demxe-workspace.demxe-print--selected-days .demxe-print-hidden .demxe-cover-sheet,
+  .demxe-workspace.demxe-print--selected-days .demxe-print-hidden .demxe-guide-panel,
+  .demxe-workspace.demxe-print--selected-days .demxe-print-hidden .demxe-summary-sheet {
+    display: none !important;
+  }
+
+  .demxe-workspace.demxe-print--all .demxe-print-hidden > * {
+    display: block !important;
+    page-break-after: always;
+  }
+
+  .demxe-cover-sheet,
+  .demxe-count-sheet--a4 {
+    border: none;
+    box-shadow: none;
+  }
+}
+
+/* Sổ đếm xe — lớp dùng bởi SoDemXe / biểu mẫu chính thức */
+.demxe-sheet {
+  max-width: 210mm;
+  margin: 0 auto 16px;
+  padding: 16mm 14mm;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  box-sizing: border-box;
+}
+
+.demxe-sheet--cover {
+  min-height: 297mm;
+}
+
+.demxe-cover-country {
+  text-align: center;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.demxe-cover-value {
+  padding: 6px 8px;
+  border-bottom: 1px dotted #94a3b8;
+  min-height: 1.4em;
+}
+
+.demxe-guide-intro {
+  font-size: 13px;
+  color: #64748b;
+  margin-bottom: 16px;
+}
+
+.demxe-guide-block {
+  margin-bottom: 14px;
+}
+
+.demxe-guide-block h3 {
+  font-size: 14px;
+  margin: 0 0 4px;
+}
+
+.demxe-form-title {
+  text-align: center;
+  font-size: 16px;
+  margin: 0 0 8px;
+}
+
+.demxe-form-meta {
+  text-align: center;
+  font-size: 13px;
+  color: #475569;
+  margin: 0 0 12px;
+}
+
+.demxe-form-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.demxe-form-meta-grid--edit .demxe-meta-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.demxe-form-head-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.demxe-meta-input {
+  flex: 1;
+  min-width: 100px;
+  border: none;
+  border-bottom: 1px dashed #94a3b8;
+  background: #f8fafc;
+  padding: 4px 6px;
+  font-size: inherit;
+  font-family: inherit;
+}
+
+.demxe-meta-input:focus {
+  outline: none;
+  border-bottom-color: var(--accent, #1976d2);
+  background: #fff;
+}
+
+.demxe-count-sheet--editable .demxe-official-table .demxe-count-input {
+  width: 100%;
+  max-width: 120px;
+  margin: 0 auto;
+  display: block;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 6px 8px;
+  text-align: center;
+  font-size: 14px;
+  background: #fff;
+}
+
+.demxe-count-sheet--editable .demxe-count-input:focus {
+  outline: 2px solid rgba(25, 118, 210, 0.25);
+  border-color: var(--accent, #1976d2);
+}
+
+.demxe-num--total {
+  color: #475569;
+  background: #f8fafc;
+}
+
+.demxe-grand-total-row td {
+  background: #f1f5f9;
+}
+
+.demxe-official-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.demxe-official-table th,
+.demxe-official-table td {
+  border: 1px solid #0f172a;
+  padding: 5px 8px;
+  vertical-align: middle;
+}
+
+.demxe-official-table th {
+  background: #fff;
+  font-weight: bold;
+  text-align: center;
+  text-transform: uppercase;
+  font-size: 12px;
+  padding: 6px 8px;
+}
+
+.demxe-num {
+  text-align: center;
+}
+
+.demxe-sign-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 32px;
+  text-align: center;
+  font-size: 13px;
+}
+
+.demxe-sign-hint {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.demxe-day-list,
+.demxe-dir-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.demxe-day-item,
+.demxe-dir-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.demxe-day-item--active,
+.demxe-dir-item--active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.demxe-day-badge {
+  font-size: 10px;
+  color: #64748b;
+}
+
+.demxe-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.demxe-btn-danger {
+  color: #b91c1c !important;
+}
+
+.demxe-empty-form {
+  color: #64748b;
+  font-size: 14px;
+  padding: 32px 24px;
+  text-align: center;
+  max-width: 480px;
+  margin: 40px auto;
+  background: #fff;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+}
+
+.demxe-empty-form-title {
+  font-size: 16px;
+  color: #1e293b;
+  margin-bottom: 8px;
+}
+
+.demxe-empty-form-hint {
+  margin-bottom: 20px;
+}
+
+.demxe-empty-form-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.demxe-sidebar-dir-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.demxe-sidebar-dir-actions--secondary {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.demxe-sidebar-dir-btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.demxe-entry-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.demxe-entry-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.demxe-input--count {
+  max-width: 100px;
+  text-align: center;
+}
+
+.demxe-preview-wrap {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px dashed #cbd5e1;
+}
+
+.demxe-preview-label {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0 0 8px;
+}
+
+.demxe-summary-grand td {
+  background: #f8fafc;
+}
+
+.demxe-print-stack {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  width: 210mm;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+@media print {
+  .no-print,
+  .demxe-sidebar,
+  .demxe-toolbar {
+    display: none !important;
+  }
+
+  .demxe-print-stack {
+    position: static;
+    left: auto;
+    visibility: visible;
+    width: auto;
+  }
+
+  body.demxe-print-cover .demxe-print-section:not([data-print-section="cover"]),
+  body.demxe-print-guide .demxe-print-section:not([data-print-section="guide"]),
+  body.demxe-print-summary .demxe-print-section:not([data-print-section="summary"]) {
+    display: none !important;
+  }
+
+  body.demxe-print-cover .demxe-pane,
+  body.demxe-print-guide .demxe-pane,
+  body.demxe-print-summary .demxe-pane,
+  body.demxe-print-day .demxe-pane,
+  body.demxe-print-all .demxe-pane {
+    display: none !important;
+  }
+
+  body.demxe-print-cover .demxe-print-stack,
+  body.demxe-print-guide .demxe-print-stack,
+  body.demxe-print-summary .demxe-print-stack,
+  body.demxe-print-day .demxe-print-stack,
+  body.demxe-print-all .demxe-print-stack {
+    display: block !important;
+    position: static;
+    visibility: visible;
+  }
+
+  body.demxe-print-cover .demxe-print-stack > *:not([data-print-section="cover"]),
+  body.demxe-print-guide .demxe-print-stack > *:not([data-print-section="guide"]),
+  body.demxe-print-summary .demxe-print-stack > *:not([data-print-section="summary"]) {
+    display: none !important;
+  }
+
+  body.demxe-print-day .demxe-print-stack .demxe-print-section[data-print-section="form"].demxe-print-hidden,
+  body.demxe-print-day .demxe-print-stack > *:not([data-print-section="form"]) {
+    display: none !important;
+  }
+
+  body.demxe-print-all .demxe-print-stack > * {
+    display: block !important;
+    page-break-after: always;
+  }
+
+  .demxe-sheet {
+    border: none;
+    box-shadow: none;
+    page-break-after: always;
+  }
+
+  .demxe-input,
+  .demxe-cover-inline-input {
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .demxe-cover-inline-value {
+    border-bottom: none !important;
+  }
+}
