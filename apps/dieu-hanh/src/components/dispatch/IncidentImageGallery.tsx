@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Check, ChevronLeft, ChevronRight, ImageIcon, Loader2, Search, Star, Trash2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/primitives'
@@ -14,15 +15,26 @@ function errorMessage(errorKind: ImageResolveError): string {
 }
 
 function useResolvedImageUrl(raw: string) {
-  const [displayUrl, setDisplayUrl] = useState<string | null>(null)
-  const [resolving, setResolving] = useState(true)
+  const trimmed = (raw ?? '').trim()
+  const httpReady = trimmed.startsWith('http')
+  const [displayUrl, setDisplayUrl] = useState<string | null>(httpReady ? trimmed : null)
+  const [resolving, setResolving] = useState(!httpReady)
   const [errorKind, setErrorKind] = useState<ImageResolveError>(null)
+  const refreshTried = useRef(false)
 
   useEffect(() => {
     let cancelled = false
-    setResolving(true)
+    refreshTried.current = false
+    const next = (raw ?? '').trim()
+    const ready = next.startsWith('http')
     setErrorKind(null)
-    setDisplayUrl(null)
+    if (ready) {
+      setDisplayUrl(next)
+      setResolving(false)
+    } else {
+      setDisplayUrl(null)
+      setResolving(true)
+    }
     void resolveDisplayImageUrl(raw).then(({ url, errorKind: kind }) => {
       if (cancelled) return
       setDisplayUrl(url)
@@ -34,7 +46,20 @@ function useResolvedImageUrl(raw: string) {
     }
   }, [raw])
 
-  return { displayUrl, resolving, errorKind }
+  const refreshOnError = useCallback(async () => {
+    if (refreshTried.current) return false
+    refreshTried.current = true
+    setResolving(true)
+    const { url, errorKind: kind } = await resolveDisplayImageUrl(raw, {
+      forceRefresh: true,
+    })
+    setDisplayUrl(url)
+    setErrorKind(kind)
+    setResolving(false)
+    return !!url
+  }, [raw])
+
+  return { displayUrl, resolving, errorKind, refreshOnError }
 }
 
 type SelectionKind = 'before' | 'after'
@@ -89,7 +114,7 @@ function ThumbnailTile({
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState(false)
   const [orderDraft, setOrderDraft] = useState(String(mergeOrder ?? ''))
-  const { displayUrl, resolving, errorKind } = useResolvedImageUrl(url)
+  const { displayUrl, resolving, errorKind, refreshOnError } = useResolvedImageUrl(url)
 
   useEffect(() => {
     setLoaded(false)
@@ -122,8 +147,12 @@ function ThumbnailTile({
       <div className="relative aspect-[9/16] w-full bg-muted/60">
         <button
           type="button"
-          onClick={onOpen}
-          className="absolute inset-0 z-[1] block w-full"
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onOpen()
+          }}
+          className="absolute inset-0 z-[1] block w-full cursor-zoom-in"
           aria-label={`${title} — ảnh ${index + 1}`}
         >
           {resolving ? (
@@ -138,14 +167,15 @@ function ThumbnailTile({
               <span className="text-[10px]">{errorMessage(errorKind)}</span>
             </div>
           ) : null}
-          {!resolving && displayUrl && !error ? (
+          {displayUrl && !error ? (
             <img
               src={displayUrl}
               alt={`${title} ${index + 1}`}
-              loading="lazy"
+              loading={index < 4 ? 'eager' : 'lazy'}
               decoding="async"
+              fetchPriority={index < 2 ? 'high' : 'auto'}
               className={cn(
-                'absolute inset-0 h-full w-full object-cover transition-opacity duration-300',
+                'pointer-events-none absolute inset-0 h-full w-full object-cover transition-opacity duration-200',
                 loaded ? 'opacity-100' : 'opacity-0',
               )}
               onLoad={() => {
@@ -153,8 +183,12 @@ function ThumbnailTile({
                 setError(false)
               }}
               onError={() => {
-                setError(true)
-                setLoaded(false)
+                void refreshOnError().then((ok) => {
+                  if (!ok) {
+                    setError(true)
+                    setLoaded(false)
+                  }
+                })
               }}
             />
           ) : null}
@@ -361,7 +395,7 @@ function ImageLightbox({
   const canSelect = !!selection && !!kind
   const [ready, setReady] = useState(false)
   const [error, setError] = useState(false)
-  const { displayUrl, resolving, errorKind } = useResolvedImageUrl(rawUrl)
+  const { displayUrl, resolving, errorKind, refreshOnError } = useResolvedImageUrl(rawUrl)
 
   const go = useCallback(
     (delta: number) => {
@@ -394,14 +428,31 @@ function ImageLightbox({
     }
   }, [])
 
+  // Prefetch ảnh kế bên để vuốt nhanh hơn
+  useEffect(() => {
+    const neighbors = [items[index - 1]?.url, items[index + 1]?.url].filter(Boolean) as string[]
+    for (const u of neighbors) {
+      void resolveDisplayImageUrl(u).then(({ url }) => {
+        if (!url) return
+        const img = new Image()
+        img.decoding = 'async'
+        img.src = url
+      })
+    }
+  }, [index, items])
+
   return (
     <div
-      className="fixed inset-0 z-[80] flex flex-col bg-black/95"
+      className="fixed inset-0 z-[100] flex flex-col bg-black/95"
       role="dialog"
       aria-modal="true"
       aria-label={`Xem ảnh — ${title}`}
+      onClick={onClose}
     >
-      <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-2 text-white sm:px-4">
+      <div
+        className="flex shrink-0 items-center justify-between gap-2 px-3 py-2 text-white sm:px-4"
+        onClick={(e) => e.stopPropagation()}
+      >
         <p className="min-w-0 truncate text-sm font-medium">
           {title} · {index + 1}/{items.length}
         </p>
@@ -417,7 +468,10 @@ function ImageLightbox({
         </Button>
       </div>
 
-      <div className="relative flex min-h-0 flex-1 items-center justify-center px-2 sm:px-12">
+      <div
+        className="relative flex min-h-0 flex-1 items-center justify-center px-2 sm:px-12"
+        onClick={(e) => e.stopPropagation()}
+      >
         {items.length > 1 ? (
           <button
             type="button"
@@ -439,18 +493,22 @@ function ImageLightbox({
           {!resolving && (error || errorKind || !displayUrl) ? (
             <p className="text-sm text-white/70">{errorMessage(errorKind)}</p>
           ) : null}
-          {!resolving && displayUrl && !error ? (
+          {displayUrl && !error ? (
             <img
               key={displayUrl}
               src={displayUrl}
               alt=""
               className={cn(
-                'max-h-[calc(100dvh-8rem)] max-w-full object-contain transition-opacity duration-300 ease-out',
+                'max-h-[calc(100dvh-8rem)] max-w-full object-contain transition-opacity duration-200 ease-out',
                 ready ? 'opacity-100' : 'opacity-0',
               )}
               draggable={false}
               onLoad={() => setReady(true)}
-              onError={() => setError(true)}
+              onError={() => {
+                void refreshOnError().then((ok) => {
+                  if (!ok) setError(true)
+                })
+              }}
             />
           ) : null}
         </div>
@@ -467,7 +525,10 @@ function ImageLightbox({
         ) : null}
       </div>
 
-      <div className="shrink-0 space-y-2 px-4 pb-4 pt-1 text-center">
+      <div
+        className="shrink-0 space-y-2 px-4 pb-4 pt-1 text-center"
+        onClick={(e) => e.stopPropagation()}
+      >
         {canSelect ? (
           <Button
             type="button"
@@ -606,14 +667,17 @@ export function IncidentImageGallery({
         ) : null}
       </div>
 
-      {lightbox ? (
-        <ImageLightbox
-          state={lightbox}
-          onClose={() => setLightbox(null)}
-          onIndexChange={(index) => setLightbox((s) => (s ? { ...s, index } : s))}
-          selection={selection}
-        />
-      ) : null}
+      {lightbox
+        ? createPortal(
+            <ImageLightbox
+              state={lightbox}
+              onClose={() => setLightbox(null)}
+              onIndexChange={(index) => setLightbox((s) => (s ? { ...s, index } : s))}
+              selection={selection}
+            />,
+            document.body,
+          )
+        : null}
     </>
   )
 }
