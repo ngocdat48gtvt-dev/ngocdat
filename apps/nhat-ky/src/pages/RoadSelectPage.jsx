@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { EMPTY_REPORT_META } from "../utils/nhatKyFormat";
 import { groupRoadsByName, roadDisplayLabel } from "../utils/roadsCatalog";
 import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
+import { useOfficePermissions } from "../hooks/useOfficePermissions";
 
 const EMPTY_FORM = {
   roadName: "",
@@ -13,7 +14,8 @@ const EMPTY_FORM = {
 
 export default function RoadSelectPage() {
   const { roads, selectRoad, createRoad, editRoad, deleteRoad } = useRoadWorkspace();
-  const [showForm, setShowForm] = useState(roads.length === 0);
+  const { canManageOfficeCatalog } = useOfficePermissions();
+  const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState("");
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState("");
@@ -42,6 +44,8 @@ export default function RoadSelectPage() {
 
   function handleSubmit(e) {
     e.preventDefault();
+    if (!canManageOfficeCatalog) return;
+
     const roadName = form.roadName.trim();
     const hat = form.hat.trim();
     const kmFrom = form.kmFrom.trim();
@@ -74,6 +78,7 @@ export default function RoadSelectPage() {
   }
 
   function handleDelete(road) {
+    if (!canManageOfficeCatalog) return;
     if (
       !window.confirm(
         `Xóa sổ «${roadDisplayLabel(road)}»?\n\nDữ liệu nhật ký của hạt này sẽ bị xóa khỏi máy.`
@@ -92,6 +97,12 @@ export default function RoadSelectPage() {
           Một tuyến đường có thể chia 2–3 hạt. Mỗi hạt là một sổ riêng với lý trình{" "}
           <strong>Km đầu → Km cuối</strong>.
         </p>
+        {!canManageOfficeCatalog && (
+          <p className="section-guide danhmuc-bd-readonly-hint">
+            Danh mục sổ do <strong>ADMIN</strong> quản lý. Bạn chỉ chọn hạt được cấp để
+            nhập liệu — không tự thêm, sửa hoặc xóa sổ.
+          </p>
+        )}
 
         {grouped.length > 0 && (
           <div className="road-select-groups">
@@ -99,13 +110,15 @@ export default function RoadSelectPage() {
               <div key={group.roadName} className="road-select-group">
                 <div className="road-select-group-head">
                   <strong>{group.roadName}</strong>
-                  <button
-                    type="button"
-                    className="road-select-group-add"
-                    onClick={() => openCreate(group.roadName)}
-                  >
-                    + Thêm hạt
-                  </button>
+                  {canManageOfficeCatalog && (
+                    <button
+                      type="button"
+                      className="road-select-group-add"
+                      onClick={() => openCreate(group.roadName)}
+                    >
+                      + Thêm hạt
+                    </button>
+                  )}
                 </div>
                 <div className="road-select-list">
                   {group.segments.map((road) => (
@@ -122,22 +135,24 @@ export default function RoadSelectPage() {
                             : road.kmRange}
                         </span>
                       </button>
-                      <div className="road-select-item-actions">
-                        <button
-                          type="button"
-                          className="road-select-mini-btn"
-                          onClick={() => openEdit(road)}
-                        >
-                          Sửa
-                        </button>
-                        <button
-                          type="button"
-                          className="road-select-mini-btn road-select-mini-btn--danger"
-                          onClick={() => handleDelete(road)}
-                        >
-                          Xóa
-                        </button>
-                      </div>
+                      {canManageOfficeCatalog && (
+                        <div className="road-select-item-actions">
+                          <button
+                            type="button"
+                            className="road-select-mini-btn"
+                            onClick={() => openEdit(road)}
+                          >
+                            Sửa
+                          </button>
+                          <button
+                            type="button"
+                            className="road-select-mini-btn road-select-mini-btn--danger"
+                            onClick={() => handleDelete(road)}
+                          >
+                            Xóa
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -146,13 +161,21 @@ export default function RoadSelectPage() {
           </div>
         )}
 
-        {!showForm && (
+        {grouped.length === 0 && !showForm && (
+          <p className="section-guide">
+            {canManageOfficeCatalog
+              ? "Chưa có hạt nào. Bấm nút bên dưới để tạo sổ."
+              : "Chưa có sổ được cấp. Liên hệ ADMIN để tạo hạt / đoạn làm việc."}
+          </p>
+        )}
+
+        {canManageOfficeCatalog && !showForm && (
           <button type="button" className="btn-primary road-select-add-btn" onClick={() => openCreate()}>
             + Thêm đường / hạt mới
           </button>
         )}
 
-        {showForm && (
+        {canManageOfficeCatalog && showForm && (
           <form className="road-select-form" onSubmit={handleSubmit}>
             <h2>{editingId ? "Sửa hạt / đoạn" : "Thêm hạt / đoạn mới"}</h2>
             <label className="entry-form-label" htmlFor="road-name">
@@ -216,19 +239,17 @@ export default function RoadSelectPage() {
               <button type="submit" className="btn-primary">
                 {editingId ? "Lưu thay đổi" : "Tạo và mở sổ"}
               </button>
-              {roads.length > 0 && (
-                <button
-                  type="button"
-                  className="road-select-cancel-btn"
-                  onClick={() => {
-                    setShowForm(false);
-                    setEditingId("");
-                    setError("");
-                  }}
-                >
-                  Hủy
-                </button>
-              )}
+              <button
+                type="button"
+                className="road-select-cancel-btn"
+                onClick={() => {
+                  setShowForm(false);
+                  setEditingId("");
+                  setError("");
+                }}
+              >
+                Hủy
+              </button>
             </div>
           </form>
         )}

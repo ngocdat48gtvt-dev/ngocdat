@@ -24,51 +24,52 @@ export function pageNaturalWidth(pageW) {
   return pageW + MM(OUTER_MM) + MM(GUTTER_MM);
 }
 
+/** Bù browser zoom để quyết định bố cục ổn định khi Ctrl +/-. */
+function layoutViewportWidth(el) {
+  const vv = window.visualViewport;
+  if (vv) return Math.round(vv.width * vv.scale);
+  return el.clientWidth;
+}
+
 /**
- * Tự chọn bố cục ngang / xếp dọc và tỉ lệ hiển thị theo vùng xem.
- * Ưu tiên đọc được trên màn hình phổ thông (1366–1920px) mà vẫn giữ mẫu in.
+ * Giữ sổ ở bố cục ngang trên desktop để khi phóng to chỉ cuộn ngang,
+ * không tự nhảy sang bố cục dọc làm người dùng cảm giác bị vỡ.
  */
 export function useNhatKySpreadFit(leftW, rightW, userZoomPercent) {
   const canvasRef = useRef(null);
-  const [state, setState] = useState({ layout: "spread", scale: userZoomPercent / 100 });
+  const userScale = Math.min(1.5, Math.max(0.7, userZoomPercent / 100));
+  const [layout, setLayout] = useState("spread");
 
   useEffect(() => {
     const el = canvasRef.current;
     if (!el) return;
 
     const measure = () => {
-      const available = Math.max(320, el.clientWidth - CANVAS_PAD);
+      const viewportWidth = layoutViewportWidth(el);
+      const available = Math.max(320, viewportWidth - CANVAS_PAD);
       const spreadW = spreadNaturalWidth(leftW, rightW);
-      const maxPageW = Math.max(pageNaturalWidth(leftW), pageNaturalWidth(rightW));
-      const userScale = Math.min(1.5, Math.max(0.7, userZoomPercent / 100));
 
-      if (available >= spreadW * userScale) {
-        setState({ layout: "spread", scale: userScale });
+      // Chỉ xếp dọc ở màn hình thực sự hẹp; browser zoom trên desktop vẫn giữ ngang.
+      if (viewportWidth <= 900 && available < spreadW) {
+        setLayout("stacked");
         return;
       }
 
-      if (available >= spreadW) {
-        setState({ layout: "spread", scale: available / spreadW });
-        return;
-      }
-
-      if (available >= maxPageW * userScale) {
-        setState({ layout: "stacked", scale: userScale });
-        return;
-      }
-
-      setState({ layout: "stacked", scale: Math.max(0.55, available / maxPageW) });
+      setLayout("spread");
     };
 
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     window.addEventListener("resize", measure);
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", measure);
     return () => {
       ro.disconnect();
       window.removeEventListener("resize", measure);
+      vv?.removeEventListener("resize", measure);
     };
-  }, [leftW, rightW, userZoomPercent]);
+  }, [leftW, rightW]);
 
-  return { canvasRef, ...state };
+  return { canvasRef, layout, scale: userScale };
 }

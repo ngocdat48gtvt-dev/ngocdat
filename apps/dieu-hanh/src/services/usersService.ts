@@ -57,6 +57,28 @@ export async function fetchCompanyUsers(
   )
 }
 
+/** USER vận hành sổ nội nghiệp — dùng cấp danh mục hạt/sổ. */
+export async function fetchCompanyOfficeUsers(
+  companyId: string,
+): Promise<CompanyUserEntry[]> {
+  if (!companyId) return []
+  const q = query(
+    collection(db, 'users'),
+    where('companyId', '==', companyId),
+    where('role', '==', 'USER'),
+  )
+  const snap = await getDocs(q)
+  const list: CompanyUserEntry[] = []
+  for (const d of snap.docs) {
+    const data = d.data() as Record<string, unknown>
+    if (data.active !== true) continue
+    list.push({ uid: d.id, displayName: nameFromUserDoc(data) || 'Chưa đặt tên' })
+  }
+  return list.sort((a, b) =>
+    a.displayName.localeCompare(b.displayName, 'vi', { sensitivity: 'base' }),
+  )
+}
+
 /** Mọi user thuộc công ty (kể cả inactive) — dùng tải sự cố ADMIN. */
 export async function fetchCompanyMemberUids(companyId: string): Promise<string[]> {
   if (!companyId) return []

@@ -2,6 +2,16 @@
 
 block_cipher = None
 
+
+def _drop_api_ms_win(binaries):
+    """Không gói api-ms-win-* từ JDK trong PATH — gây crash im lặng trên máy khác."""
+    return [
+        entry
+        for entry in binaries
+        if not entry[0].lower().startswith("api-ms-win")
+    ]
+
+
 datas = [
     ('firebase_config.json', '.'),
     ('printer_icon.ico', '.'),
@@ -35,6 +45,8 @@ a = Analysis(
     cipher=block_cipher,
     noarchive=False,
 )
+
+a.binaries = _drop_api_ms_win(a.binaries)
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 

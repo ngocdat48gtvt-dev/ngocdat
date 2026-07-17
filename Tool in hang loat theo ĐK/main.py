@@ -3,6 +3,7 @@ import os
 import json
 import time
 import traceback
+from datetime import datetime
 import xlwings as xw
 import win32print
 import win32gui
@@ -26,6 +27,29 @@ def app_dir():
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def crash_log_path():
+    return os.path.join(app_dir(), "print_qlcl_crash.log")
+
+
+def write_crash_log(message: str) -> None:
+    try:
+        with open(crash_log_path(), "a", encoding="utf-8") as f:
+            f.write(f"\n[{datetime.now().isoformat(timespec='seconds')}]\n")
+            f.write(message)
+            if not message.endswith("\n"):
+                f.write("\n")
+    except OSError:
+        pass
+
+
+def install_crash_logger():
+    def _hook(exc_type, exc_value, exc_tb):
+        write_crash_log("".join(traceback.format_exception(exc_type, exc_value, exc_tb)))
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+    sys.excepthook = _hook
+
+
 def resource_path(rel):
     if getattr(sys, "frozen", False):
         bundled = os.path.join(sys._MEIPASS, rel)
@@ -36,6 +60,27 @@ def resource_path(rel):
 
 ICON_APP = resource_path("printer_icon.ico")
 CONFIG_FILE = os.path.join(app_dir(), "print_config.json")
+
+
+def _is_window_iconic(hwnd):
+    try:
+        return bool(win32gui.IsIconic(hwnd))
+    except Exception:
+        return False
+
+
+def _is_window_maximized(hwnd):
+    """pywin32 không có win32gui.IsZoomed trên nhiều máy."""
+    try:
+        placement = win32gui.GetWindowPlacement(hwnd)
+        return placement[1] == win32con.SW_SHOWMAXIMIZED
+    except Exception:
+        try:
+            style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
+            return bool(style & win32con.WS_MAXIMIZE)
+        except Exception:
+            return False
+
 
 APP_STYLESHEET = """
 QMainWindow, QWidget {
@@ -160,19 +205,49 @@ QFrame#panelRight {
 """
 
 
-class CenteredCheckDelegate(QStyledItemDelegate):
-    """Vẽ checkbox căn giữa ô (QTableWidget mặc định luôn lệch trái)."""
+class MappingCheckDelegate(QStyledItemDelegate):
+    """Checkbox + số thứ tự in (theo thứ tự tick); click cả ô để bật/tắt."""
+
+    def __init__(self, table, owner):
+        super().__init__(table)
+        self.table = table
+        self.owner = owner
+
+    def _cell_background(self, row, col, checked):
+        owner = self.owner
+        hrow, hcol = owner._mapping_hover_row, owner._mapping_hover_col
+        if hrow == row and hcol == col:
+            bg = QColor("#FFF8E1")
+        elif hrow == row:
+            bg = QColor("#E3F2FD")
+        elif hcol == col:
+            bg = QColor("#ECEFF1")
+        elif checked:
+            bg = QColor("#E8F5E9")
+        else:
+            bg = QColor("#FFFFFF")
+        if checked and bg not in (QColor("#E8F5E9"), QColor("#FFFFFF")):
+            bg = QColor(
+                min(255, bg.red() + 6),
+                min(255, bg.green() + 10),
+                min(255, bg.blue() + 2),
+            )
+        return bg
 
     def paint(self, painter, option, index):
         if not (index.flags() & Qt.ItemIsUserCheckable):
             return super().paint(painter, option, index)
 
+        row, col = index.row(), index.column()
+        checked = index.data(Qt.CheckStateRole) == Qt.Checked
+        order_num = self.owner._order_number_for_cell(row, col)
+
+        painter.save()
+        painter.fillRect(option.rect, self._cell_background(row, col, checked))
+
         opt = QStyleOptionButton()
-        state = index.data(Qt.CheckStateRole)
-        if state == Qt.Checked:
+        if checked:
             opt.state = QStyle.State_On
-        elif state == Qt.PartiallyChecked:
-            opt.state = QStyle.State_NoChange
         else:
             opt.state = QStyle.State_Off
         opt.state |= QStyle.State_Enabled
@@ -182,10 +257,28 @@ class CenteredCheckDelegate(QStyledItemDelegate):
         widget = option.widget
         style = widget.style() if widget else QApplication.style()
         indicator = style.subElementRect(QStyle.SE_CheckBoxIndicator, opt, widget)
-        x = option.rect.x() + (option.rect.width() - indicator.width()) // 2
+        num_w = 16 if order_num is not None else 0
+        gap = 3 if order_num is not None else 0
+        block_w = indicator.width() + gap + num_w
+        start_x = option.rect.x() + max(0, (option.rect.width() - block_w) // 2)
         y = option.rect.y() + (option.rect.height() - indicator.height()) // 2
-        opt.rect = QRect(x, y, indicator.width(), indicator.height())
+        opt.rect = QRect(start_x, y, indicator.width(), indicator.height())
         style.drawControl(QStyle.CE_CheckBox, opt, painter, widget)
+
+        if order_num is not None:
+            font = painter.font()
+            font.setBold(True)
+            painter.setFont(font)
+            painter.setPen(QColor("#1565C0"))
+            num_rect = QRect(
+                start_x + indicator.width() + gap,
+                option.rect.y(),
+                num_w,
+                option.rect.height(),
+            )
+            painter.drawText(num_rect, Qt.AlignVCenter | Qt.AlignLeft, str(order_num))
+
+        painter.restore()
 
     def editorEvent(self, event, model, option, index):
         if not (index.flags() & Qt.ItemIsUserCheckable):
@@ -203,6 +296,50 @@ class CenteredCheckDelegate(QStyledItemDelegate):
             )
             return True
         return super().editorEvent(event, model, option, index)
+
+
+def _prepare_workbook(wb):
+    """Kích hoạt Excel/workbook — tránh COM lỗi 0x800a01a8 trên máy khác."""
+    try:
+        wb.app.visible = True
+    except Exception:
+        pass
+    try:
+        wb.activate()
+    except Exception:
+        pass
+    try:
+        if len(wb.sheets) > 0:
+            wb.sheets[0].activate()
+    except Exception:
+        pass
+    return wb
+
+
+def _workbook_name(wb):
+    try:
+        return str(wb.name)
+    except Exception:
+        return "Excel"
+
+
+def workbook_sheet_names(wb):
+    """Đọc tên sheet; thử lại nếu COM Excel chưa sẵn sàng."""
+    last_err = None
+    for attempt in range(3):
+        try:
+            _prepare_workbook(wb)
+            names = [str(s.name) for s in wb.sheets]
+            if names:
+                return names
+        except Exception as exc:
+            last_err = exc
+            time.sleep(0.25 * (attempt + 1))
+    raise RuntimeError(
+        "Không đọc được danh sách sheet từ Excel.\n\n"
+        "Hãy mở file Excel (.xlsx/.xlsm), bấm «Enable Editing» nếu có, "
+        "rồi chạy lại tool."
+    ) from last_err
 
 
 def connect_excel_workbook(parent=None):
@@ -223,7 +360,7 @@ def connect_excel_workbook(parent=None):
 
     wb = active_book() or first_book()
     if wb:
-        return wb
+        return _prepare_workbook(wb)
 
     try:
         xw.App(visible=True)
@@ -232,7 +369,7 @@ def connect_excel_workbook(parent=None):
 
     wb = active_book() or first_book()
     if wb:
-        return wb
+        return _prepare_workbook(wb)
 
     path, _ = QFileDialog.getOpenFileName(
         parent,
@@ -249,16 +386,106 @@ def connect_excel_workbook(parent=None):
     except Exception:
         xw.App(visible=True)
 
-    return xw.Book(path)
+    return _prepare_workbook(xw.Book(path))
+
+
+def _printer_port(printer_name):
+    for p in win32print.EnumPrinters(2):
+        if p[2] == printer_name:
+            handle = win32print.OpenPrinter(printer_name)
+            try:
+                return win32print.GetPrinter(handle, 2)["pPortName"]
+            finally:
+                win32print.ClosePrinter(handle)
+    return None
+
+
+def _excel_active_printer_candidates(printer_name, sample_active=None):
+    port = _printer_port(printer_name)
+    if not port:
+        return []
+
+    candidates = []
+    sample = str(sample_active or "")
+    if " on " in sample:
+        suffix = ":" if sample.rstrip().endswith(":") else ""
+        candidates.append(f"{printer_name} on {port}{suffix}")
+
+    for suffix in (":", ""):
+        candidates.append(f"{printer_name} on {port}{suffix}")
+
+    seen = set()
+    ordered = []
+    for item in candidates:
+        if item not in seen:
+            seen.add(item)
+            ordered.append(item)
+    return ordered
+
+
+def _set_excel_active_printer(excel_app, printer_name):
+    old = excel_app.ActivePrinter
+    last_err = None
+    for candidate in _excel_active_printer_candidates(printer_name, old):
+        try:
+            excel_app.ActivePrinter = candidate
+            return old
+        except Exception as exc:
+            last_err = exc
+    raise RuntimeError(
+        f"Excel không gán được máy in «{printer_name}».\n\n"
+        "Thử chọn máy in khác trong danh sách, hoặc chọn «PDF» thay «In trực tiếp»."
+    ) from last_err
+
+
+def _safe_filename_part(text, max_len=40):
+    s = str(text).strip()
+    for ch in '<>:"/\\|?*\0':
+        s = s.replace(ch, "_")
+    s = s.replace("\n", "_").replace("\r", "")
+    if len(s) > max_len:
+        s = s[:max_len]
+    return s or "sheet"
+
+
+def _ensure_workbook_saved_for_export(wb):
+    """Excel thường báo «Tài liệu không được lưu» nếu file chưa lưu / chỉ đọc."""
+    try:
+        book = wb.api
+        if book.ReadOnly:
+            raise RuntimeError(
+                "File Excel đang ở chế độ «Chỉ đọc» (Read-only).\n\n"
+                "File → Save As → lưu bản mới (.xlsx/.xlsm), mở lại rồi xuất PDF."
+            )
+        try:
+            fullname = str(wb.fullname or "").strip()
+        except Exception:
+            fullname = ""
+        if not fullname:
+            raise RuntimeError(
+                "File Excel chưa được lưu trên ổ đĩa.\n\n"
+                "Bấm Ctrl+S (hoặc File → Save) lưu file trước khi xuất PDF."
+            )
+        if not book.Saved:
+            wb.save()
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(
+            "Không lưu được file Excel trước khi xuất PDF.\n\n"
+            "Hãy Ctrl+S lưu file thủ công, đóng hộp thoại Excel nếu có, rồi in lại."
+        ) from exc
 
 
 class PrintControl(QMainWindow):
 
-    def __init__(self, auth_session=None):
+    def __init__(self, auth_session=None, wb=None):
         super().__init__()
         self.auth_session = auth_session
-        self.wb = xw.books.active
-        self.initial_wb_name = self.wb.name
+        if wb is None:
+            raise RuntimeError("Thiếu workbook Excel.")
+        self.wb = wb
+        self.initial_wb_name = _workbook_name(self.wb)
         self.hidden_mapping_sheets = set()
         self.sheet_print_order = []
         self._selected_order_col = None
@@ -438,7 +665,9 @@ class PrintControl(QMainWindow):
 
         self.table_left = QTableWidget()
         self.table_right = QTableWidget()
-        self.table_right.setItemDelegate(CenteredCheckDelegate(self.table_right))
+        self.mapping_tick_order = {}
+        self._mapping_hover_row = -1
+        self._mapping_hover_col = -1
         hdr_print = self.table_right.horizontalHeader()
         hdr_print.setSectionsClickable(True)
         hdr_print.setSectionsMovable(True)
@@ -457,6 +686,14 @@ class PrintControl(QMainWindow):
 
         self.table_left.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.table_right.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+
+        self.table_right.setMouseTracking(True)
+        self.table_left.setMouseTracking(True)
+        self.table_right.setSelectionMode(QAbstractItemView.NoSelection)
+        self.table_right.setFocusPolicy(Qt.NoFocus)
+        self.table_right.viewport().installEventFilter(self)
+        self.table_left.viewport().installEventFilter(self)
+        self.table_right.setItemDelegate(MappingCheckDelegate(self.table_right, self))
 
         # cho table giãn full
         self.table_left.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -629,45 +866,48 @@ class PrintControl(QMainWindow):
 
     def tile_beside_excel(self):
         """Excel bên trái, tool bên phải — dùng chung một màn hình."""
-        excel_hwnd = self._excel_hwnd()
-        if not excel_hwnd:
-            return False
-
-        if win32gui.IsIconic(excel_hwnd):
-            win32gui.ShowWindow(excel_hwnd, win32con.SW_RESTORE)
-        if win32gui.IsZoomed(excel_hwnd):
-            win32gui.ShowWindow(excel_hwnd, win32con.SW_RESTORE)
-
-        work = self._monitor_work_area(excel_hwnd)
-        work_l = work["left"]
-        work_t = work["top"]
-        work_w = work["right"] - work["left"]
-        work_h = work["bottom"] - work["top"]
-
-        tool_w = max(self.minimumWidth(), min(540, int(work_w * 0.32)))
-        min_excel_w = 480
-        if work_w - tool_w < min_excel_w:
-            tool_w = max(self.minimumWidth(), work_w - min_excel_w)
-        excel_w = work_w - tool_w
-        tool_x = work_l + excel_w
-
-        win32gui.SetWindowPos(
-            excel_hwnd,
-            win32con.HWND_TOP,
-            work_l,
-            work_t,
-            excel_w,
-            work_h,
-            win32con.SWP_SHOWWINDOW,
-        )
-        self.setGeometry(tool_x, work_t, tool_w, work_h)
-        self.show()
-        self.raise_()
         try:
-            self._activate_excel()
+            excel_hwnd = self._excel_hwnd()
+            if not excel_hwnd:
+                return False
+
+            if _is_window_iconic(excel_hwnd):
+                win32gui.ShowWindow(excel_hwnd, win32con.SW_RESTORE)
+            if _is_window_maximized(excel_hwnd):
+                win32gui.ShowWindow(excel_hwnd, win32con.SW_RESTORE)
+
+            work = self._monitor_work_area(excel_hwnd)
+            work_l = work["left"]
+            work_t = work["top"]
+            work_w = work["right"] - work["left"]
+            work_h = work["bottom"] - work["top"]
+
+            tool_w = max(self.minimumWidth(), min(540, int(work_w * 0.32)))
+            min_excel_w = 480
+            if work_w - tool_w < min_excel_w:
+                tool_w = max(self.minimumWidth(), work_w - min_excel_w)
+            excel_w = work_w - tool_w
+            tool_x = work_l + excel_w
+
+            win32gui.SetWindowPos(
+                excel_hwnd,
+                win32con.HWND_TOP,
+                work_l,
+                work_t,
+                excel_w,
+                work_h,
+                win32con.SWP_SHOWWINDOW,
+            )
+            self.setGeometry(tool_x, work_t, tool_w, work_h)
+            self.show()
+            self.raise_()
+            try:
+                self._activate_excel()
+            except Exception:
+                pass
+            return True
         except Exception:
-            pass
-        return True
+            return False
 
     def _apply_default_geometry(self):
         """Ưu tiên kích thước lần trước; lần đầu canh cạnh Excel."""
@@ -707,7 +947,7 @@ class PrintControl(QMainWindow):
         self.stop_requested = True
 
     def load_autofit_table(self):
-        sheets = [s.name for s in self.wb.sheets]
+        sheets = workbook_sheet_names(self.wb)
 
         self.table_autofit.setRowCount(len(sheets))
 
@@ -785,8 +1025,8 @@ class PrintControl(QMainWindow):
 
     def load_sheets(self):
         self.combo_sheet_var.clear()
-        for s in self.wb.sheets:
-            self.combo_sheet_var.addItem(s.name)
+        for name in workbook_sheet_names(self.wb):
+            self.combo_sheet_var.addItem(name)
         self._fit_combo_dropdown_width(self.combo_sheet_var, min_width=200)
 
     def load_printers(self):
@@ -827,6 +1067,33 @@ class PrintControl(QMainWindow):
             if event.type() == QEvent.MouseButtonDblClick:
                 self.edit_hidden_mapping_sheets()
                 return True
+
+        if hasattr(self, "table_right") and obj == self.table_right.viewport():
+            if event.type() == QEvent.MouseMove:
+                idx = self.table_right.indexAt(event.pos())
+                row = idx.row() if idx.isValid() else -1
+                col = idx.column() if idx.isValid() else -1
+                if row != self._mapping_hover_row or col != self._mapping_hover_col:
+                    self._mapping_hover_row = row
+                    self._mapping_hover_col = col
+                    self._update_mapping_hover_visual()
+            elif event.type() == QEvent.Leave:
+                self._mapping_hover_row = -1
+                self._mapping_hover_col = -1
+                self._update_mapping_hover_visual()
+
+        if hasattr(self, "table_left") and obj == self.table_left.viewport():
+            if event.type() == QEvent.MouseMove:
+                idx = self.table_left.indexAt(event.pos())
+                row = idx.row() if idx.isValid() else -1
+                if row != self._mapping_hover_row or self._mapping_hover_col != -1:
+                    self._mapping_hover_row = row
+                    self._mapping_hover_col = -1
+                    self._update_mapping_hover_visual()
+            elif event.type() == QEvent.Leave:
+                self._mapping_hover_row = -1
+                self._mapping_hover_col = -1
+                self._update_mapping_hover_visual()
 
         return super().eventFilter(obj, event)
 
@@ -1026,20 +1293,56 @@ class PrintControl(QMainWindow):
         self.sheet_print_order = ordered
         return ordered
 
+    def _sheet_name_for_col(self, col):
+        hdr = self.table_right.horizontalHeaderItem(col)
+        return self._pure_sheet_name(hdr.text() if hdr else "")
+
+    def _tick_order_for_row(self, row):
+        if row not in self.mapping_tick_order:
+            self.mapping_tick_order[row] = []
+        return self.mapping_tick_order[row]
+
+    def _order_number_for_cell(self, row, col):
+        name = self._sheet_name_for_col(col)
+        if not name:
+            return None
+        order = self._tick_order_for_row(row)
+        if name not in order:
+            return None
+        return order.index(name) + 1
+
+    def _sync_tick_order_on_check_change(self, row, col, checked):
+        name = self._sheet_name_for_col(col)
+        if not name:
+            return
+        order = self._tick_order_for_row(row)
+        if checked:
+            if name not in order:
+                order.append(name)
+        elif name in order:
+            order.remove(name)
+
+    def _update_mapping_hover_visual(self):
+        for r in range(self.table_left.rowCount()):
+            item = self.table_left.item(r, 0)
+            if not item:
+                continue
+            if r == self._mapping_hover_row:
+                item.setBackground(QColor("#E3F2FD"))
+            else:
+                item.setBackground(QColor("#FFFFFF"))
+        self.table_right.viewport().update()
+
     def _save_mapping_state(self):
         conditions = []
-        checks = set()
+        checks = {}
         for r in range(self.table_left.rowCount()):
             citem = self.table_left.item(r, 0)
             cond = citem.text().strip() if citem else ""
             if not cond:
                 continue
             conditions.append(cond)
-            for c in range(self.table_right.columnCount()):
-                hdr = self.table_right.horizontalHeaderItem(c)
-                sname = self._pure_sheet_name(hdr.text() if hdr else "")
-                if self._mapping_cell_checked(r, c):
-                    checks.add((cond, sname))
+            checks[cond] = self._checked_sheets_for_row(r)
         conditions = self._unique_preserve_order(conditions)
         return conditions, checks
 
@@ -1048,10 +1351,20 @@ class PrintControl(QMainWindow):
         self.table_right.blockSignals(True)
         try:
             for r, cond in enumerate(conditions):
+                if isinstance(checks, set):
+                    ordered = []
+                    for c in range(self.table_right.columnCount()):
+                        hdr = self.table_right.horizontalHeaderItem(c)
+                        sname = self._pure_sheet_name(hdr.text() if hdr else "")
+                        if (cond, sname) in checks:
+                            ordered.append(sname)
+                    self.mapping_tick_order[r] = ordered
+                else:
+                    self.mapping_tick_order[r] = list(checks.get(cond, []))
                 for c in range(self.table_right.columnCount()):
                     hdr = self.table_right.horizontalHeaderItem(c)
                     sname = self._pure_sheet_name(hdr.text() if hdr else "")
-                    if (cond, sname) in checks:
+                    if sname in self.mapping_tick_order.get(r, []):
                         it = self.table_right.item(r, c)
                         if it:
                             it.setCheckState(Qt.Checked)
@@ -1060,33 +1373,21 @@ class PrintControl(QMainWindow):
         self._refresh_all_rows_print_order()
 
     def _checked_sheets_for_row(self, row):
-        """Danh sách tên sheet đã tick, theo thứ tự cột trái→phải trên bảng."""
-        result = []
-        hdr_view = self.table_right.horizontalHeader()
-        for visual_col in range(hdr_view.count()):
-            col = hdr_view.logicalIndex(visual_col)
-            if self.table_right.isColumnHidden(col):
-                continue
-            if not self._mapping_cell_checked(row, col):
-                continue
-            hdr = self.table_right.horizontalHeaderItem(col)
-            name = self._pure_sheet_name(hdr.text() if hdr else "")
-            if name:
-                result.append(name)
-        return result
+        """Danh sách sheet đã tick, theo thứ tự người dùng tick chuột."""
+        order = list(self._tick_order_for_row(row))
+        verified = []
+        for name in order:
+            for col in range(self.table_right.columnCount()):
+                if self._sheet_name_for_col(col) != name:
+                    continue
+                if self._mapping_cell_checked(row, col):
+                    verified.append(name)
+                break
+        self.mapping_tick_order[row] = verified
+        return verified
 
     def _refresh_row_print_order(self, row):
-        for col in range(self.table_right.columnCount()):
-            it = self.table_right.item(row, col)
-            if not it:
-                continue
-            if self.table_right.isColumnHidden(col):
-                it.setBackground(QColor("#FFFFFF"))
-                continue
-            if it.checkState() == Qt.Checked:
-                it.setBackground(QColor("#E8F5E9"))
-            else:
-                it.setBackground(QColor("#FFFFFF"))
+        del row
         self.table_right.viewport().update()
 
     def _refresh_all_rows_print_order(self):
@@ -1097,7 +1398,10 @@ class PrintControl(QMainWindow):
     def _on_mapping_item_changed(self, item):
         if item.column() < 0:
             return
-        self._refresh_row_print_order(item.row())
+        row, col = item.row(), item.column()
+        checked = item.checkState() == Qt.Checked
+        self._sync_tick_order_on_check_change(row, col, checked)
+        self._refresh_row_print_order(row)
         self._sync_mapping_row_heights()
 
     def _sync_print_order_from_table(self):
@@ -1130,6 +1434,8 @@ class PrintControl(QMainWindow):
         conditions = self._unique_preserve_order(conditions)
         sheet_names = self._ordered_sheet_names()
         cond_font = self._mapping_condition_font()
+
+        self.mapping_tick_order = {}
 
         # ===== CLEAR CŨ =====
         self.table_left.clear()
@@ -1194,6 +1500,7 @@ class PrintControl(QMainWindow):
 
         # ===== FILL DATA =====
         for row, cond in enumerate(conditions):
+            self.mapping_tick_order[row] = []
 
             cond_item = QTableWidgetItem(str(cond))
             cond_item.setFont(cond_font)
@@ -1327,6 +1634,7 @@ class PrintControl(QMainWindow):
         self.table_right.blockSignals(True)
         try:
             for row in range(self.table_right.rowCount()):
+                self.mapping_tick_order[row] = []
                 for col in range(self.table_right.columnCount()):
                     item = self.table_right.item(row, col)
                     if item:
@@ -1491,20 +1799,25 @@ class PrintControl(QMainWindow):
 
         self.build_mapping_table([display for display, _ in by_key.values()])
 
-        for row in range(self.table_left.rowCount()):
-            citem = self.table_left.item(row, 0)
-            cond = citem.text().strip() if citem else ""
-            sheets_for_cond = mapping.get(cond, [])
-            if not sheets_for_cond:
-                entry = by_key.get(self._condition_key(cond))
-                if entry:
-                    sheets_for_cond = entry[1]
-            for col in range(self.table_right.columnCount()):
-                hdr = self.table_right.horizontalHeaderItem(col)
-                sheet_name = self._pure_sheet_name(hdr.text() if hdr else "")
-                item = self.table_right.item(row, col)
-                if item and sheet_name in sheets_for_cond:
-                    item.setCheckState(Qt.Checked)
+        self.table_right.blockSignals(True)
+        try:
+            for row in range(self.table_left.rowCount()):
+                citem = self.table_left.item(row, 0)
+                cond = citem.text().strip() if citem else ""
+                sheets_for_cond = mapping.get(cond, [])
+                if not sheets_for_cond:
+                    entry = by_key.get(self._condition_key(cond))
+                    if entry:
+                        sheets_for_cond = entry[1]
+                self.mapping_tick_order[row] = list(sheets_for_cond)
+                for col in range(self.table_right.columnCount()):
+                    hdr = self.table_right.horizontalHeaderItem(col)
+                    sheet_name = self._pure_sheet_name(hdr.text() if hdr else "")
+                    item = self.table_right.item(row, col)
+                    if item and sheet_name in sheets_for_cond:
+                        item.setCheckState(Qt.Checked)
+        finally:
+            self.table_right.blockSignals(False)
         self._refresh_all_rows_print_order()
 
         self.apply_autofit_rows(config.get("autofit_map", {}))
@@ -1769,22 +2082,29 @@ class PrintControl(QMainWindow):
         if parent:
             os.makedirs(parent, exist_ok=True)
 
+        _ensure_workbook_saved_for_export(self.wb)
+
         last_err = None
         for attempt in range(2):
+            ignore_print_areas = attempt == 1
             try:
                 if ws is None:
                     ws = self.wb.sheets[sheet_name]
-                    try:
-                        if ws.api.Visible != -1:
-                            ws.api.Visible = -1
-                    except Exception:
-                        pass
+                try:
+                    if ws.api.Visible != -1:
+                        ws.api.Visible = -1
+                except Exception:
+                    pass
+                try:
+                    ws.activate()
+                except Exception:
+                    pass
                 ws.api.ExportAsFixedFormat(
                     Type=0,
                     Filename=path,
                     Quality=0,
                     IncludeDocProperties=False,
-                    IgnorePrintAreas=False,
+                    IgnorePrintAreas=ignore_print_areas,
                     OpenAfterPublish=False,
                 )
                 if not os.path.isfile(path):
@@ -1800,10 +2120,17 @@ class PrintControl(QMainWindow):
                 except Exception:
                     pass
 
+        detail = str(last_err)
+        hint = (
+            "Giữ Excel mở, không bấm đóng file khi đang in."
+        )
+        if "không được lưu" in detail.lower() or "not saved" in detail.lower():
+            hint = (
+                "File Excel cần được lưu (Ctrl+S) và không ở chế độ Chỉ đọc.\n"
+                "Nếu mở từ email/OneDrive, chọn «Enable Editing» rồi Save As."
+            )
         raise RuntimeError(
-            f"Không xuất PDF sheet «{sheet_name}».\n"
-            "Giữ Excel mở, không bấm đóng file khi đang in.\n\n"
-            f"Chi tiết: {last_err}"
+            f"Không xuất PDF sheet «{sheet_name}».\n{hint}\n\nChi tiết: {last_err}"
         ) from last_err
 
     def _print_sheet_silent(self, sheet_name, ws=None):
@@ -2036,7 +2363,10 @@ class PrintControl(QMainWindow):
             except Exception as ex:
                 print(f"Giãn dòng khi in lỗi ({sheet_name}):", ex)
         if pdf_mode:
-            temp_path = os.path.join(temp_dir, f"{sheet_name}_{value}.pdf")
+            temp_path = os.path.join(
+                temp_dir,
+                f"p{page_index:04d}_{_safe_filename_part(sheet_name)}_{_safe_filename_part(value)}.pdf",
+            )
             self._export_sheet_pdf(sheet_name, temp_path, ws=ws)
             temp_files.append(temp_path)
         else:
@@ -2117,21 +2447,21 @@ class PrintControl(QMainWindow):
 
             if pdf_mode:
                 merger = PdfMerger()
+                _ensure_workbook_saved_for_export(wb)
             else:
-                old_printer = excel_app.ActivePrinter
-                printer_name = self.combo_printer.currentText()
-                port = None
-                for p in win32print.EnumPrinters(2):
-                    if p[2] == printer_name:
-                        handle = win32print.OpenPrinter(printer_name)
-                        printer_info = win32print.GetPrinter(handle, 2)
-                        port = printer_info["pPortName"]
-                        win32print.ClosePrinter(handle)
-                        break
-                if not port:
-                    QMessageBox.warning(self, "Lỗi", "Không tìm thấy máy in")
+                printer_name = self.combo_printer.currentText().strip()
+                if not printer_name:
+                    QMessageBox.warning(self, "Lỗi", "Chưa chọn máy in.")
                     return
-                excel_app.ActivePrinter = f"{printer_name} on {port}"
+                if not _printer_port(printer_name):
+                    QMessageBox.warning(
+                        self,
+                        "Lỗi",
+                        f"Không tìm thấy máy in «{printer_name}» trên máy này.\n"
+                        "Chọn máy in khác hoặc dùng chế độ PDF.",
+                    )
+                    return
+                old_printer = _set_excel_active_printer(excel_app, printer_name)
 
             try:
                 total = len(values)
@@ -2262,6 +2592,7 @@ class PrintControl(QMainWindow):
             self.btn_print.setEnabled(True)
 
 def main():
+    install_crash_logger()
     app = QApplication(sys.argv)
     if os.path.exists(ICON_APP):
         app.setWindowIcon(QIcon(ICON_APP))
@@ -2274,7 +2605,8 @@ def main():
         if auth_session is None:
             return 0
 
-        if connect_excel_workbook() is None:
+        wb = connect_excel_workbook()
+        if wb is None:
             QMessageBox.warning(
                 None,
                 "Cần Excel",
@@ -2283,15 +2615,17 @@ def main():
             )
             return 1
 
-        window = PrintControl(auth_session=auth_session)
+        window = PrintControl(auth_session=auth_session, wb=wb)
         if not window.isVisible():
             window.show()
         return app.exec_()
     except Exception as e:
+        detail = f"{e}\n\n{traceback.format_exc()}"
+        write_crash_log(detail)
         QMessageBox.critical(
             None,
             "Lỗi khởi động",
-            f"{e}\n\n{traceback.format_exc()}",
+            f"{detail}\n\n(Đã ghi log: {crash_log_path()})",
         )
         return 1
 

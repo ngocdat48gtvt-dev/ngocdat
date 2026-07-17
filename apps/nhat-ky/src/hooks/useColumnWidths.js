@@ -36,6 +36,11 @@ function loadWidths() {
   }
 }
 
+/** Đọc bề rộng cột 1–6 đã chỉnh ở trang nhập liệu (localStorage). */
+export function getNhatKyColWidths() {
+  return loadWidths();
+}
+
 function loadZoom() {
   const v = Number(localStorage.getItem(ZOOM_KEY));
   return v >= 70 && v <= 150 ? v : 100;

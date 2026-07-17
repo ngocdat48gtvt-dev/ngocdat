@@ -17,19 +17,26 @@ import {
   isCountUnit,
   needMaintenanceForType
 } from "../utils/baoDuongQualityStore";
+import { isNoteQtyDiarySection } from "../utils/incidentUtils";
+import { CAU_SECTION } from "../utils/cauRegistryStore";
 import { formatKmCell } from "../utils/matDuongFormat";
 import WorkTypeCombo from "./WorkTypeCombo";
+import ViDateInput from "./ViDateInput";
 
 const SIDE_OPTIONS = ["", "T", "P", "G", "M"];
+
+function isCauSection(section) {
+  return String(section || "").trim() === CAU_SECTION;
+}
 
 function round2(n) {
   return Math.round(n * 100) / 100;
 }
 
 /** Khối lượng của một dòng theo đơn vị: m→dài, m²→dài×rộng, m³→dài×rộng×cao, đếm→nhập tay. */
-function calcRowQuantity(row) {
+function calcRowQuantity(row, { noteQty = false } = {}) {
   const unit = row?.unit || "";
-  if (isCountUnit(unit)) {
+  if (noteQty || isCountUnit(unit)) {
     const q = parseDecimalNumber(row?.quantity);
     return Number.isNaN(q) ? "" : q;
   }
@@ -42,11 +49,11 @@ function calcRowQuantity(row) {
   return "";
 }
 
-function rowIsValid(row) {
+function rowIsValid(row, { noteQty = false } = {}) {
   const kmFrom = normalizeKmInput(row?.kmFrom);
   const type = String(row?.type || "").trim();
   if (!kmFrom || !type) return false;
-  const q = calcRowQuantity(row);
+  const q = calcRowQuantity(row, { noteQty });
   return Number(q) > 0;
 }
 
@@ -54,6 +61,7 @@ function rowIsValid(row) {
 export function buildBaoDuongEntries(rows, { section, date }) {
   const errors = [];
   const entries = [];
+  const noteQty = isNoteQtyDiarySection(section);
   (rows || []).forEach((row, i) => {
     const kmFrom = normalizeKmInput(row?.kmFrom);
     const type = String(row?.type || "").trim();
@@ -66,17 +74,36 @@ export function buildBaoDuongEntries(rows, { section, date }) {
       errors.push(`Dòng ${i + 1}: chưa chọn loại công việc.`);
       return;
     }
-    const unit = row?.unit || getUnitForType(type) || "m2";
-    const length = normalizeDecimalString(row?.length);
-    const width = normalizeDecimalString(row?.width);
-    const height = normalizeDecimalString(row?.height);
-    const quantity = calcRowQuantity({ ...row, unit });
+    const catalogUnit = getUnitForType(type);
+    let unit = row?.unit || catalogUnit || (noteQty ? "cái" : "m2");
+    if (noteQty && catalogUnit) {
+      const geometric = new Set(["m", "m2", "m3", "m²", "m³"]);
+      // Bản ghi cũ bị gán m³ nhầm → lấy lại đơn vị master data.
+      if (isCountUnit(catalogUnit) && geometric.has(String(unit).trim())) {
+        unit = catalogUnit;
+      }
+    }
+    const length = noteQty ? "" : normalizeDecimalString(row?.length);
+    const width = noteQty ? "" : normalizeDecimalString(row?.width);
+    const height = noteQty ? "" : normalizeDecimalString(row?.height);
+    const quantity = calcRowQuantity({ ...row, unit }, { noteQty });
     if (!quantity || Number(quantity) <= 0) {
       errors.push(`Dòng ${i + 1}: thiếu khối lượng.`);
       return;
     }
-    const lengthM = parseDecimalNumber(length);
-    const kmTo = lengthM > 0 ? addMetersToKm(kmFrom, lengthM) : kmFrom;
+
+    let kmTo = "";
+    if (noteQty) {
+      // Người dùng tự điền; để trống = một điểm (vd. cột mốc, biển báo).
+      kmTo = normalizeKmInput(row?.kmTo) || "";
+    } else if (isCauSection(section)) {
+      // Cầu chỉ có một lý trình.
+      kmTo = kmFrom;
+    } else {
+      const lengthM = parseDecimalNumber(length);
+      kmTo = lengthM > 0 ? addMetersToKm(kmFrom, lengthM) : kmFrom;
+    }
+
     // Sinh BDTX: nếu loại công việc cần xử lý thì tự đặt ngày dự kiến sửa
     // = ngày phát hiện + deadlineDays (nếu chưa nhập tay). Loại không sinh BDTX
     // thì bỏ ngày dự kiến để không đưa sang sổ BDTX.
@@ -99,9 +126,14 @@ export function buildBaoDuongEntries(rows, { section, date }) {
       width,
       height,
       quantity,
-      content: "",
+      content: noteQty ? String(row?.content || row?.note || "").trim() : "",
       plannedRepairDate
     };
+    if (row?.bridgeId) entry.bridgeId = row.bridgeId;
+    if (row?.bridgeName) entry.bridgeName = String(row.bridgeName).trim();
+    if (isCauSection(section)) {
+      entry.exportPhieuCau = row?.exportPhieuCau !== false;
+    }
     if (Number.isInteger(row?._editIndex)) entry._editIndex = row._editIndex;
     entries.push(entry);
   });
@@ -120,6 +152,7 @@ export function buildBaoDuongEntries(rows, { section, date }) {
  * Bảng nhập nhanh cho các hạng mục bảo dưỡng (Cống rãnh, Ngầm tràn, Cột mốc,
  * Công trình ATGT, Công tác phát cây, Công trình cầu). Đơn vị và cách tính khối
  * lượng tự theo loại công việc của từng dòng.
+ * ATGT / Cột mốc: không có Dài/Rộng/Cao; có Ghi chú; lý trình đầu/cuối nhập tay.
  */
 export default function BaoDuongQuickEntry({
   date,
@@ -127,15 +160,24 @@ export default function BaoDuongQuickEntry({
   rows,
   onRowsChange,
   onImport,
-  types
+  types,
+  bridges = []
 }) {
   const displayDate = formatDisplayDate(date);
   const showBdtxDate = isBaoDuongSection(section);
+  const noteQty = isNoteQtyDiarySection(section);
+  const singleKm = isCauSection(section);
+  const bridgeList = Array.isArray(bridges) ? bridges : [];
 
-  const validCount = useMemo(() => rows.filter(rowIsValid).length, [rows]);
+  const validCount = useMemo(
+    () => rows.filter((r) => rowIsValid(r, { noteQty })).length,
+    [rows, noteQty]
+  );
   const editCount = useMemo(
-    () => rows.filter((r) => Number.isInteger(r._editIndex) && rowIsValid(r)).length,
-    [rows]
+    () =>
+      rows.filter((r) => Number.isInteger(r._editIndex) && rowIsValid(r, { noteQty }))
+        .length,
+    [rows, noteQty]
   );
 
   function updateRow(index, patch) {
@@ -158,6 +200,19 @@ export default function BaoDuongQuickEntry({
     updateRow(index, patch);
   }
 
+  function handleBridgeChange(index, bridgeId) {
+    const b = bridgeList.find((x) => x.id === bridgeId);
+    if (!b) {
+      updateRow(index, { bridgeId: "", bridgeName: "" });
+      return;
+    }
+    updateRow(index, {
+      bridgeId: b.id,
+      bridgeName: b.name || "",
+      kmFrom: b.km || ""
+    });
+  }
+
   function addEmptyRows() {
     onRowsChange([...rows, ...makeEmptyQuickRows(5)]);
   }
@@ -169,6 +224,13 @@ export default function BaoDuongQuickEntry({
   function handleImport() {
     const { entries, errors } = buildBaoDuongEntries(rows, { section, date });
     onImport(entries, errors);
+  }
+
+  function blurFormatKm(index, field, value) {
+    const formatted = formatKmCell(value).replace(/^Km/, "");
+    if (formatted && formatted !== value) {
+      updateRow(index, { [field]: formatted });
+    }
   }
 
   return (
@@ -195,55 +257,103 @@ export default function BaoDuongQuickEntry({
       </div>
 
       <p className="section-guide section-guide--compact matduong-quick-hint">
-        Chọn <strong>loại công việc</strong> để tự lấy đơn vị; khối lượng tự tính theo
-        đơn vị (m: dài; m²: dài×rộng; m³: dài×rộng×cao; đếm: nhập tay). Bấm sự cố ở
-        danh sách bên trái để nạp dòng <strong>✎ sửa</strong>. Ghi vào nhật ký ngày{" "}
-        {displayDate || "—"}.
+        {singleKm ? (
+          <>
+            Chọn <strong>cầu</strong> để lấy lý trình (một điểm). Chọn{" "}
+            <strong>loại công việc</strong> để tự lấy đơn vị. Tick cột{" "}
+            <strong>Phiếu</strong> để đưa hư hỏng sang{" "}
+            <strong>Phiếu kiểm tra cầu</strong>. Ghi vào nhật ký ngày {displayDate || "—"}.
+          </>
+        ) : noteQty ? (
+          <>
+            Chọn <strong>loại công việc</strong> để tự lấy đơn vị; nhập{" "}
+            <strong>khối lượng</strong> và <strong>ghi chú</strong> (nếu có). Lý trình
+            cuối để trống nếu chỉ một điểm (vd. cột mốc, biển báo). Bấm sự cố ở danh sách bên
+            trái để nạp dòng <strong>✎ sửa</strong>. Ghi vào nhật ký ngày{" "}
+            {displayDate || "—"}.
+          </>
+        ) : (
+          <>
+            Chọn <strong>loại công việc</strong> để tự lấy đơn vị; khối lượng tự tính theo
+            đơn vị (m: dài; m²: dài×rộng; m³: dài×rộng×cao; đếm: nhập tay). Bấm sự cố ở
+            danh sách bên trái để nạp dòng <strong>✎ sửa</strong>. Ghi vào nhật ký ngày{" "}
+            {displayDate || "—"}.
+          </>
+        )}
       </p>
 
       <div className="matduong-quick-sheet-scroll">
         <table className="matduong-table matduong-table--entry matduong-table--quick baoduong-quick-table">
           <colgroup>
             <col style={{ width: "82px" }} />
+            {singleKm && <col style={{ width: "160px" }} />}
             <col style={{ width: "90px" }} />
-            <col style={{ width: "90px" }} />
-            <col style={{ width: "50px" }} />
+            {!singleKm && <col style={{ width: "90px" }} />}
+            {!singleKm && <col style={{ width: "50px" }} />}
             <col style={{ width: "190px" }} />
             <col style={{ width: "64px" }} />
-            <col style={{ width: "56px" }} />
-            <col style={{ width: "56px" }} />
-            <col style={{ width: "56px" }} />
+            {!noteQty && (
+              <>
+                <col style={{ width: "56px" }} />
+                <col style={{ width: "56px" }} />
+                <col style={{ width: "56px" }} />
+              </>
+            )}
             <col style={{ width: "76px" }} />
+            {noteQty && <col style={{ width: "160px" }} />}
             {showBdtxDate && <col style={{ width: "140px" }} />}
+            {singleKm && <col style={{ width: "52px" }} />}
           </colgroup>
           <thead>
             <tr>
               <th>Ngày</th>
-              <th>Lý trình đầu</th>
-              <th>Lý trình cuối</th>
-              <th>Phía</th>
+              {singleKm && <th>Cầu</th>}
+              <th>{singleKm ? "Lý trình" : "Lý trình đầu"}</th>
+              {!singleKm && <th>Lý trình cuối</th>}
+              {!singleKm && <th>Phía</th>}
               <th>Loại công việc</th>
               <th>Đơn vị</th>
-              <th>Dài</th>
-              <th>Rộng</th>
-              <th>Cao</th>
+              {!noteQty && (
+                <>
+                  <th>Dài</th>
+                  <th>Rộng</th>
+                  <th>Cao</th>
+                </>
+              )}
               <th>Khối lượng</th>
+              {noteQty && <th>Ghi chú</th>}
               {showBdtxDate && <th>Ngày dự kiến sửa (BDTX)</th>}
+              {singleKm && (
+                <th title="Xuất sang phiếu kiểm tra cầu">Phiếu</th>
+              )}
             </tr>
           </thead>
           <tbody>
             {rows.map((row, idx) => {
-              const unit = row.unit || "";
-              const count = isCountUnit(unit);
-              const useWidth = unit === "m2" || unit === "m3";
-              const useHeight = unit === "m3";
-              const useLength = unit === "m" || unit === "m2" || unit === "m3";
-              const quantity = calcRowQuantity(row);
+              const catalogUnit = getUnitForType(row.type);
+              const geometric = new Set(["m", "m2", "m3", "m²", "m³"]);
+              let unit = row.unit || "";
+              if (
+                noteQty &&
+                catalogUnit &&
+                isCountUnit(catalogUnit) &&
+                (!unit || geometric.has(unit))
+              ) {
+                unit = catalogUnit;
+              }
+              const count = noteQty || isCountUnit(unit);
+              const useWidth = !noteQty && (unit === "m2" || unit === "m3");
+              const useHeight = !noteQty && unit === "m3";
+              const useLength = !noteQty && (unit === "m" || unit === "m2" || unit === "m3");
+              const quantity = calcRowQuantity(row, { noteQty });
               const lengthM = parseDecimalNumber(row.length);
-              const kmTo =
-                lengthM > 0 && normalizeKmInput(row.kmFrom)
-                  ? addMetersToKm(normalizeKmInput(row.kmFrom), lengthM)
-                  : normalizeKmInput(row.kmFrom);
+              const kmToDisplay = singleKm
+                ? normalizeKmInput(row.kmFrom) || ""
+                : noteQty
+                  ? normalizeKmInput(row.kmTo) || ""
+                  : lengthM > 0 && normalizeKmInput(row.kmFrom)
+                    ? addMetersToKm(normalizeKmInput(row.kmFrom), lengthM)
+                    : normalizeKmInput(row.kmFrom);
               const isEdit = Number.isInteger(row._editIndex);
               return (
                 <tr
@@ -254,35 +364,67 @@ export default function BaoDuongQuickEntry({
                     {isEdit ? "✎ " : ""}
                     {displayDate || "—"}
                   </td>
+                  {singleKm && (
+                    <td>
+                      <select
+                        className="matduong-excel-cell"
+                        value={row.bridgeId || ""}
+                        onChange={(e) => handleBridgeChange(idx, e.target.value)}
+                        aria-label={`Cầu dòng ${idx + 1}`}
+                      >
+                        <option value="">— Chọn cầu —</option>
+                        {bridgeList.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.name || b.km || b.id}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                  )}
                   <td>
                     <input
                       value={row.kmFrom || ""}
                       onChange={(e) => updateRow(idx, { kmFrom: e.target.value })}
-                      onBlur={(e) => {
-                        const formatted = formatKmCell(e.target.value).replace(/^Km/, "");
-                        if (formatted && formatted !== e.target.value) {
-                          updateRow(idx, { kmFrom: formatted });
-                        }
-                      }}
+                      onBlur={(e) => blurFormatKm(idx, "kmFrom", e.target.value)}
                       className="matduong-excel-cell"
-                      aria-label={`Lý trình đầu dòng ${idx + 1}`}
+                      readOnly={singleKm && !!row.bridgeId}
+                      aria-label={`Lý trình dòng ${idx + 1}`}
                     />
                   </td>
-                  <td className="matduong-cell-readonly">{kmTo ? formatKmCell(kmTo) : ""}</td>
-                  <td>
-                    <select
-                      value={row.side || "P"}
-                      onChange={(e) => updateRow(idx, { side: e.target.value })}
-                      className="matduong-excel-cell matduong-excel-cell--side"
-                      aria-label={`Phía dòng ${idx + 1}`}
-                    >
-                      {SIDE_OPTIONS.map((v) => (
-                        <option key={v || "default"} value={v}>
-                          {v || "—"}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
+                  {!singleKm && (
+                    <td>
+                      {noteQty ? (
+                        <input
+                          value={row.kmTo || ""}
+                          onChange={(e) => updateRow(idx, { kmTo: e.target.value })}
+                          onBlur={(e) => blurFormatKm(idx, "kmTo", e.target.value)}
+                          className="matduong-excel-cell"
+                          placeholder="—"
+                          aria-label={`Lý trình cuối dòng ${idx + 1}`}
+                        />
+                      ) : (
+                        <span className="matduong-cell-readonly">
+                          {kmToDisplay ? formatKmCell(kmToDisplay) : ""}
+                        </span>
+                      )}
+                    </td>
+                  )}
+                  {!singleKm && (
+                    <td>
+                      <select
+                        value={row.side || "P"}
+                        onChange={(e) => updateRow(idx, { side: e.target.value })}
+                        className="matduong-excel-cell matduong-excel-cell--side"
+                        aria-label={`Phía dòng ${idx + 1}`}
+                      >
+                        {SIDE_OPTIONS.map((v) => (
+                          <option key={v || "default"} value={v}>
+                            {v || "—"}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                  )}
                   <td className="matduong-col-type">
                     <WorkTypeCombo
                       value={row.type || ""}
@@ -307,33 +449,37 @@ export default function BaoDuongQuickEntry({
                       ))}
                     </select>
                   </td>
-                  <td>
-                    <input
-                      value={useLength ? row.length || "" : ""}
-                      onChange={(e) => updateRow(idx, { length: e.target.value })}
-                      className="matduong-excel-cell matduong-excel-cell--num"
-                      disabled={!useLength}
-                      aria-label={`Dài dòng ${idx + 1}`}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      value={useWidth ? row.width || "" : ""}
-                      onChange={(e) => updateRow(idx, { width: e.target.value })}
-                      className="matduong-excel-cell matduong-excel-cell--num"
-                      disabled={!useWidth}
-                      aria-label={`Rộng dòng ${idx + 1}`}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      value={useHeight ? row.height || "" : ""}
-                      onChange={(e) => updateRow(idx, { height: e.target.value })}
-                      className="matduong-excel-cell matduong-excel-cell--num"
-                      disabled={!useHeight}
-                      aria-label={`Cao dòng ${idx + 1}`}
-                    />
-                  </td>
+                  {!noteQty && (
+                    <>
+                      <td>
+                        <input
+                          value={useLength ? row.length || "" : ""}
+                          onChange={(e) => updateRow(idx, { length: e.target.value })}
+                          className="matduong-excel-cell matduong-excel-cell--num"
+                          disabled={!useLength}
+                          aria-label={`Dài dòng ${idx + 1}`}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          value={useWidth ? row.width || "" : ""}
+                          onChange={(e) => updateRow(idx, { width: e.target.value })}
+                          className="matduong-excel-cell matduong-excel-cell--num"
+                          disabled={!useWidth}
+                          aria-label={`Rộng dòng ${idx + 1}`}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          value={useHeight ? row.height || "" : ""}
+                          onChange={(e) => updateRow(idx, { height: e.target.value })}
+                          className="matduong-excel-cell matduong-excel-cell--num"
+                          disabled={!useHeight}
+                          aria-label={`Cao dòng ${idx + 1}`}
+                        />
+                      </td>
+                    </>
+                  )}
                   <td>
                     {count ? (
                       <input
@@ -348,16 +494,36 @@ export default function BaoDuongQuickEntry({
                       </span>
                     )}
                   </td>
-                  {showBdtxDate && (
+                  {noteQty && (
                     <td>
                       <input
-                        type="date"
+                        value={row.content || ""}
+                        onChange={(e) => updateRow(idx, { content: e.target.value })}
+                        className="matduong-excel-cell"
+                        aria-label={`Ghi chú dòng ${idx + 1}`}
+                      />
+                    </td>
+                  )}
+                  {showBdtxDate && (
+                    <td>
+                      <ViDateInput
                         value={row.plannedRepairDate || ""}
                         min={date}
                         max={maxPlannedRepairDateForType(date, row.type)}
-                        onChange={(e) => updateRow(idx, { plannedRepairDate: e.target.value })}
+                        onChange={(iso) => updateRow(idx, { plannedRepairDate: iso || "" })}
                         className="matduong-excel-cell matduong-excel-cell--date"
                         aria-label={`Ngày dự kiến sửa dòng ${idx + 1}`}
+                      />
+                    </td>
+                  )}
+                  {singleKm && (
+                    <td className="matduong-col-export">
+                      <input
+                        type="checkbox"
+                        checked={row.exportPhieuCau !== false}
+                        onChange={(e) => updateRow(idx, { exportPhieuCau: e.target.checked })}
+                        aria-label={`Xuất phiếu kiểm tra cầu dòng ${idx + 1}`}
+                        title="Xuất sang phiếu kiểm tra cầu"
                       />
                     </td>
                   )}

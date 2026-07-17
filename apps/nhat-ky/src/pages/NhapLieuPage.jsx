@@ -17,7 +17,8 @@ import {
   compareEntriesByTypeAndKm,
   entryIncidentType,
   DIARY_ENTRY_COLUMN_HINT,
-  HANH_LANG_SECTION
+  HANH_LANG_SECTION,
+  formatSectionPartPrefix
 } from "../utils/nhatKyFormat";
 import {
   MAT_DUONG_SECTION,
@@ -33,9 +34,13 @@ import {
   BAO_DUONG_MAX_DAYS
 } from "../utils/baoDuongFormat";
 import {
-  listTypesForGroup,
+  listFormTypesForSection,
+  isMasterDataSection,
+  getUnitForType,
+  isCountUnit,
   BAO_DUONG_QUALITY_EVENT
 } from "../utils/baoDuongQualityStore";
+import { isNoteQtyDiarySection } from "../utils/incidentUtils";
 import MatDuongQuickEntry from "../components/MatDuongQuickEntry";
 import BaoDuongQuickEntry from "../components/BaoDuongQuickEntry";
 import CongQuickEntry from "../components/CongQuickEntry";
@@ -56,10 +61,22 @@ import {
 import { useAuth } from "../context/AuthContext";
 import {
   fetchMatDuongIncidentTypes,
-  getCatalogOwnerUid
+  fetchMasterData,
+  getCatalogOwnerUid,
+  pickMatDuongTypes,
+  pickThoatNuocTypes,
+  splitCongRanhTypes,
+  DEFAULT_CONG_WORK_TYPES
 } from "../services/masterDataService";
 import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
 import { persistImportMapFromEntries } from "../services/nhatKyImportService";
+import {
+  loadCauRegistry,
+  cauScope,
+  CAU_REGISTRY_EVENT,
+  CAU_SECTION
+} from "../utils/cauRegistryStore";
+import { syncCauInspectionsFromEntries } from "../utils/cauInspectionStore";
 
 const SIDEBAR_MIN = 300;
 const SIDEBAR_MAX = 420;
@@ -67,17 +84,6 @@ const SIDEBAR_DEFAULT = 340;
 
 const LE_DUONG_SECTION = "Lề đường";
 const THOAT_NUOC_SECTION = "Cống, rãnh thoát nước";
-/** Công việc thuộc về CỐNG (phần còn lại trong hạng mục coi là RÃNH/hệ thống thoát nước). */
-const CONG_WORK_TYPES = new Set([
-  "Tắc cống",
-  "Đất đá bồi lấp cửa cống",
-  "Rác cửa cống",
-  "Hư đầu cống",
-  "Hư thân cống",
-  "Hư cửa cống",
-  "Xói đầu cống",
-  "Xói cuối cống"
-]);
 /** Các hạng mục bảo dưỡng dùng bảng nhập nhanh (đơn vị/khối lượng theo loại công việc). */
 const BAO_DUONG_QUICK_SECTIONS = new Set([
   "Cống, rãnh thoát nước",
@@ -117,19 +123,36 @@ function entryToQuickRow(item, globalIndex) {
   }
   return {
     kmFrom: item.kmFrom || "",
+    kmTo: item.kmTo || "",
     side: item.side || "",
     length: item.length ?? "",
     width: item.width ?? "",
     height: item.height ?? "",
-    unit: item.unit || "m2",
+    unit: resolveQuickRowUnit(item),
     quantity: item.quantity ?? "",
     type: item.type || "",
+    content: item.content || "",
     resolvedStatus: item.resolvedStatus || "",
     exportMatDuong: item.exportMatDuong,
     exportTrafficDuty: item.exportTrafficDuty,
+    exportPhieuCau: item.exportPhieuCau,
+    bridgeId: item.bridgeId || "",
+    bridgeName: item.bridgeName || "",
     plannedRepairDate: item.plannedRepairDate || "",
     _editIndex: globalIndex
   };
+}
+
+/** Đơn vị dòng sửa: ưu tiên master data khi bản ghi cũ bị gán m/m²/m³ nhầm. */
+function resolveQuickRowUnit(item) {
+  const catalog = getUnitForType(item?.type);
+  const raw = String(item?.unit || "").trim();
+  if (isNoteQtyDiarySection(item?.section) && catalog) {
+    const geometric = new Set(["m", "m2", "m3", "m²", "m³"]);
+    if (isCountUnit(catalog) && (!raw || geometric.has(raw))) return catalog;
+    return raw || catalog;
+  }
+  return raw || catalog || "m2";
 }
 
 const EMPTY_FORM = {
@@ -198,10 +221,11 @@ export default function NhapLieuPage({
   storageTick = 0,
   onStorageChange,
   matDuongQuickBoot = false,
-  onMatDuongQuickBootConsumed
+  onMatDuongQuickBootConsumed,
+  readOnly = false
 }) {
   const { profile } = useAuth();
-  const { storageKey } = useRoadWorkspace();
+  const { storageKey, activeRoadId, ownerUid } = useRoadWorkspace();
   const initial = loadStorage(storageKey);
   const [currentSection, setCurrentSection] = useState("");
   const [editingIndex, setEditingIndex] = useState(-1);
@@ -226,6 +250,9 @@ export default function NhapLieuPage({
   const [matDuongTypes, setMatDuongTypes] = useState(
     () => SECTIONS.find((s) => s.key === "mat_duong")?.types || []
   );
+  const [thoatNuocMasterTypes, setThoatNuocMasterTypes] = useState([]);
+  const [unitByType, setUnitByType] = useState({});
+  const [cauBridges, setCauBridges] = useState([]);
   const [catalogTick, setCatalogTick] = useState(0);
 
   useEffect(() => {
@@ -234,15 +261,42 @@ export default function NhapLieuPage({
     return () => window.removeEventListener(BAO_DUONG_QUALITY_EVENT, onChange);
   }, []);
 
+  useEffect(() => {
+    function reloadCau() {
+      const uid = ownerUid || profile?.uid || "";
+      if (!uid || !activeRoadId) {
+        setCauBridges([]);
+        return;
+      }
+      setCauBridges(loadCauRegistry(cauScope(uid, activeRoadId)));
+    }
+    reloadCau();
+    window.addEventListener(CAU_REGISTRY_EVENT, reloadCau);
+    return () => window.removeEventListener(CAU_REGISTRY_EVENT, reloadCau);
+  }, [ownerUid, profile?.uid, activeRoadId]);
+
   const dayMeta = getDayMeta(dayMetaMap, date);
 
   useEffect(() => {
     const ownerUid = getCatalogOwnerUid(profile);
     if (!ownerUid) return;
     let cancelled = false;
-    fetchMatDuongIncidentTypes(ownerUid).then((types) => {
-      if (!cancelled && types.length) setMatDuongTypes(types);
-    });
+    fetchMasterData(ownerUid)
+      .then((data) => {
+        if (cancelled) return;
+        const types = pickMatDuongTypes(data.typesByGroup);
+        if (types.length) setMatDuongTypes(types);
+        const thoat = pickThoatNuocTypes(data.typesByGroup);
+        setThoatNuocMasterTypes(thoat);
+        setUnitByType(data.unitByType && typeof data.unitByType === "object" ? data.unitByType : {});
+      })
+      .catch(() => {
+        if (!cancelled) {
+          fetchMatDuongIncidentTypes(ownerUid).then((types) => {
+            if (!cancelled && types.length) setMatDuongTypes(types);
+          });
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -299,7 +353,18 @@ export default function NhapLieuPage({
     nextReportMeta = reportMeta,
     message = "Đã lưu."
   ) {
+    if (readOnly) return;
     saveStorage(nextData, nextDayMetaMap, nextReportMeta, storageKey);
+    const uid = ownerUid || profile?.uid || "";
+    if (uid && activeRoadId && cauBridges.length) {
+      syncCauInspectionsFromEntries(
+        uid,
+        activeRoadId,
+        cauBridges,
+        nextData,
+        profile?.displayName || profile?.email || ""
+      );
+    }
     if (message) {
       setSaveMessage(message);
       setTimeout(() => setSaveMessage(""), 2500);
@@ -320,6 +385,11 @@ export default function NhapLieuPage({
   }
 
   function openForm(sectionTitle, itemIndex = -1) {
+    if (readOnly) {
+      setCurrentSection(sectionTitle);
+      setEditingIndex(-1);
+      return;
+    }
     setCurrentSection(sectionTitle);
     setEditingIndex(itemIndex);
     setMatDuongMode("single");
@@ -411,6 +481,10 @@ export default function NhapLieuPage({
 
   /** Bấm 1 sự cố ở mục dùng bảng nhập nhanh → nạp vào bảng để sửa (gộp nhiều dòng). */
   function editEntryInGrid(globalIndex, sectionTitle) {
+    if (readOnly) {
+      setCurrentSection(sectionTitle);
+      return;
+    }
     const item = data[globalIndex];
     if (!item) return;
     const switching = sectionTitle !== currentSection;
@@ -435,6 +509,14 @@ export default function NhapLieuPage({
         ...prev,
         [name]: type === "checkbox" ? checked : value
       };
+      if (name === "type" && value) {
+        const catalogUnit =
+          unitByType[value] || getUnitForType(value) || "";
+        const u = String(catalogUnit).trim().toLowerCase();
+        if (u === "m" || u === "m2" || u === "m3" || u === "m²" || u === "m³") {
+          newForm.unit = u === "m²" ? "m2" : u === "m³" ? "m3" : u;
+        }
+      }
       if (name === "type" && currentSection === MAT_DUONG_SECTION) {
         newForm.exportMatDuong = defaultExportMatDuong(value);
         if (!defaultExportMatDuong(value)) {
@@ -480,6 +562,7 @@ export default function NhapLieuPage({
   }
 
   function updateItemField(globalIndex, field, value) {
+    if (readOnly) return;
     const next = [...data];
     next[globalIndex] = { ...next[globalIndex], [field]: value };
     setData(next);
@@ -490,6 +573,7 @@ export default function NhapLieuPage({
   }
 
   function addToPreview() {
+    if (readOnly) return;
     if (
       !form.type &&
       currentSection !== TNGT_SECTION &&
@@ -558,6 +642,10 @@ export default function NhapLieuPage({
   }
 
   function addQuickToPreview(entries, errors = []) {
+    if (readOnly) {
+      window.alert("Chế độ chỉ xem — không lưu được vào nhật ký.");
+      return;
+    }
     if (!entries.length) {
       window.alert(errors.join("\n") || "Không có dòng hợp lệ.");
       return;
@@ -613,6 +701,9 @@ export default function NhapLieuPage({
           if (built.exportTrafficDuty !== undefined) {
             patch.exportTrafficDuty = built.exportTrafficDuty;
           }
+          if (built.exportPhieuCau !== undefined) patch.exportPhieuCau = built.exportPhieuCau;
+          if (built.bridgeId !== undefined) patch.bridgeId = built.bridgeId;
+          if (built.bridgeName !== undefined) patch.bridgeName = built.bridgeName;
         }
         newData[editIdx] = { ...orig, ...patch };
         updateCount += 1;
@@ -635,6 +726,7 @@ export default function NhapLieuPage({
   }
 
   function deleteItems(indices) {
+    if (readOnly) return;
     const indexSet = new Set(indices);
     const remaining = data.filter((_, i) => !indexSet.has(i));
     setData(remaining);
@@ -773,32 +865,78 @@ export default function NhapLieuPage({
     .filter((x) => x.date === date);
   const currentSectionDef = SECTIONS.find((x) => x.title === currentSection);
   const currentTypes = useMemo(() => {
-    const base =
-      currentSection === MAT_DUONG_SECTION
-        ? matDuongTypes
-        : currentSectionDef?.types || [];
-    // Bổ sung loại công việc đã khai báo trong danh mục BDTX thuộc đúng nhóm.
-    const fromCatalog = listTypesForGroup(currentSection);
-    const seen = new Set();
-    const merged = [];
-    [...base, ...fromCatalog].forEach((t) => {
-      const key = String(t || "").trim();
-      if (key && !seen.has(key)) {
-        seen.add(key);
-        merged.push(key);
+    if (!currentSection) return [];
+
+    const extras = [];
+    if (isMasterDataSection(currentSection)) {
+      if (currentSection === MAT_DUONG_SECTION) {
+        extras.push(...matDuongTypes);
       }
-    });
-    return merged;
+      if (currentSection === THOAT_NUOC_SECTION && thoatNuocMasterTypes.length) {
+        // Ưu tiên tên công việc từ master data (web điều hành).
+        const seen = new Set();
+        const out = [];
+        thoatNuocMasterTypes.forEach((t) => {
+          const key = String(t || "").trim();
+          if (key && !seen.has(key)) {
+            seen.add(key);
+            out.push(key);
+          }
+        });
+        filteredData
+          .filter((x) => x.section === currentSection && x.type)
+          .forEach((x) => {
+            const key = String(x.type || "").trim();
+            if (key && !seen.has(key)) {
+              seen.add(key);
+              out.push(key);
+            }
+          });
+        if (form.type) {
+          const key = String(form.type || "").trim();
+          if (key && !seen.has(key)) out.push(key);
+        }
+        return out;
+      }
+      filteredData
+        .filter((x) => x.section === currentSection && x.type)
+        .forEach((x) => extras.push(x.type));
+      if (form.type) extras.push(form.type);
+      return listFormTypesForSection(currentSection, extras);
+    }
+
+    extras.push(...(currentSectionDef?.types || []));
+    filteredData
+      .filter((x) => x.section === currentSection && x.type)
+      .forEach((x) => extras.push(x.type));
+    if (form.type) extras.push(form.type);
+    return listFormTypesForSection(currentSection, extras);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentSection, matDuongTypes, currentSectionDef, catalogTick]);
-  const congTypes = useMemo(
-    () => currentTypes.filter((t) => CONG_WORK_TYPES.has(t)),
-    [currentTypes]
-  );
-  const ranhTypes = useMemo(
-    () => currentTypes.filter((t) => !CONG_WORK_TYPES.has(t)),
-    [currentTypes]
-  );
+  }, [
+    currentSection,
+    matDuongTypes,
+    thoatNuocMasterTypes,
+    currentSectionDef,
+    catalogTick,
+    filteredData,
+    form.type
+  ]);
+  const { congTypes, ranhTypes } = useMemo(() => {
+    const pool = thoatNuocMasterTypes.length ? thoatNuocMasterTypes : currentTypes;
+    const split = splitCongRanhTypes(pool);
+    if (split.cong.length || split.ranh.length) {
+      return {
+        congTypes: split.cong.length ? split.cong : [...DEFAULT_CONG_WORK_TYPES],
+        ranhTypes: split.ranh.length
+          ? split.ranh
+          : pool.filter((t) => !DEFAULT_CONG_WORK_TYPES.includes(t))
+      };
+    }
+    return {
+      congTypes: currentTypes.filter((t) => DEFAULT_CONG_WORK_TYPES.includes(t)),
+      ranhTypes: currentTypes.filter((t) => !DEFAULT_CONG_WORK_TYPES.includes(t))
+    };
+  }, [thoatNuocMasterTypes, currentTypes]);
   const formHasDraft =
     currentSection &&
     (form.type ||
@@ -831,6 +969,11 @@ export default function NhapLieuPage({
       >
         <div className="sidebar-sticky-head">
           <h2 className="sidebar-title">Nhập liệu</h2>
+          {readOnly && (
+            <p className="section-guide danhmuc-bd-readonly-hint">
+              Chế độ chỉ xem. Chỉ tài khoản <strong>USER</strong> được nhập và sửa dữ liệu sổ.
+            </p>
+          )}
           <div className="sidebar-date-toolbar">
             <div className="sidebar-date-nav">
               <button
@@ -876,6 +1019,7 @@ export default function NhapLieuPage({
                 type="button"
                 className={`section-toolbar-btn section-toolbar-btn--danger${bulkDeleteMode ? " active" : ""}`}
                 onClick={toggleBulkDeleteMode}
+                hidden={readOnly}
               >
                 Xoá nhanh
               </button>
@@ -928,7 +1072,7 @@ export default function NhapLieuPage({
                       onClick={() => openForm(section.title)}
                     >
                       <span>
-                        <span className="section-part">{section.part}.{section.num}</span>
+                        <span className="section-part">{formatSectionPartPrefix(section)}</span>
                         {section.title}
                       </span>
                       {count > 0 && <span className="section-count">{count}</span>}
@@ -986,7 +1130,7 @@ export default function NhapLieuPage({
                                   <span className="section-entry-km">{kmHint}</span>
                                 )}
                               </button>
-                              {!bulkDeleteMode && (
+                              {!bulkDeleteMode && !readOnly && (
                                 <button
                                   type="button"
                                   className="entry-delete"
@@ -1010,7 +1154,7 @@ export default function NhapLieuPage({
         </div>
       </aside>
 
-      {currentSection && currentSectionDef && (
+      {!readOnly && currentSection && currentSectionDef && (
         <DraggableFormPanel
           key={currentSection}
           wide
@@ -1023,9 +1167,8 @@ export default function NhapLieuPage({
               BAO_DUONG_QUICK_SECTIONS.has(currentSection)) &&
               editingIndex < 0)
           }
-          title={`${editingIndex >= 0 ? "Sửa" : "Thêm"} — ${currentSectionDef.part}.${currentSectionDef.num} ${currentSection}`}
-          defaultX={sidebarWidth + 24}
-          defaultY={72}
+          title={`${editingIndex >= 0 ? "Sửa" : "Thêm"} — ${formatSectionPartPrefix(currentSectionDef)} ${currentSection}`}
+          center
           onClose={() => {
             resetForm();
             setCurrentSection("");
@@ -1044,6 +1187,7 @@ export default function NhapLieuPage({
                 onRowsChange={setQuickRows}
                 onImport={addQuickToPreview}
                 types={currentTypes}
+                unitByType={unitByType}
               />
             ) : currentSection === MAT_DUONG_SECTION ? (
               <>
@@ -1127,6 +1271,7 @@ export default function NhapLieuPage({
                 onRowsChange={setQuickRows}
                 onImport={addQuickToPreview}
                 types={currentTypes}
+                unitByType={unitByType}
                 section={NEN_DUONG_SECTION}
                 exportField="exportTrafficDuty"
                 exportLabel="Xuất sổ trực ĐBGT"
@@ -1139,6 +1284,7 @@ export default function NhapLieuPage({
                 onRowsChange={setQuickRows}
                 onImport={addQuickToPreview}
                 types={currentTypes}
+                unitByType={unitByType}
                 section="Lề đường"
                 exportField="exportLeDuong"
               />
@@ -1178,6 +1324,7 @@ export default function NhapLieuPage({
                     onRowsChange={setQuickRows}
                     onImport={addQuickToPreview}
                     types={congTypes}
+                    unitByType={unitByType}
                   />
                 ) : (
                   <BaoDuongQuickEntry
@@ -1198,6 +1345,7 @@ export default function NhapLieuPage({
                 onRowsChange={setQuickRows}
                 onImport={addQuickToPreview}
                 types={currentTypes}
+                bridges={currentSection === CAU_SECTION ? cauBridges : []}
               />
             ) : (
               <>
@@ -1557,7 +1705,13 @@ export default function NhapLieuPage({
         </DraggableFormPanel>
       )}
 
-      <div className="nhaplieu-resizer" onMouseDown={onResizeStart} title="Kéo đổi độ rộng form" role="separator" aria-orientation="vertical" />
+      <div
+        className="nhaplieu-resizer"
+        onMouseDown={onResizeStart}
+        title="Kéo đổi độ rộng form"
+        role="separator"
+        aria-orientation="vertical"
+      />
 
       <main className="nhaplieu-review-pane">
         <NhatKyReview
@@ -1566,11 +1720,13 @@ export default function NhapLieuPage({
           draftItem={draftItem}
           dayMeta={dayMeta}
           alwaysShow
-          onItemFieldChange={updateItemField}
-          onDraftFieldChange={(field, value) =>
-            setForm((prev) => ({ ...prev, [field]: value }))
+          onItemFieldChange={readOnly ? undefined : updateItemField}
+          onDraftFieldChange={
+            readOnly
+              ? undefined
+              : (field, value) => setForm((prev) => ({ ...prev, [field]: value }))
           }
-          onDayMetaChange={updateDayMeta}
+          onDayMetaChange={readOnly ? undefined : updateDayMeta}
         />
       </main>
     </div>

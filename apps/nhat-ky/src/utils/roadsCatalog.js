@@ -54,7 +54,7 @@ function parseKmRangeString(kmRange) {
   return { kmFrom: "", kmTo: "" };
 }
 
-function normalizeRoad(road) {
+export function normalizeRoad(road) {
   const roadName = String(road.roadName || road.label || "").trim();
   const hat = String(road.hat || "").trim();
   let kmFrom = String(road.kmFrom || "").trim();
@@ -89,6 +89,19 @@ function normalizeRoad(road) {
   };
 }
 
+/** Áp danh mục từ cloud xuống local (USER không được sửa danh mục). */
+export function applyRemoteRoadsCatalog(uid, remote) {
+  const local = loadRoadsCatalog(uid);
+  const roads = Array.isArray(remote?.roads) ? remote.roads.map(normalizeRoad) : [];
+  const activeRoadId =
+    local.activeRoadId && roads.some((r) => r.id === local.activeRoadId)
+      ? local.activeRoadId
+      : "";
+  const catalog = { activeRoadId, roads };
+  saveRoadsCatalog(uid, catalog);
+  return catalog;
+}
+
 export function loadRoadsCatalog(uid) {
   if (!uid) return { activeRoadId: "", roads: [] };
   migrateLegacyStorage(uid);
@@ -111,12 +124,13 @@ export function loadRoadsCatalog(uid) {
 export function saveRoadsCatalog(uid, catalog) {
   if (!uid) return;
   const roads = (catalog.roads || []).map(normalizeRoad);
+  const payload = {
+    activeRoadId: catalog.activeRoadId || "",
+    roads
+  };
   localStorage.setItem(
     catalogKey(uid),
-    JSON.stringify({
-      activeRoadId: catalog.activeRoadId || "",
-      roads
-    })
+    JSON.stringify(payload)
   );
 }
 

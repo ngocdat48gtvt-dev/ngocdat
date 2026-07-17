@@ -21,6 +21,8 @@ import { formatKmCell } from "../utils/matDuongFormat";
 import { useAuth } from "../context/AuthContext";
 import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
 import WorkTypeCombo from "./WorkTypeCombo";
+import CongCombo from "./CongCombo";
+import ViDateInput from "./ViDateInput";
 
 const SIDE_OPTIONS = ["", "T", "P", "G", "M"];
 
@@ -48,6 +50,31 @@ function rowIsValid(row) {
   const type = String(row?.type || "").trim();
   if (!km || !type) return false;
   return Number(calcRowQuantity(row)) > 0;
+}
+
+/** Áp đơn vị + khối lượng mặc định theo loại việc / chiều dài cống hồ sơ. */
+function applyCongMeasureDefaults(row, { type, congLength, resolveUnit } = {}) {
+  const next = { ...row };
+  const resolvedType = type !== undefined ? type : next.type;
+  if (type !== undefined) next.type = type;
+
+  const unitFn = typeof resolveUnit === "function" ? resolveUnit : getUnitForType;
+  let unit = unitFn(resolvedType);
+  if (!unit && resolvedType) unit = "cái";
+  if (unit) next.unit = unit;
+
+  const len =
+    congLength !== undefined
+      ? String(congLength ?? "").trim()
+      : String(next.congLength ?? "").trim();
+
+  if ((unit === "m" || unit === "m2" || unit === "m3") && len && !String(next.length || "").trim()) {
+    next.length = len;
+  }
+  if (isCountUnit(unit) && !String(next.quantity ?? "").trim()) {
+    next.quantity = "1";
+  }
+  return next;
 }
 
 /** Dựng entry nhật ký từ các dòng nhập nhanh hạng mục Cống (1 lý trình). */
@@ -111,11 +138,20 @@ export function buildCongEntries(rows, { section, date }) {
  * Bảng nhập nhanh hạng mục CỐNG: chọn cống từ hồ sơ quản lý đường (1 lý trình),
  * tự điền loại cống + chiều dài; khối lượng theo đơn vị của loại công việc.
  */
-export default function CongQuickEntry({ date, section, rows, onRowsChange, onImport, types }) {
+export default function CongQuickEntry({
+  date,
+  section,
+  rows,
+  onRowsChange,
+  onImport,
+  types,
+  unitByType = {}
+}) {
   const displayDate = formatDisplayDate(date);
   const { profile } = useAuth();
-  const { activeRoadId } = useRoadWorkspace();
-  const scope = congScope(profile?.uid, activeRoadId);
+  const { activeRoadId, ownerUid } = useRoadWorkspace();
+  const uid = ownerUid || profile?.uid || "";
+  const scope = congScope(uid, activeRoadId);
   const [registry, setRegistry] = useState(() => loadCongRegistry(scope));
 
   useEffect(() => {
@@ -131,25 +167,41 @@ export default function CongQuickEntry({ date, section, rows, onRowsChange, onIm
     [rows]
   );
 
+  function resolveUnit(type) {
+    const key = String(type || "").trim();
+    return (key && unitByType[key]) || getUnitForType(key) || "cái";
+  }
+
   function updateRow(index, patch) {
     onRowsChange(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   }
 
   function handleCongChange(index, congId) {
     const cong = registry.find((c) => c.id === congId);
-    const patch = { congId };
+    const row = rows[index] || {};
+    let patch = { congId };
     if (cong) {
-      patch.kmFrom = cong.km;
+      patch.kmFrom = normalizeKmInput(cong.km) || String(cong.km || "").trim();
       patch.congType = cong.type;
       patch.congLength = cong.length;
+      patch = applyCongMeasureDefaults(
+        { ...row, ...patch },
+        { congLength: cong.length, resolveUnit }
+      );
+      if (patch.type && needMaintenanceForType(patch.type) && !patch.plannedRepairDate) {
+        patch.plannedRepairDate = plannedRepairDateForType(date, patch.type);
+      }
     }
     updateRow(index, patch);
   }
 
   function handleTypeChange(index, type) {
-    const patch = { type };
-    const unit = getUnitForType(type);
-    if (unit) patch.unit = unit;
+    const row = rows[index] || {};
+    let patch = applyCongMeasureDefaults(row, {
+      type,
+      congLength: row.congLength,
+      resolveUnit
+    });
     if (type && needMaintenanceForType(type)) {
       patch.plannedRepairDate = plannedRepairDateForType(date, type);
     } else {
@@ -196,13 +248,13 @@ export default function CongQuickEntry({ date, section, rows, onRowsChange, onIm
 
       {registry.length === 0 ? (
         <p className="section-guide section-guide--compact matduong-quick-hint">
-          Chưa có hồ sơ cống. Vào tab <strong>HỒ SƠ CỐNG</strong> để khai báo (lý trình,
+          Chưa có danh sách cống. Vào tab <strong>DANH SÁCH CỐNG</strong> để khai báo (lý trình,
           loại cống, chiều dài) trước khi nhập.
         </p>
       ) : (
         <p className="section-guide section-guide--compact matduong-quick-hint">
-          Chọn <strong>cống</strong> để lấy lý trình chuẩn theo hồ sơ; chọn{" "}
-          <strong>công việc</strong> để tự lấy đơn vị; khối lượng tự tính theo đơn vị. Ghi
+          Gõ <strong>lý trình</strong> để lọc cống; chọn cống + công việc. Đơn vị đếm (cái…)
+          mặc định khối lượng <strong>1</strong>; đơn vị m lấy chiều dài từ hồ sơ cống. Ghi
           vào nhật ký ngày {displayDate || "—"}.
         </p>
       )}
@@ -258,20 +310,13 @@ export default function CongQuickEntry({ date, section, rows, onRowsChange, onIm
                     {displayDate || "—"}
                   </td>
                   <td className="matduong-col-type">
-                    <select
+                    <CongCombo
                       value={row.congId || ""}
-                      onChange={(e) => handleCongChange(idx, e.target.value)}
-                      className="matduong-excel-cell matduong-excel-cell--type"
-                      aria-label={`Chọn cống dòng ${idx + 1}`}
-                    >
-                      <option value="">— Chọn cống —</option>
-                      {registry.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.km || "(chưa có lý trình)"}
-                          {c.type ? ` — ${c.type}` : ""}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(id) => handleCongChange(idx, id)}
+                      options={registry}
+                      controlClassName="matduong-excel-cell matduong-excel-cell--type"
+                      ariaLabel={`Chọn cống dòng ${idx + 1}`}
+                    />
                   </td>
                   <td className="matduong-cell-readonly">{km ? formatKmCell(km) : ""}</td>
                   <td className="matduong-cell-readonly">{row.congType || ""}</td>
@@ -356,12 +401,11 @@ export default function CongQuickEntry({ date, section, rows, onRowsChange, onIm
                     )}
                   </td>
                   <td>
-                    <input
-                      type="date"
+                    <ViDateInput
                       value={row.plannedRepairDate || ""}
                       min={date}
                       max={maxPlannedRepairDateForType(date, row.type)}
-                      onChange={(e) => updateRow(idx, { plannedRepairDate: e.target.value })}
+                      onChange={(iso) => updateRow(idx, { plannedRepairDate: iso || "" })}
                       className="matduong-excel-cell matduong-excel-cell--date"
                       aria-label={`Ngày dự kiến sửa dòng ${idx + 1}`}
                     />

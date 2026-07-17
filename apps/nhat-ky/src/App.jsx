@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { RoadWorkspaceProvider, useRoadWorkspace } from "./context/RoadWorkspaceContext";
+import { OfficeBrowseProvider, useOfficeBrowse } from "./context/OfficeBrowseContext";
 import LoginPage from "./pages/LoginPage";
 import RoadSelectPage from "./pages/RoadSelectPage";
+import OfficeBrowseSelectPage from "./pages/OfficeBrowseSelectPage";
 import NhapLieuPage from "./pages/NhapLieuPage";
 import SoNhatKy from "./pages/SoNhatKy";
 import SoMatDuong from "./pages/SoMatDuong";
@@ -11,16 +13,23 @@ import SoTrafficDuty from "./pages/SoTrafficDuty";
 import SoTngt from "./pages/SoTngt";
 import SoHanhLang from "./pages/SoHanhLang";
 import SoDemXe from "./pages/SoDemXe";
+import SoCapPhepThiCong from "./pages/SoCapPhepThiCong";
 import HienTruongPage from "./pages/HienTruongPage";
 import ThongKeKhoiLuong from "./pages/ThongKeKhoiLuong";
 import DanhMucBaoDuong from "./pages/DanhMucBaoDuong";
 import HoSoCong from "./pages/HoSoCong";
+import DanhSachCau from "./pages/DanhSachCau";
+import PhieuKiemTraCau from "./pages/PhieuKiemTraCau";
 import { useIncidentSync } from "./hooks/useIncidentSync";
+import { useDataNoiNghiepSync } from "./hooks/useDataNoiNghiepSync";
+import { useOfficeBooksSync } from "./hooks/useOfficeBooksSync";
+import { useCauInspectionSync } from "./hooks/useCauInspectionSync";
+import { useOfficePermissions } from "./hooks/useOfficePermissions";
 import { formatKmDisplay, roadDisplayLabel } from "./utils/roadsCatalog";
 
 const HOME_URL = "/san-pham";
 
-function RoadWorkspaceNav({ road, onChangeRoad }) {
+function RoadWorkspaceNav({ road, onChangeRoad, browseUserName }) {
   if (!road) return null;
 
   const roadName = road.roadName || road.label || "";
@@ -35,19 +44,23 @@ function RoadWorkspaceNav({ road, onChangeRoad }) {
 
   return (
     <div className="road-workspace-nav" title={roadDisplayLabel(road)}>
+      {browseUserName && (
+        <span className="road-workspace-nav-browse-user">Xem: {browseUserName}</span>
+      )}
       {roadName && <span className="road-workspace-nav-road">{roadName}</span>}
       {road.hat && <span className="road-workspace-nav-hat">Hạt {road.hat}</span>}
       {kmText && <span className="road-workspace-nav-km">{kmText}</span>}
       <button type="button" className="road-workspace-nav-switch" onClick={onChangeRoad}>
-        Đổi hạt
+        {browseUserName ? "Đổi người / hạt" : "Đổi hạt"}
       </button>
     </div>
   );
 }
 
-function NhatKySubNav({ page, setPage }) {
+function NhatKySubNav({ page, setPage, canEditOfficeData }) {
   return (
     <div className="nhat-ky-nav nhat-ky-nav--sub nhat-ky-nav--sub-inline">
+      {canEditOfficeData && (
       <button
         type="button"
         className={page === "nhaplieu" ? "nav-active" : ""}
@@ -55,6 +68,7 @@ function NhatKySubNav({ page, setPage }) {
       >
         NHẬP LIỆU
       </button>
+      )}
       <button
         type="button"
         className={page === "sonhatky" ? "nav-active" : ""}
@@ -106,6 +120,20 @@ function NhatKySubNav({ page, setPage }) {
       </button>
       <button
         type="button"
+        className={page === "sogptc" ? "nav-active" : ""}
+        onClick={() => setPage("sogptc")}
+      >
+        SỔ CẤP PHÉP TC
+      </button>
+      <button
+        type="button"
+        className={page === "phieucau" ? "nav-active" : ""}
+        onClick={() => setPage("phieucau")}
+      >
+        PHIẾU KT CẦU
+      </button>
+      <button
+        type="button"
         className={page === "thongke" ? "nav-active" : ""}
         onClick={() => setPage("thongke")}
       >
@@ -116,14 +144,21 @@ function NhatKySubNav({ page, setPage }) {
         className={page === "baoduongdata" ? "nav-active" : ""}
         onClick={() => setPage("baoduongdata")}
       >
-        DỮ LIỆU BDTX
+        MASTER DATA
       </button>
       <button
         type="button"
         className={page === "hosocong" ? "nav-active" : ""}
         onClick={() => setPage("hosocong")}
       >
-        HỒ SƠ CỐNG
+        DANH SÁCH CỐNG
+      </button>
+      <button
+        type="button"
+        className={page === "danhsachcau" ? "nav-active" : ""}
+        onClick={() => setPage("danhsachcau")}
+      >
+        DANH SÁCH CẦU
       </button>
     </div>
   );
@@ -137,8 +172,12 @@ function NhatKyWorkspace({
   setWorkspaceDate,
   onStorageChange,
   matDuongQuickBoot,
-  onMatDuongQuickBootConsumed
+  onMatDuongQuickBootConsumed,
+  officeReadOnly,
+  canEditOfficeData
 }) {
+  const goEdit = canEditOfficeData ? () => setPage("nhaplieu") : undefined;
+
   return (
     <div className="nhat-ky-workspace">
       {page === "nhaplieu" && (
@@ -149,13 +188,14 @@ function NhatKyWorkspace({
           onStorageChange={onStorageChange}
           matDuongQuickBoot={matDuongQuickBoot}
           onMatDuongQuickBootConsumed={onMatDuongQuickBootConsumed}
+          readOnly={officeReadOnly}
         />
       )}
       {page === "sonhatky" && (
         <SoNhatKy
           date={workspaceDate}
           onDateChange={setWorkspaceDate}
-          onGoEdit={() => setPage("nhaplieu")}
+          onGoEdit={goEdit}
           storageTick={storageTick}
         />
       )}
@@ -171,43 +211,92 @@ function NhatKyWorkspace({
         <SoBaoDuong
           date={workspaceDate}
           onDateChange={setWorkspaceDate}
-          onGoEdit={() => setPage("nhaplieu")}
+          onGoEdit={goEdit}
           storageTick={storageTick}
         />
       )}
       {page === "sotructraffic" && (
-        <SoTrafficDuty onGoEdit={() => setPage("nhaplieu")} storageTick={storageTick} />
+        <SoTrafficDuty onGoEdit={goEdit} storageTick={storageTick} />
       )}
       {page === "sotngt" && (
-        <SoTngt onGoEdit={() => setPage("nhaplieu")} storageTick={storageTick} />
+        <SoTngt onGoEdit={goEdit} storageTick={storageTick} />
       )}
       {page === "sohanhlang" && (
-        <SoHanhLang onGoEdit={() => setPage("nhaplieu")} storageTick={storageTick} />
+        <SoHanhLang onGoEdit={goEdit} storageTick={storageTick} />
       )}
-      {page === "sodemxe" && <SoDemXe />}
-      {page === "thongke" && <ThongKeKhoiLuong storageTick={storageTick} />}
+      {page === "sodemxe" && <SoDemXe readOnly={officeReadOnly} />}
+      {page === "sogptc" && <SoCapPhepThiCong readOnly={officeReadOnly} />}
+      {page === "thongke" && (
+        <ThongKeKhoiLuong storageTick={storageTick} readOnly={officeReadOnly} />
+      )}
       {page === "baoduongdata" && <DanhMucBaoDuong />}
-      {page === "hosocong" && <HoSoCong />}
+      {page === "hosocong" && <HoSoCong readOnly={officeReadOnly} />}
+      {page === "danhsachcau" && <DanhSachCau readOnly={officeReadOnly} />}
+      {page === "phieucau" && (
+        <PhieuKiemTraCau readOnly={officeReadOnly} storageTick={storageTick} />
+      )}
     </div>
   );
 }
 
 function AppContent() {
   const { canAccess, profile, logout } = useAuth();
-  const { ready, roadSelected, storageKey, activeRoad, clearRoad } = useRoadWorkspace();
+  const { canEditOfficeData, canUseFieldApp, isOfficeReadOnly, needsBrowsePicker } =
+    useOfficePermissions();
+  const browse = useOfficeBrowse();
+  const { ready, roadSelected, storageKey, activeRoad, activeRoadId, ownerUid, browseMode, clearRoad } =
+    useRoadWorkspace();
   const [portal, setPortal] = useState("nhatky");
-  const [page, setPage] = useState("nhaplieu");
+  const [page, setPage] = useState(() => (needsBrowsePicker ? "sonhatky" : "nhaplieu"));
   const [storageTick, setStorageTick] = useState(0);
   const [workspaceDate, setWorkspaceDate] = useState(
     () => new Date().toISOString().split("T")[0]
   );
   const [matDuongQuickBoot, setMatDuongQuickBoot] = useState(false);
 
+  useEffect(() => {
+    if (needsBrowsePicker && page === "nhaplieu") {
+      setPage("sonhatky");
+    }
+  }, [needsBrowsePicker, page]);
+
+  const workspaceOpen = needsBrowsePicker ? browse.browseActive : roadSelected;
+
+  useEffect(() => {
+    if (!canUseFieldApp && portal === "hientruong") {
+      setPortal("nhatky");
+    }
+  }, [canUseFieldApp, portal]);
+
   useIncidentSync({
     uid: profile?.uid,
     storageKey,
-    enabled: canAccess && roadSelected,
+    enabled: canAccess && roadSelected && !needsBrowsePicker,
     onUpdated: () => setStorageTick((t) => t + 1)
+  });
+
+  useDataNoiNghiepSync({
+    profile,
+    enabled: canAccess
+  });
+
+  useOfficeBooksSync({
+    uid: ownerUid,
+    roadId: activeRoadId,
+    storageKey,
+    enabled: canAccess && !!ownerUid && !!activeRoadId && !!storageKey && workspaceOpen,
+    canPush: canEditOfficeData && !browseMode,
+    browseMode,
+    onHydrated: () => setStorageTick((t) => t + 1)
+  });
+
+  useCauInspectionSync({
+    uid: ownerUid,
+    roadId: activeRoadId,
+    enabled: canAccess && !!ownerUid && !!activeRoadId && workspaceOpen,
+    canPush: canEditOfficeData && !browseMode,
+    browseMode,
+    onHydrated: () => setStorageTick((t) => t + 1)
   });
 
   function handleImported(nhatKyDate) {
@@ -216,8 +305,12 @@ function AppContent() {
   }
 
   function handleChangeRoad() {
-    clearRoad();
-    setPage("nhaplieu");
+    if (needsBrowsePicker) {
+      browse.clearAll();
+    } else {
+      clearRoad();
+      setPage("nhaplieu");
+    }
   }
 
   if (!ready) {
@@ -252,6 +345,8 @@ function AppContent() {
             type="button"
             className={portal === "hientruong" ? "nav-active" : ""}
             onClick={() => setPortal("hientruong")}
+            disabled={!canUseFieldApp}
+            title={!canUseFieldApp ? "Chỉ tài khoản USER được dùng App hiện trường" : undefined}
           >
             APP HIỆN TRƯỜNG
           </button>
@@ -266,17 +361,27 @@ function AppContent() {
           </div>
         </div>
 
-        {roadSelected && (
+        {workspaceOpen && (
           <div className="nhat-ky-header-subrow">
-            {portal === "nhatky" && <NhatKySubNav page={page} setPage={setPage} />}
-            <RoadWorkspaceNav road={activeRoad} onChangeRoad={handleChangeRoad} />
+            {portal === "nhatky" && (
+              <NhatKySubNav
+                page={page}
+                setPage={setPage}
+                canEditOfficeData={canEditOfficeData}
+              />
+            )}
+            <RoadWorkspaceNav
+              road={activeRoad}
+              onChangeRoad={handleChangeRoad}
+              browseUserName={needsBrowsePicker ? browse.selectedUser?.displayName : ""}
+            />
           </div>
         )}
       </header>
 
       <div className="nhat-ky-body">
       {portal === "hientruong" ? (
-        roadSelected ? (
+        workspaceOpen ? (
           <HienTruongPage storageTick={storageTick} onImported={handleImported} />
         ) : (
           <div className="road-select-hint">
@@ -286,7 +391,11 @@ function AppContent() {
             </button>
           </div>
         )
-      ) : roadSelected ? (
+      ) : needsBrowsePicker && !browse.browseActive ? (
+        <OfficeBrowseSelectPage />
+      ) : !needsBrowsePicker && !roadSelected ? (
+        <RoadSelectPage />
+      ) : (
         <NhatKyWorkspace
           page={page}
           setPage={setPage}
@@ -296,9 +405,9 @@ function AppContent() {
           onStorageChange={() => setStorageTick((t) => t + 1)}
           matDuongQuickBoot={matDuongQuickBoot}
           onMatDuongQuickBootConsumed={() => setMatDuongQuickBoot(false)}
+          officeReadOnly={isOfficeReadOnly}
+          canEditOfficeData={canEditOfficeData}
         />
-      ) : (
-        <RoadSelectPage />
       )}
       </div>
     </div>
@@ -307,6 +416,7 @@ function AppContent() {
 
 function AppShell() {
   const { loading, canAccess, profile } = useAuth();
+  const { needsBrowsePicker } = useOfficePermissions();
 
   if (loading) {
     return (
@@ -321,7 +431,24 @@ function AppShell() {
   }
 
   return (
-    <RoadWorkspaceProvider uid={profile?.uid}>
+    <OfficeBrowseProvider>
+      <AppWithRoadWorkspace profile={profile} needsBrowsePicker={needsBrowsePicker} />
+    </OfficeBrowseProvider>
+  );
+}
+
+function AppWithRoadWorkspace({ profile, needsBrowsePicker }) {
+  const browse = useOfficeBrowse();
+  const { canManageOfficeCatalog } = useOfficePermissions();
+  const dataOwnerUid = needsBrowsePicker ? browse.selectedUser?.uid : profile?.uid;
+
+  return (
+    <RoadWorkspaceProvider
+      uid={dataOwnerUid}
+      browseMode={needsBrowsePicker && !!browse.selectedUser}
+      initialRoadId={browse.selectedRoadId}
+      catalogLocked={!canManageOfficeCatalog}
+    >
       <AppContent />
     </RoadWorkspaceProvider>
   );

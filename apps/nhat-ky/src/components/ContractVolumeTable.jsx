@@ -51,7 +51,7 @@ function useCatalogVersion() {
  * Combobox có ô gõ để tìm kiếm (không phân biệt dấu); panel dùng position: fixed
  * để không bị cắt bởi vùng cuộn của bảng.
  */
-function WorkTypeSelect({ section, value, onChange, catalogVersion }) {
+function WorkTypeSelect({ section, value, onChange, catalogVersion, readOnly = false }) {
   const current = String(value || "").trim();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -59,6 +59,10 @@ function WorkTypeSelect({ section, value, onChange, catalogVersion }) {
   const controlRef = useRef(null);
   const panelRef = useRef(null);
   const inputRef = useRef(null);
+
+  if (readOnly) {
+    return <span className="stats-contract-cell-text">{current || "—"}</span>;
+  }
 
   const flatTypes = useMemo(
     () => (section ? listTypesForGroup(section) : null),
@@ -206,7 +210,7 @@ function WorkTypeSelect({ section, value, onChange, catalogVersion }) {
   );
 }
 
-export default function ContractVolumeTable({ rows, onUpdate, onRemove }) {
+export default function ContractVolumeTable({ rows, onUpdate, onRemove, readOnly = false }) {
   const [colWidths, setColWidths] = useState(loadWidths);
   const resizeRef = useRef(null);
   const catalogVersion = useCatalogVersion();
@@ -293,6 +297,7 @@ export default function ContractVolumeTable({ rows, onUpdate, onRemove }) {
                   className="stats-contract-cell-input stats-contract-cell-input--select"
                   value={row.section}
                   title={row.section || "Chọn hạng mục"}
+                  disabled={readOnly}
                   onChange={(e) => onUpdate(row.id, { section: e.target.value })}
                 >
                   <option value="">—</option>
@@ -309,6 +314,7 @@ export default function ContractVolumeTable({ rows, onUpdate, onRemove }) {
                   value={row.workType}
                   catalogVersion={catalogVersion}
                   onChange={(value) => onUpdate(row.id, { workType: value })}
+                  readOnly={readOnly}
                 />
               </td>
               <td>
@@ -319,6 +325,7 @@ export default function ContractVolumeTable({ rows, onUpdate, onRemove }) {
                   className="stats-contract-cell-input stats-contract-cell-input--num"
                   placeholder="0"
                   value={row.contractQty}
+                  disabled={readOnly}
                   onChange={(e) => onUpdate(row.id, { contractQty: e.target.value })}
                 />
               </td>
@@ -326,6 +333,7 @@ export default function ContractVolumeTable({ rows, onUpdate, onRemove }) {
                 <select
                   className="stats-contract-cell-input stats-contract-cell-input--select stats-contract-cell-input--unit"
                   value={row.unit}
+                  disabled={readOnly}
                   onChange={(e) => onUpdate(row.id, { unit: e.target.value })}
                 >
                   <option value="m3">m³</option>
@@ -334,14 +342,16 @@ export default function ContractVolumeTable({ rows, onUpdate, onRemove }) {
                 </select>
               </td>
               <td className="stats-contract-td-del">
-                <button
-                  type="button"
-                  className="stats-remove-btn stats-remove-btn--table"
-                  title="Xóa dòng HĐ"
-                  onClick={() => onRemove(row.id)}
-                >
-                  ×
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    className="stats-remove-btn stats-remove-btn--table"
+                    title="Xóa dòng HĐ"
+                    onClick={() => onRemove(row.id)}
+                  >
+                    ×
+                  </button>
+                )}
               </td>
             </tr>
           ))}

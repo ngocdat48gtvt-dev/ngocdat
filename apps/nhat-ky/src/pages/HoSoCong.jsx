@@ -11,6 +11,7 @@ import { fetchAllCong, pushManyCong } from "../services/congRegistryService";
 import { formatKmCell } from "../utils/matDuongFormat";
 import { useAuth } from "../context/AuthContext";
 import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
+import { normalizeKmInput } from "../utils/nhatKyFormat";
 
 const SIDEBAR_WIDTH = 340;
 
@@ -21,10 +22,10 @@ function formatKm(value) {
   return formatKmCell(v) || v;
 }
 
-export default function HoSoCong() {
+export default function HoSoCong({ readOnly = false }) {
   const { profile } = useAuth();
-  const { roads, activeRoad, activeRoadId } = useRoadWorkspace();
-  const uid = profile?.uid || "";
+  const { roads, activeRoadId, ownerUid } = useRoadWorkspace();
+  const uid = ownerUid || profile?.uid || "";
   const roadsKey = roads.map((r) => r.id).join(",");
 
   const roadName = (id) => {
@@ -84,16 +85,19 @@ export default function HoSoCong() {
   );
 
   function updateRow(id, field, value) {
+    if (readOnly) return;
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
     setMessage("");
   }
 
   function deleteRow(id) {
+    if (readOnly) return;
     setRows((prev) => prev.filter((r) => r.id !== id));
     setMessage("");
   }
 
   function addRows() {
+    if (readOnly) return;
     setRows((prev) => [
       ...prev,
       ...makeEmptyCongRows(5).map((x) => ({ ...x, roadId: activeRoadId }))
@@ -101,6 +105,7 @@ export default function HoSoCong() {
   }
 
   function generateRows() {
+    if (readOnly) return;
     const n = parseInt(countInput, 10);
     if (!Number.isFinite(n) || n < 1) {
       setMessage("Nhập số lượng cống hợp lệ (≥ 1).");
@@ -122,6 +127,7 @@ export default function HoSoCong() {
   }
 
   function importPaste() {
+    if (readOnly) return;
     const parsed = parseCongPaste(pasteText);
     if (!parsed.length) {
       setMessage("Không đọc được dòng nào. Mỗi dòng: Lý trình [tab] Loại cống [tab] Chiều dài.");
@@ -145,8 +151,13 @@ export default function HoSoCong() {
   }
 
   async function handleSave() {
+    if (readOnly) return;
     if (!roads.length) {
       setMessage("Chưa có đường nào. Tạo đường trong 'Đổi hạt' trước khi lưu.");
+      return;
+    }
+    if (!uid) {
+      setMessage("Chưa đăng nhập — không xác định được kho lưu theo tài khoản.");
       return;
     }
     // Gom theo đường (bỏ qua dòng trống & dòng chưa chọn đường).
@@ -157,7 +168,8 @@ export default function HoSoCong() {
       if (!String(r.km || "").trim() && !String(r.type || "").trim() && !String(r.length || "").trim()) {
         continue;
       }
-      (grouped[rid] = grouped[rid] || []).push(r);
+      const kmNorm = normalizeKmInput(r.km) || String(r.km || "").trim();
+      (grouped[rid] = grouped[rid] || []).push({ ...r, km: kmNorm });
     }
 
     let total = 0;
@@ -201,7 +213,8 @@ export default function HoSoCong() {
   }
 
   async function handleClear() {
-    if (!window.confirm("Xoá toàn bộ hồ sơ cống của MỌI đường?")) return;
+    if (readOnly) return;
+    if (!window.confirm("Xoá toàn bộ danh sách cống của MỌI đường?")) return;
     for (const r of roads) {
       saveCongRegistry(congScope(uid, r.id), []);
     }
@@ -218,7 +231,7 @@ export default function HoSoCong() {
         /* vẫn xoá trên máy */
       }
     }
-    setMessage("Đã xoá hồ sơ cống của mọi đường.");
+    setMessage("Đã xoá danh sách cống của mọi đường.");
     setTimeout(() => setMessage(""), 3500);
   }
 
@@ -229,7 +242,7 @@ export default function HoSoCong() {
         style={{ width: SIDEBAR_WIDTH, minWidth: SIDEBAR_WIDTH, maxWidth: SIDEBAR_WIDTH }}
       >
         <div className="sidebar-sticky-head">
-          <h2 className="sidebar-title">Hồ sơ cống</h2>
+          <h2 className="sidebar-title">Danh sách cống</h2>
           <p className="sonhatky-day-summary">
             {roads.length} đường · {filledCount} cống
           </p>
@@ -241,6 +254,13 @@ export default function HoSoCong() {
             chọn: <strong>{roadName(activeRoadId) || "—"}</strong>.
           </p>
           {message && <p className="save-ok">{message}</p>}
+          {readOnly && (
+            <p className="section-guide danhmuc-bd-readonly-hint">
+              Chế độ chỉ xem. Chỉ tài khoản <strong>USER</strong> được sửa danh sách cống.
+            </p>
+          )}
+          {!readOnly && (
+          <>
           <label className="sidebar-field">
             <span className="sidebar-field-label">Số lượng cống → tạo thêm dòng (đường đang chọn)</span>
             <div style={{ display: "flex", gap: 6 }}>
@@ -287,16 +307,20 @@ export default function HoSoCong() {
               Xoá hết
             </button>
           </div>
+          </>
+          )}
         </div>
       </aside>
 
       <main className="nhaplieu-review-pane">
-        <div className="danhmuc-bd-pane" style={{ maxWidth: 1000 }}>
+        <div className={`danhmuc-bd-pane${readOnly ? " danhmuc-bd-pane--readonly" : ""}`} style={{ maxWidth: 1000 }}>
+          {!readOnly && (
           <div className="danhmuc-bd-add">
             <button type="button" className="btn-secondary" onClick={addRows}>
               + 5 dòng
             </button>
           </div>
+          )}
 
           <div className="danhmuc-bd-scroll">
             <table className="danhmuc-bd-table" style={{ minWidth: 760 }}>
@@ -328,6 +352,7 @@ export default function HoSoCong() {
                         onChange={(e) => updateRow(row.id, "roadId", e.target.value)}
                         className="danhmuc-bd-input"
                         aria-label={`Đường dòng ${idx + 1}`}
+                        disabled={readOnly}
                       >
                         {roads.length === 0 && <option value="">(chưa có đường)</option>}
                         {roads.map((r) => (
@@ -345,6 +370,7 @@ export default function HoSoCong() {
                         onBlur={(e) => updateRow(row.id, "km", formatKm(e.target.value))}
                         className="danhmuc-bd-input"
                         placeholder="Nhập số: 369100 → Km369+100"
+                        readOnly={readOnly}
                       />
                     </td>
                     <td>
@@ -354,6 +380,7 @@ export default function HoSoCong() {
                         onChange={(e) => updateRow(row.id, "type", e.target.value)}
                         className="danhmuc-bd-input"
                         placeholder="VD: Cống tròn D100"
+                        readOnly={readOnly}
                       />
                     </td>
                     <td>
@@ -363,9 +390,11 @@ export default function HoSoCong() {
                         onChange={(e) => updateRow(row.id, "length", e.target.value)}
                         className="danhmuc-bd-input danhmuc-bd-center"
                         placeholder="m"
+                        readOnly={readOnly}
                       />
                     </td>
                     <td>
+                      {!readOnly && (
                       <button
                         type="button"
                         className="danhmuc-bd-del"
@@ -374,6 +403,7 @@ export default function HoSoCong() {
                       >
                         Xoá
                       </button>
+                      )}
                     </td>
                   </tr>
                 ))}

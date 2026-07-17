@@ -11,8 +11,19 @@ import {
   TextRun,
   WidthType
 } from "docx";
-import { VEHICLE_TYPES, DEMXE_GUIDE_SECTIONS } from "../utils/demXeConstants";
-import { parseCount, sumCounts, listActiveDates, computeSummaryByDirection } from "../utils/demXeCompute";
+import { DIRECTION_DI, DIRECTION_VE, VEHICLE_TYPES, formatCoverDateLabel } from "../utils/demXeConstants";
+import {
+  DEMXE_GUIDE_COUNT_REFS,
+  DEMXE_GUIDE_DOSSIER,
+  DEMXE_GUIDE_LEGAL_BASES,
+  DEMXE_GUIDE_PURPOSE,
+  DEMXE_GUIDE_REQUIREMENTS,
+  DEMXE_GUIDE_REQUIREMENTS_PAGE2,
+  DEMXE_GUIDE_SUMMARY_REFS,
+  DEMXE_GUIDE_SUPERVISOR,
+  DEMXE_GUIDE_TEAM_LEADER
+} from "../utils/demXeGuideContent";
+import { parseCount, sumCounts, listActiveDates, listCountBatches, computeDirectionBatchTable, batchMonthYearLabel } from "../utils/demXeCompute";
 import { formatDisplayDate } from "../utils/nhatKyFormat";
 
 const FONT = "Times New Roman";
@@ -52,29 +63,118 @@ function borderedTable(rows) {
   });
 }
 
+function coverLine(text, opts = {}) {
+  return new Paragraph({
+    alignment: AlignmentType.LEFT,
+    indent: { left: 2200 },
+    spacing: { after: opts.after ?? 120, line: 360 },
+    children: [
+      new TextRun({
+        text: String(text ?? ""),
+        size: opts.size ?? 24,
+        font: FONT
+      })
+    ]
+  });
+}
+
 function buildCover(cover) {
+  const donVi = cover.donVi || "……………………";
+  const tenHat = cover.tenHat || "……………………";
+  const lyTrinh = cover.lyTrinhQuanLy || "……………………";
+  const tenDuong = cover.tenDuong || "……………………";
+  const ngayBatDau = formatCoverDateLabel(cover.ngayBatDau);
+  const ngayKetThuc = formatCoverDateLabel(cover.ngayKetThuc);
+  const noiKy = cover.noiKy || "…………";
+  const nam = cover.nam || "....";
+
   return [
-    p("CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM", { center: true, bold: true }),
-    p("Độc lập - Tự do - Hạnh phúc", { center: true }),
-    p("", { after: 240 }),
-    p("SỔ THEO DÕI ĐẾM XE", { center: true, bold: true, size: 32 }),
-    p("", { after: 360 }),
-    p(`Đơn vị: ${cover.donVi || "……………………"}`, { center: true }),
-    p(`Tên Hạt: ${cover.tenHat || "……………………"}`, { center: true }),
-    p(`Tên đường: ${cover.tenDuong || "……………………"}`, { center: true }),
-    p(`Lý trình quản lý: ${cover.lyTrinhQuanLy || "……………………"}`, { center: true }),
-    p(`Bắt đầu ngày: ${cover.ngayBatDau || "..../..../...."}`, { center: true }),
-    p(`Hết quyển ngày: ${cover.ngayKetThuc || "..../..../...."}`, { center: true }),
+    p("CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM", { center: true }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 240 },
+      children: [
+        new TextRun({
+          text: "Độc lập - Tự do - Hạnh phúc",
+          bold: true,
+          underline: {},
+          size: 24,
+          font: FONT
+        })
+      ]
+    }),
+    p("SỔ THEO DÕI ĐẾM XE", { center: true, bold: true, size: 32, after: 360 }),
+    coverLine(`Đơn vị quản lý, bảo dưỡng thường xuyên: ${donVi}`),
+    coverLine(`Tên Hạt: ${tenHat} Lý trình quản lý: ${lyTrinh}`),
+    coverLine(`Tên đường: ${tenDuong}`),
+    coverLine(`Bắt đầu ngày: ${ngayBatDau}`),
+    coverLine(`Hết quyển ngày: ${ngayKetThuc}`),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 960, after: 0 },
+      children: [
+        new TextRun({
+          text: `${noiKy}, năm ${nam}`,
+          italics: true,
+          size: 24,
+          font: FONT
+        })
+      ]
+    }),
     new Paragraph({ children: [new PageBreak()] })
   ];
 }
 
 function buildGuide() {
-  const blocks = [p("HƯỚNG DẪN LẬP, GHI CHÉP SỔ ĐẾM XE", { bold: true, center: true, after: 200 })];
-  DEMXE_GUIDE_SECTIONS.forEach((s) => {
-    blocks.push(p(s.title, { bold: true }));
-    blocks.push(p(s.body));
+  const blocks = [
+    p("Phụ lục số 03", { align: AlignmentType.RIGHT, after: 120 }),
+    p("HƯỚNG DẪN LẬP, GHI CHÉP SỔ ĐẾM XE", { bold: true, center: true, after: 200 })
+  ];
+
+  DEMXE_GUIDE_LEGAL_BASES.forEach((item) => {
+    blocks.push(p(`- ${item}`, { after: 80 }));
   });
+
+  blocks.push(p("I. MỤC ĐÍCH", { bold: true, after: 80 }));
+  blocks.push(p(DEMXE_GUIDE_PURPOSE, { after: 120 }));
+  blocks.push(p("II. YÊU CẦU", { bold: true, after: 80 }));
+
+  DEMXE_GUIDE_REQUIREMENTS.forEach((item) => {
+    blocks.push(p(`${item.no}. ${item.text}`, { after: 80 }));
+    (item.bullets || []).forEach((bullet) => {
+      blocks.push(p(`- ${bullet}`, { after: 80 }));
+    });
+  });
+
+  blocks.push(new Paragraph({ children: [new PageBreak()] }));
+
+  blocks.push(p(`- ${DEMXE_GUIDE_REQUIREMENTS_PAGE2[0]}`, { after: 80 }));
+  blocks.push(p(`4. ${DEMXE_GUIDE_REQUIREMENTS_PAGE2[1]}`, { after: 120 }));
+  blocks.push(p("III. QUY CÁCH HỒ SƠ", { bold: true, after: 80 }));
+
+  DEMXE_GUIDE_DOSSIER.forEach((item, idx) => {
+    blocks.push(p(`${idx + 1}. ${item}`, { after: 80 }));
+  });
+
+  blocks.push(p("4.1 Hướng dẫn ghi Bảng tổng hợp lưu lượng xe qua lại/ngày", { bold: true, after: 80 }));
+  DEMXE_GUIDE_SUMMARY_REFS.forEach((item) => blocks.push(p(item, { after: 60 })));
+  blocks.push(p(DEMXE_GUIDE_SUPERVISOR, { after: 80 }));
+  blocks.push(p(DEMXE_GUIDE_TEAM_LEADER, { after: 120 }));
+  blocks.push(p("BẢNG TỔNG HỢP LƯU LƯỢNG XE QUA LẠI / NGÀY", { bold: true, center: true, after: 80 }));
+  blocks.push(p("Tháng…. năm….", { center: true, after: 160 }));
+
+  blocks.push(new Paragraph({ children: [new PageBreak()] }));
+
+  blocks.push(
+    p("4.2 Hướng dẫn ghi Đếm theo phân loại phương tiện (chiều đi, chiều về)", {
+      bold: true,
+      after: 80
+    })
+  );
+  DEMXE_GUIDE_COUNT_REFS.forEach((item) => blocks.push(p(item, { after: 60 })));
+  blocks.push(p("ĐẾM THEO PHÂN LOẠI PHƯƠNG TIỆN", { bold: true, center: true, after: 120 }));
+  VEHICLE_TYPES.forEach((v) => blocks.push(p(v.label, { after: 40 })));
+
   blocks.push(new Paragraph({ children: [new PageBreak()] }));
   return blocks;
 }
@@ -125,34 +225,63 @@ function buildCountForm(date, dir) {
 }
 
 function buildSummary(days) {
-  const { dates, rows } = computeSummaryByDirection(days);
-  if (!dates.length) return [p("BẢNG TỔNG HỢP LƯU LƯỢNG XE QUA LẠI / NGÀY", { bold: true, center: true })];
+  const batches = listCountBatches(Object.keys(days || {}));
+  if (!batches.length) {
+    return [p("BẢNG TỔNG HỢP LƯU LƯỢNG XE QUA LẠI / NGÀY", { bold: true, center: true })];
+  }
 
-  const headerCells = [
-    cell("TT", { bold: true, center: true, width: 6 }),
-    cell("HƯỚNG XE CHẠY", { bold: true, width: 22 }),
-    cell("CHỦNG LOẠI XE", { bold: true, width: 28 }),
-    ...dates.map((d) => cell(formatDisplayDate(d), { bold: true, center: true, width: Math.floor(44 / dates.length) }))
-  ];
+  const blocks = [];
+  batches.forEach((batch) => {
+    const start = batch[0];
+    blocks.push(p("BẢNG TỔNG HỢP LƯU LƯỢNG XE QUA LẠI / NGÀY", { bold: true, center: true, after: 80 }));
+    blocks.push(p(batchMonthYearLabel(start), { center: true, after: 160 }));
 
-  const tableRows = [new TableRow({ children: headerCells })];
-  rows.forEach((row, idx) => {
-    tableRows.push(
-      new TableRow({
+    [DIRECTION_DI, DIRECTION_VE].forEach((dirType) => {
+      const table = computeDirectionBatchTable(days, start, dirType);
+      const header = new TableRow({
         children: [
-          cell(String(idx + 1), { center: true }),
-          cell(row.directionLabel),
-          cell(row.vehicleLabel),
-          ...dates.map((d) => cell(row.byDate[d] ? String(row.byDate[d]) : "", { center: true }))
+          cell("TT", { bold: true, center: true }),
+          cell("HƯỚNG XE CHẠY", { bold: true }),
+          cell("CHỦNG LOẠI XE", { bold: true }),
+          cell("Ngày 1", { bold: true, center: true }),
+          cell("Ngày 2", { bold: true, center: true }),
+          cell("Ngày 3", { bold: true, center: true }),
+          cell("GHI CHÚ", { bold: true, center: true })
         ]
-      })
+      });
+      const body = table.rows.map((row, idx) =>
+        new TableRow({
+          children: [
+            cell(String(row.tt), { center: true }),
+            cell(idx === 0 ? `Từ: ${table.from || ""}\nĐến: ${table.to || ""}` : "", { center: true }),
+            cell(row.vehicleLabel),
+            ...row.displayCounts.map((val) => cell(val, { center: true })),
+            cell("")
+          ]
+        })
+      );
+      body.push(
+        new TableRow({
+          children: [
+            cell("Tổng", { bold: true }),
+            cell(""),
+            cell(""),
+            ...table.colTotalsDisplay.map((val) => cell(val, { bold: true, center: true })),
+            cell("")
+          ]
+        })
+      );
+      blocks.push(borderedTable([header, ...body]));
+      blocks.push(p("", { after: 200 }));
+    });
+
+    blocks.push(
+      p("Người giám sát                              Tổ trưởng tổ đếm xe", { center: true, after: 200 })
     );
+    blocks.push(new Paragraph({ children: [new PageBreak()] }));
   });
 
-  return [
-    p("BẢNG TỔNG HỢP LƯU LƯỢNG XE QUA LẠI / NGÀY", { bold: true, center: true, after: 200 }),
-    borderedTable(tableRows)
-  ];
+  return blocks;
 }
 
 export async function buildDemXeWordDocument(ledger) {

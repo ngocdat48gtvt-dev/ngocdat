@@ -185,6 +185,148 @@ export function filterBaoDuongEntries(entries, execDate) {
     });
 }
 
+/** Lọc BDTX theo khoảng ngày dự kiến sửa (plannedRepairDate). */
+export function filterBaoDuongEntriesInRange(entries, fromIso, toIso) {
+  const from = String(fromIso || "").trim();
+  const to = String(toIso || "").trim();
+  if (!from || !to || from > to) return [];
+  return entries
+    .map(migrateEntry)
+    .filter(
+      (e) =>
+        shouldExportBaoDuong(e) &&
+        e.plannedRepairDate >= from &&
+        e.plannedRepairDate <= to
+    )
+    .sort((a, b) => {
+      if (a.plannedRepairDate !== b.plannedRepairDate) {
+        return a.plannedRepairDate.localeCompare(b.plannedRepairDate);
+      }
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      return String(a.kmFrom).localeCompare(String(b.kmFrom));
+    });
+}
+
+/** Hằng số bố cục A4 dọc — preview + in. */
+export const BAO_DUONG_SHEET_LAYOUT = {
+  sheetWidthMm: 210,
+  sheetHeightMm: 297,
+  topBlockMm: 48,
+  theadMm: 20,
+  signBlockMm: 40,
+  dataRowMinMm: 16,
+  emptyRowMm: 12,
+  minEmptyRows: 3,
+  safetyMm: 12
+};
+
+export function baoDuongBodyBudgetMm(margins, { withSign = false } = {}) {
+  const L = BAO_DUONG_SHEET_LAYOUT;
+  const padV =
+    (Number(margins?.top) || 0) + (Number(margins?.bottom) || 0);
+  const sign = withSign ? L.signBlockMm : 0;
+  return Math.max(
+    50,
+    L.sheetHeightMm - padV - L.topBlockMm - L.theadMm - sign - L.safetyMm
+  );
+}
+
+export function estimateBaoDuongDataRowMm(entry, index = 0) {
+  const L = BAO_DUONG_SHEET_LAYOUT;
+  const r = entryToBaoDuongRow(entry, index);
+
+  function countLines(text, charsPerLine) {
+    if (!text) return 1;
+    let n = 0;
+    String(text)
+      .split("\n")
+      .forEach((line) => {
+        n += Math.max(1, Math.ceil(Math.max(line.length, 1) / charsPerLine));
+      });
+    return Math.max(1, n);
+  }
+
+  const lines = Math.max(
+    countLines(r.work, 18),
+    countLines(r.viTri, 22),
+    countLines(r.measureSummary, 22),
+    countLines(r.mainResult, 36)
+  );
+  return Math.max(L.dataRowMinMm, 10 + (lines - 1) * 4.2) + 0.4;
+}
+
+export function computeBaoDuongPadRows(entries, margins, opts = {}) {
+  const L = BAO_DUONG_SHEET_LAYOUT;
+  const budgetMm = baoDuongBodyBudgetMm(margins, opts);
+  const dataMm = (entries || []).reduce(
+    (sum, e, i) => sum + estimateBaoDuongDataRowMm(e, i),
+    0
+  );
+  const remainMm = Math.max(0, budgetMm - dataMm);
+  if (remainMm < 4) {
+    return { count: 0, rowHeightMm: L.emptyRowMm };
+  }
+  const count = Math.max(
+    entries?.length ? 1 : L.minEmptyRows,
+    Math.floor(remainMm / L.emptyRowMm)
+  );
+  return { count, rowHeightMm: remainMm / count };
+}
+
+/**
+ * Chia entries thành các tờ A4 dọc.
+ * Tờ cuối dành chỗ khối chữ ký.
+ */
+export function packBaoDuongPages(entries, margins) {
+  const list = entries || [];
+  if (!list.length) return [[]];
+
+  const budgetNoSign = baoDuongBodyBudgetMm(margins, { withSign: false });
+  const budgetWithSign = baoDuongBodyBudgetMm(margins, { withSign: true });
+
+  // Đóng gói tạm với budget không chữ ký
+  const rough = [];
+  let bucket = [];
+  let used = 0;
+  list.forEach((entry, index) => {
+    const h = estimateBaoDuongDataRowMm(entry, index);
+    if (bucket.length > 0 && used + h > budgetNoSign) {
+      rough.push(bucket);
+      bucket = [];
+      used = 0;
+    }
+    if (bucket.length === 0 && h > budgetNoSign) {
+      rough.push([entry]);
+      return;
+    }
+    bucket.push(entry);
+    used += h;
+  });
+  if (bucket.length) rough.push(bucket);
+
+  // Tờ cuối: nếu vượt budget có chữ ký → tách hàng dư sang tờ mới
+  const pages = rough.map((p) => [...p]);
+  if (!pages.length) return [[]];
+
+  let last = pages[pages.length - 1];
+  let lastUsed = last.reduce(
+    (s, e, i) => s + estimateBaoDuongDataRowMm(e, i),
+    0
+  );
+  const overflow = [];
+  while (last.length > 1 && lastUsed > budgetWithSign) {
+    const moved = last.pop();
+    overflow.unshift(moved);
+    lastUsed = last.reduce(
+      (s, e, i) => s + estimateBaoDuongDataRowMm(e, i),
+      0
+    );
+  }
+  if (overflow.length) pages.push(overflow);
+
+  return pages.length ? pages : [[]];
+}
+
 export function formatKmCell(value) {
   if (!value && value !== 0) return "";
   return `Km${formatLyTrinh(value)}`;
@@ -232,9 +374,18 @@ export function formatMainResult(entry) {
 /** Cột (3) mẫu sổ: "Ghi lý trình, vị trí công việc được thực hiện". */
 export function formatViTri(entry) {
   const kmFrom = formatKmCell(entry.kmFrom);
-  const kmTo = formatKmCell(resolveEntryKmTo(entry));
+  const explicitTo = String(entry.kmTo || "").trim();
+  let kmTo = "";
+  if (explicitTo) {
+    const formatted = formatKmCell(entry.kmTo);
+    if (formatted && formatted !== kmFrom) kmTo = formatted;
+  } else {
+    // Không có lý trình cuối nhập tay → suy từ chiều dài (nếu có).
+    const resolved = formatKmCell(resolveEntryKmTo(entry));
+    if (resolved && resolved !== kmFrom) kmTo = resolved;
+  }
   let range = "";
-  if (kmFrom && kmTo && kmFrom !== kmTo) range = `${kmFrom} – ${kmTo}`;
+  if (kmFrom && kmTo) range = `${kmFrom} – ${kmTo}`;
   else range = kmFrom || kmTo;
 
   const sideLabel = formatSideLabel(entry.side);

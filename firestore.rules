@@ -81,6 +81,35 @@ service cloud.firestore {
         && myCompanyId().size() > 0;
     }
 
+    // VIEWER — chỉ xem sổ USER được cấp (viewerAccess trên user doc)
+    function isCompanyViewer() {
+      return authUserExists()
+        && authUserDoc().active == true
+        && authUserDoc().role == 'VIEWER'
+        && myCompanyId() is string
+        && myCompanyId().size() > 0;
+    }
+
+    function viewerCanReadTarget(userId) {
+      return isCompanyViewer()
+        && targetUserExists(userId)
+        && targetUserCompanyId(userId) == myCompanyId()
+        && targetUserDoc(userId).role == 'USER'
+        && (
+          !('viewerAccess' in authUserDoc())
+          || authUserDoc().viewerAccess.mode != 'users'
+          || userId in authUserDoc().viewerAccess.userUids
+        );
+    }
+
+    // ADMIN cùng công ty — ghi danh mục sổ nội nghiệp (office_roads_catalog) cho USER
+    function canAdminWriteOfficeRoadsCatalog(userId) {
+      return isCompanyAdmin()
+        && targetUserExists(userId)
+        && targetUserCompanyId(userId) == myCompanyId()
+        && targetUserDoc(userId).role == 'USER';
+    }
+
     // ADMIN cùng công ty được sửa danh mục master_data của admin chính
     function canCompanyAdminWriteCatalog(userId) {
       return isCompanyAdmin()
@@ -136,11 +165,23 @@ service cloud.firestore {
         && resource.data.companyId == myCompanyId();
     }
 
+    // VIEWER mode all — query USER cùng công ty
+    function viewerCanListCompanyUser() {
+      return isCompanyViewer()
+        && (
+          !('viewerAccess' in authUserDoc())
+          || authUserDoc().viewerAccess.mode != 'users'
+        )
+        && resource.data.companyId == myCompanyId()
+        && resource.data.role == 'USER';
+    }
+
     // Đọc incident theo đường dẫn users/{userId}/incidents/...
     function canReadIncident(userId) {
       return (isOwner(userId) && licenseOk(userId))
         || isGlobalSeller()
         || sameCompanyAsTarget(userId)
+        || viewerCanReadTarget(userId)
         || incidentMatchesMyCompany();
     }
 
@@ -230,6 +271,8 @@ service cloud.firestore {
         || isGlobalSeller()
         || sameCompanyAsTarget(userId)
         || sameCompanyPeer(userId)
+        || viewerCanReadTarget(userId)
+        || viewerCanListCompanyUser()
         || isSameCompanyUserDoc();
 
       // Tạo user doc: seller hoặc app ghi sessionId/activeDevices lần đầu
@@ -264,18 +307,53 @@ service cloud.firestore {
         allow read: if (isOwner(userId) && licenseOk(userId))
           || isGlobalSeller()
           || sameCompanyAsTarget(userId)
+          || viewerCanReadTarget(userId)
           || sameCompanyPeer(userId)
           || (isCompanyAdmin() && userId == request.auth.uid);
 
         allow write: if isGlobalSeller()
           || (isCompanyAdmin() && userId == request.auth.uid)
           || canCompanyAdminWriteCatalog(userId)
-          || (isOwner(userId) && licenseOk(userId));
+          || (docId == 'office_roads_catalog' && canAdminWriteOfficeRoadsCatalog(userId))
+          || (isOwner(userId) && licenseOk(userId) && docId != 'office_roads_catalog');
       }
 
       // ----- nhat_ky_meta — web Nhật ký tuần đường (importMap), không đụng incidents -----
       match /nhat_ky_meta/{docId} {
         allow read, write: if isOwner(userId) && licenseOk(userId);
+      }
+
+      // ----- office_books — sổ nội nghiệp theo hạt/đường (KHÔNG đụng incidents) -----
+      // users/{uid}/office_books/{roadId} + /days/{yyyy-mm-dd}
+      match /office_books/{roadId} {
+        allow read: if (isOwner(userId) && licenseOk(userId))
+          || isGlobalSeller()
+          || sameCompanyAsTarget(userId)
+          || viewerCanReadTarget(userId);
+
+        allow write: if (isOwner(userId) && licenseOk(userId))
+          || isGlobalSeller();
+
+        match /days/{dayId} {
+          allow read: if (isOwner(userId) && licenseOk(userId))
+            || isGlobalSeller()
+            || sameCompanyAsTarget(userId)
+            || viewerCanReadTarget(userId);
+
+          allow write: if (isOwner(userId) && licenseOk(userId))
+            || isGlobalSeller();
+        }
+
+        // modules/{key} — gptc, dem_xe, …
+        match /modules/{moduleId} {
+          allow read: if (isOwner(userId) && licenseOk(userId))
+            || isGlobalSeller()
+            || sameCompanyAsTarget(userId)
+            || viewerCanReadTarget(userId);
+
+          allow write: if (isOwner(userId) && licenseOk(userId))
+            || isGlobalSeller();
+        }
       }
     }
 

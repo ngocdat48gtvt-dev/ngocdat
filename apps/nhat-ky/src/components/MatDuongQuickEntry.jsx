@@ -8,6 +8,7 @@ import {
 } from "../hooks/useMatDuongColWidths";
 import { formatDisplayDate } from "../utils/nhatKyFormat";
 import { maxPlannedRepairDate } from "../utils/baoDuongFormat";
+import { getUnitForType } from "../utils/baoDuongQualityStore";
 import {
   buildMatDuongEntriesFromRows,
   makeEmptyQuickRows,
@@ -15,8 +16,23 @@ import {
   parseBulkMatDuongPaste
 } from "../utils/bulkMatDuongImport";
 import { calcAreaM2, formatKmCell } from "../utils/matDuongFormat";
+import ViDateInput from "./ViDateInput";
 
 const SIDE_OPTIONS = ["", "T", "P", "G", "M"];
+
+/** Chuẩn hóa đơn vị catalog → value của select (m / m2 / m3). */
+function resolveQuickUnit(type, unitByType = {}) {
+  const raw =
+    (type && unitByType[type]) ||
+    getUnitForType(type) ||
+    "";
+  const u = String(raw).trim().toLowerCase();
+  if (!u) return "";
+  if (u === "m²" || u === "m2") return "m2";
+  if (u === "m³" || u === "m3") return "m3";
+  if (u === "m") return "m";
+  return "";
+}
 
 function countValidRows(rows, common) {
   return rows.filter((r) => normalizeMatDuongQuickRow(r, common)).length;
@@ -53,6 +69,7 @@ export default function MatDuongQuickEntry({
   onRowsChange,
   onImport,
   types,
+  unitByType = {},
   section = "Mặt đường",
   exportField = "exportMatDuong",
   exportLabel = "Xuất sổ mặt đường"
@@ -113,6 +130,15 @@ export default function MatDuongQuickEntry({
 
   function updateRow(index, field, value) {
     onRowsChange(rows.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
+  }
+
+  function handleTypeChange(index, type) {
+    const patch = { type };
+    if (hasUnit) {
+      const unit = resolveQuickUnit(type, unitByType);
+      if (unit) patch.unit = unit;
+    }
+    onRowsChange(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   }
 
   function handleTablePaste(e) {
@@ -183,7 +209,8 @@ export default function MatDuongQuickEntry({
       </div>
 
       <p className="section-guide section-guide--compact matduong-quick-hint">
-        Nhập 1 hay nhiều dòng. <strong>Ctrl+V</strong> dán từ Excel; điểm cuối &amp; khối lượng tự tính. Bấm sự cố ở danh sách bên trái để nạp dòng <strong>✎ sửa</strong>. Ghi vào nhật ký ngày {displayDate || "—"}.
+        Nhập 1 hay nhiều dòng. Chọn <strong>loại sự cố</strong> để tự lấy đơn vị theo danh mục.
+        <strong> Ctrl+V</strong> dán từ Excel; điểm cuối &amp; khối lượng tự tính. Bấm sự cố ở danh sách bên trái để nạp dòng <strong>✎ sửa</strong>. Ghi vào nhật ký ngày {displayDate || "—"}.
       </p>
 
       <div
@@ -308,7 +335,7 @@ export default function MatDuongQuickEntry({
                   <td className="matduong-col-type">
                     <WorkTypeCombo
                       value={row.type || ""}
-                      onChange={(val) => updateRow(idx, "type", val)}
+                      onChange={(val) => handleTypeChange(idx, val)}
                       options={types}
                       controlClassName="matduong-excel-cell matduong-excel-cell--type"
                       ariaLabel={`Loại sự cố dòng ${idx + 1}`}
@@ -363,12 +390,11 @@ export default function MatDuongQuickEntry({
                     </td>
                   )}
                   <td>
-                    <input
-                      type="date"
+                    <ViDateInput
                       value={row.plannedRepairDate || ""}
                       min={date}
                       max={maxPlannedRepairDate(date)}
-                      onChange={(e) => updateRow(idx, "plannedRepairDate", e.target.value)}
+                      onChange={(iso) => updateRow(idx, "plannedRepairDate", iso || "")}
                       className="matduong-excel-cell matduong-excel-cell--date"
                       aria-label={`Ngày xuất sổ BDTX dòng ${idx + 1}`}
                     />

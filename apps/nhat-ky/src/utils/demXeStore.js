@@ -1,4 +1,10 @@
-import { EMPTY_COVER, EMPTY_COUNTS, DIRECTION_DI } from "./demXeConstants";
+import {
+  COUNT_BATCH_DAYS,
+  DIRECTION_DI,
+  DIRECTION_VE,
+  EMPTY_COVER,
+  EMPTY_COUNTS
+} from "./demXeConstants";
 
 const LEGACY_KEY = "dem-xe-v1";
 export const DEMXE_CHANGED_EVENT = "demxe-changed";
@@ -50,12 +56,35 @@ function normalizeDirection(dir) {
   };
 }
 
+export function addDaysIso(iso, offset) {
+  const d = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().slice(0, 10);
+}
+
+export function batchDatesFromStart(startIso) {
+  return Array.from({ length: COUNT_BATCH_DAYS }, (_, i) => addDaysIso(startIso, i));
+}
+
+export function makeDayDirections(seed = {}) {
+  return [makeEmptyDirection(DIRECTION_DI, seed), makeEmptyDirection(DIRECTION_VE, seed)];
+}
+
+/** Mỗi ngày luôn có đúng 1 chiều đi và 1 chiều về. */
+export function ensureDayDirections(day, seed = {}) {
+  const dirs = (day?.directions || []).map(normalizeDirection);
+  const di = dirs.find((d) => d.directionType === DIRECTION_DI) || makeEmptyDirection(DIRECTION_DI, seed);
+  const ve = dirs.find((d) => d.directionType === DIRECTION_VE) || makeEmptyDirection(DIRECTION_VE, seed);
+  return { directions: [di, ve] };
+}
+
 export function normalizeLedger(raw) {
   const cover = { ...EMPTY_COVER, ...(raw?.cover || {}) };
+  const seed = { roadName: cover.tenDuong || "" };
   const days = {};
   Object.keys(raw?.days || {}).forEach((date) => {
-    const dirs = (raw.days[date]?.directions || []).map(normalizeDirection);
-    if (dirs.length) days[date] = { directions: dirs };
+    days[date] = ensureDayDirections(raw.days[date], seed);
   });
   return { cover, days };
 }
@@ -124,6 +153,8 @@ export function coverFromRoad(road, reportMeta = {}) {
     tenDuong: road?.roadName || road?.label || reportMeta?.roadName || "",
     lyTrinhQuanLy: kmRange,
     ngayBatDau: "",
-    ngayKetThuc: ""
+    ngayKetThuc: "",
+    noiKy: reportMeta?.place || road?.place || "Sơn La",
+    nam: String(new Date().getFullYear())
   };
 }

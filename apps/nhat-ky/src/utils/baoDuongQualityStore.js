@@ -1,7 +1,6 @@
 /**
  * Danh mục biện pháp & nhận xét kết quả BDTX theo từng loại công việc.
- * Mặc định kèm sẵn; người dùng chỉnh trong tab "Dữ liệu BDTX" và lưu ở localStorage
- * để đồng nhất, tự sinh khi công việc đó xuất hiện trong sổ BDTX.
+ * Mặc định kèm sẵn; override lưu localStorage + đồng bộ Firestore (data_noi_nghiep).
  */
 
 const STORAGE_KEY = "baoduong-quality-catalog-v1";
@@ -303,6 +302,7 @@ export function loadQualityCatalog() {
   const merged = {};
   let order = 0;
   for (const [key, val] of Object.entries(DEFAULT_QUALITY_CATALOG)) {
+    if (saved[key]?.isActive === false) continue;
     const deadlineDays = defaultDeadlineDays(key);
     merged[key] = {
       group: DEFAULT_TYPE_GROUP[key] || "",
@@ -318,6 +318,10 @@ export function loadQualityCatalog() {
     };
   }
   for (const [key, val] of Object.entries(saved)) {
+    if (val.isActive === false) {
+      delete merged[key];
+      continue;
+    }
     const prev =
       merged[key] || {
         group: "",
@@ -367,7 +371,7 @@ function entryHasData(entry) {
   );
 }
 
-export function saveQualityCatalog(catalog) {
+function buildCleanCatalog(catalog) {
   const clean = {};
   for (const [key, val] of Object.entries(catalog || {})) {
     const k = String(key || "").trim();
@@ -376,21 +380,70 @@ export function saveQualityCatalog(catalog) {
     if (!entryHasData(entry)) continue;
     clean[k] = entry;
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
-  cache = null;
-  loadQualityCatalog();
+  return clean;
+}
+
+function dispatchQualityChanged() {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent(BAO_DUONG_QUALITY_EVENT));
   }
+}
+
+/** Phần override đang lưu local — dùng khi đẩy lên cloud. */
+export function getQualityCatalogOverrides() {
+  return readStorage();
+}
+
+/**
+ * Áp danh mục từ cloud vào localStorage (giữ logic merge mặc định khi load).
+ * Trả về true nếu có thay đổi.
+ */
+export function applyRemoteQualityCatalog(catalog) {
+  const clean = buildCleanCatalog(catalog);
+  const prev = readStorage();
+  if (JSON.stringify(prev) === JSON.stringify(clean)) return false;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
+  cache = null;
+  loadQualityCatalog();
+  dispatchQualityChanged();
+  return true;
+}
+
+export function saveQualityCatalog(catalog) {
+  const clean = buildCleanCatalog(catalog);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
+  cache = null;
+  loadQualityCatalog();
+  dispatchQualityChanged();
+}
+
+/** Gắn cờ ẩn cho loại đã xóa khỏi bảng (tránh merge lại từ danh mục mặc định). */
+export function withDeletedCatalogTombstones(catalog, activeTypes) {
+  const active = new Set(
+    (activeTypes || []).map((t) => String(t || "").trim()).filter(Boolean)
+  );
+  const out = { ...(catalog || {}) };
+  const known = new Set([
+    ...Object.keys(DEFAULT_QUALITY_CATALOG),
+    ...Object.keys(readStorage())
+  ]);
+  known.forEach((key) => {
+    if (!active.has(key)) out[key] = { isActive: false };
+  });
+  return out;
+}
+
+export function isQualityTypeHidden(type) {
+  const key = String(type || "").trim();
+  if (!key) return false;
+  return readStorage()[key]?.isActive === false;
 }
 
 export function resetQualityCatalog() {
   localStorage.removeItem(STORAGE_KEY);
   cache = null;
   loadQualityCatalog();
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent(BAO_DUONG_QUALITY_EVENT));
-  }
+  dispatchQualityChanged();
 }
 
 export function getQualityForType(type) {
@@ -447,16 +500,48 @@ export function needMaintenanceForType(type) {
 /** { nhóm: [loại công việc] } theo danh mục hiện tại. */
 export function getTypesByGroup() {
   const out = {};
-  for (const [type, val] of Object.entries(loadQualityCatalog())) {
-    const g = val.group || "";
-    if (!g) continue;
-    if (!out[g]) out[g] = [];
-    out[g].push(type);
-  }
-  for (const g of Object.keys(out)) {
-    out[g].sort((a, b) => a.localeCompare(b, "vi"));
+  for (const g of BAO_DUONG_GROUPS) {
+    out[g] = listTypesForGroup(g);
   }
   return out;
+}
+
+/** Nhóm hạng mục dùng danh mục MASTER DATA (BDTX). */
+export function isMasterDataSection(section) {
+  return BAO_DUONG_GROUPS.includes(String(section || "").trim());
+}
+
+/**
+ * Loại công việc cho form nhập liệu — ưu tiên MASTER DATA (thứ tự, ẩn đã xóa).
+ * extraTypes: loại cũ trên sổ / Firebase bổ sung cuối danh sách nếu chưa có.
+ */
+export function listFormTypesForSection(section, extraTypes = []) {
+  const g = String(section || "").trim();
+  if (!g) return [];
+
+  if (!isMasterDataSection(g)) {
+    const seen = new Set();
+    const out = [];
+    (extraTypes || []).forEach((t) => {
+      const key = String(t || "").trim();
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        out.push(key);
+      }
+    });
+    return out;
+  }
+
+  const fromCatalog = listTypesForGroup(g);
+  const seen = new Set(fromCatalog);
+  const tail = [];
+  (extraTypes || []).forEach((t) => {
+    const key = String(t || "").trim();
+    if (!key || seen.has(key) || isQualityTypeHidden(key)) return;
+    seen.add(key);
+    tail.push(key);
+  });
+  return [...fromCatalog, ...tail];
 }
 
 /** Danh sách loại công việc (đang dùng) thuộc một nhóm — để đổ vào form nhập liệu. */
@@ -498,7 +583,5 @@ export function upsertQualityTypes(partial) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
   cache = null;
   loadQualityCatalog();
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent(BAO_DUONG_QUALITY_EVENT));
-  }
+  dispatchQualityChanged();
 }

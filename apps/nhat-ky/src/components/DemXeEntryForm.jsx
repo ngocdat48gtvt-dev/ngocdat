@@ -1,21 +1,16 @@
 import { formatDisplayDate } from "../utils/nhatKyFormat";
 
-/** Trạng thái chưa có chiều đếm — chỉ hiện nút tạo chiều. */
-export default function DemXeEntryForm({ date, onAddDi, onAddVe }) {
+/** Trạng thái chưa chọn chiều đếm trên ngày đã có sẵn 2 chiều. */
+export default function DemXeEntryForm({ date }) {
   return (
     <div className="demxe-empty-form">
       <p className="demxe-empty-form-title">
-        Ngày <strong>{formatDisplayDate(date)}</strong> chưa có chiều đếm
+        Ngày <strong>{formatDisplayDate(date)}</strong>
       </p>
-      <p className="demxe-empty-form-hint">Bấm một trong các nút dưới để mở biểu mẫu nhập liệu:</p>
-      <div className="demxe-empty-form-actions">
-        <button type="button" className="btn-primary" onClick={onAddDi}>
-          + Chiều đi
-        </button>
-        <button type="button" className="btn-secondary" onClick={onAddVe}>
-          + Chiều về
-        </button>
-      </div>
+      <p className="demxe-empty-form-hint">
+        Mỗi ngày có sẵn <strong>Chiều đi</strong> và <strong>Chiều về</strong>. Chọn chiều ở cột trái để nhập
+        liệu.
+      </p>
     </div>
   );
 }

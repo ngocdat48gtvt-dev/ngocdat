@@ -36,7 +36,7 @@ function StatusBadge({ row }) {
   return <span className="stats-badge stats-badge--muted">Chưa kê HĐ</span>;
 }
 
-export default function ThongKeKhoiLuong({ storageTick = 0 }) {
+export default function ThongKeKhoiLuong({ storageTick = 0, readOnly = false }) {
   const { storageKey } = useRoadWorkspace();
   const defaults = defaultDateRange();
   const [dateFrom, setDateFrom] = useState(defaults.dateFrom);
@@ -90,10 +90,12 @@ export default function ThongKeKhoiLuong({ storageTick = 0 }) {
   }
 
   function addContractLine(partial) {
+    if (readOnly) return;
     setContractVolumes((prev) => [...prev, newContractVolume(partial)]);
   }
 
   function updateContract(id, patch) {
+    if (readOnly) return;
     setContractVolumes((prev) =>
       prev.map((row) => {
         if (row.id !== id) return row;
@@ -108,10 +110,12 @@ export default function ThongKeKhoiLuong({ storageTick = 0 }) {
   }
 
   function removeContract(id) {
+    if (readOnly) return;
     setContractVolumes((prev) => prev.filter((row) => row.id !== id));
   }
 
   function handleSaveContracts() {
+    if (readOnly) return;
     const enriched = contractVolumes.map((row) => ({
       ...row,
       workType: String(row.workType || "").trim(),
@@ -119,7 +123,7 @@ export default function ThongKeKhoiLuong({ storageTick = 0 }) {
     }));
     setContractVolumes(enriched);
     saveReportMeta({ ...reportMeta, contractVolumes: enriched }, storageKey);
-    setSaveMessage("Đã lưu khối lượng hợp đồng.");
+    setSaveMessage("Đã lưu khối lượng hợp đồng (đồng bộ cloud).");
     setTimeout(() => setSaveMessage(""), 3000);
   }
 
@@ -141,31 +145,46 @@ export default function ThongKeKhoiLuong({ storageTick = 0 }) {
                 <span className="stats-contract-count"> ({contractVolumes.length})</span>
               )}
             </span>
-            <button
-              type="button"
-              className="stats-add-btn"
-              onClick={() => addContractLine()}
-            >
-              + Thêm
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                className="stats-add-btn"
+                onClick={() => addContractLine()}
+              >
+                + Thêm
+              </button>
+            )}
           </div>
 
+          {readOnly && (
+            <p className="section-guide" style={{ margin: "0 0 8px" }}>
+              Chỉ xem — ADMIN/VIEWER không sửa thống kê KL.
+            </p>
+          )}
+
           {contractVolumes.length === 0 ? (
-            <p className="stats-empty-hint">Chưa kê khối lượng HĐ. Nhấn + Thêm để nhập.</p>
+            <p className="stats-empty-hint">
+              {readOnly
+                ? "Chưa có khối lượng hợp đồng trên cloud."
+                : "Chưa kê khối lượng HĐ. Nhấn + Thêm để nhập."}
+            </p>
           ) : (
             <ContractVolumeTable
               rows={contractVolumes}
               onUpdate={updateContract}
               onRemove={removeContract}
+              readOnly={readOnly}
             />
           )}
 
-          <div className="stats-contract-foot">
-            <button type="button" className="btn-primary btn-primary--compact" onClick={handleSaveContracts}>
-              Lưu khối lượng HĐ
-            </button>
-            {saveMessage && <p className="stats-save-msg">{saveMessage}</p>}
-          </div>
+          {!readOnly && (
+            <div className="stats-contract-foot">
+              <button type="button" className="btn-primary btn-primary--compact" onClick={handleSaveContracts}>
+                Lưu khối lượng HĐ
+              </button>
+              {saveMessage && <p className="stats-save-msg">{saveMessage}</p>}
+            </div>
+          )}
         </div>
         <datalist id="stats-work-types">
           {SECTIONS.flatMap((s) => s.types).map((t) => (

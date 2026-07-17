@@ -29,6 +29,15 @@ function loadWidths() {
   }
 }
 
+export function sumBaoDuongCols(widths) {
+  return BAO_DUONG_COLS.reduce((s, c) => s + widths[c.key], 0);
+}
+
+/** Đọc bề rộng cột đã chỉnh trên sổ BDTX. */
+export function getBaoDuongColWidths() {
+  return loadWidths();
+}
+
 export function useBaoDuongColWidths() {
   const [widths, setWidths] = useState(loadWidths);
 

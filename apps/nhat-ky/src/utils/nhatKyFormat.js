@@ -4,6 +4,9 @@ import {
   formatEntryVolumeLine,
   formatPhatSinhDiaryContent,
   inferEntryUnit,
+  isNoteQtyDiarySection,
+  isPhatSinhDiarySection,
+  normalizePhatSinhDiaryLine,
   resolveEntryQuantity
 } from "./incidentUtils";
 import {
@@ -12,6 +15,7 @@ import {
   formatTngtDiaryContent
 } from "./tngtFormat";
 import { migrateHanhLangFields } from "./hanhLangFormat";
+import { notifyOfficeBooksLocalChange } from "./officeBooksSyncBus";
 
 export { formatEntryVolumeLine };
 
@@ -146,8 +150,12 @@ export function formatLocationCol(item) {
   const parts = [];
   if (item.kmFrom || item.kmTo) {
     const from = item.kmFrom ? `Km${formatLyTrinh(item.kmFrom)}` : "";
-    const to = item.kmTo ? `Km${formatLyTrinh(item.kmTo)}` : "";
-    let kmLine = from && to ? `${from} -:- ${to}` : from || to;
+    const toRaw = String(item.kmTo || "").trim();
+    const to = toRaw ? `Km${formatLyTrinh(item.kmTo)}` : "";
+    // Không có lý trình cuối → chỉ một điểm (vd. biển báo).
+    // Hai đầu giống nhau cũng chỉ hiện một lý trình.
+    let kmLine =
+      from && to && from !== to ? `${from} -:- ${to}` : from || to;
     if (item.side) kmLine += ` (${item.side})`;
     parts.push(kmLine);
   } else if (item.side) {
@@ -208,14 +216,18 @@ export function formatContentCol(item, dayWeather) {
     return parts.join("\n") || "";
   }
 
-  if (
-    entry.section === "Mặt đường" ||
-    entry.section === "Nền đường" ||
-    entry.section === "Lề đường"
-  ) {
+  if (isPhatSinhDiarySection(entry.section)) {
     const line = formatPhatSinhDiaryContent(entry);
     if (line) parts.push(line);
-    if (item.content) parts.push(item.content);
+    // ATGT / Cột mốc: ghi chú đã gộp vào dòng nội dung — không lặp lại.
+    if (isNoteQtyDiarySection(entry.section)) {
+      return parts.join("\n") || "";
+    }
+    const extra = String(item.content || "").trim();
+    if (extra) {
+      const normalized = normalizePhatSinhDiaryLine(extra);
+      if (!line || normalized !== line) parts.push(normalized);
+    }
     return parts.join("\n") || "";
   }
 
@@ -354,7 +366,7 @@ export const SECTIONS = [
   },
   {
     part: "II",
-    num: 1,
+    num: 11,
     key: "cau",
     title: "Công trình cầu",
     guide:
@@ -365,8 +377,22 @@ export const SECTIONS = [
 
 export const PART_LABELS = {
   I: "I. Về đường",
-  II: "II. Kiểm tra công trình cầu, cống, kè, ngầm, tràn"
+  II: "II. Công trình cầu"
 };
+
+/** Nhãn hạng mục trên sổ / preview / sidebar: 1 … 11. */
+export function formatSectionHeading(section) {
+  if (!section) return "";
+  if (section.num === "" || section.num == null) return section.title;
+  return `${section.num}. ${section.title}`;
+}
+
+/** Prefix sidebar nhập liệu — chỉ số hạng mục (không I./II.). */
+export function formatSectionPartPrefix(section) {
+  if (!section) return "";
+  if (section.num === "" || section.num == null) return "";
+  return String(section.num);
+}
 
 export const OFFICIAL_HEADERS = {
   col1: "Giờ ngày, tháng kiểm tra",
@@ -433,7 +459,7 @@ export function reconcileImportMap(entries, importMap) {
   return next;
 }
 
-export function saveStorage(entries, dayMeta, reportMeta, storageKey = "nhatky") {
+export function saveStorage(entries, dayMeta, reportMeta, storageKey = "nhatky", options = {}) {
   const current = loadStorage(storageKey);
   const importMap = reconcileImportMap(entries, current.importMap);
   localStorage.setItem(
@@ -445,6 +471,9 @@ export function saveStorage(entries, dayMeta, reportMeta, storageKey = "nhatky")
       importMap
     })
   );
+  if (!options.silent) {
+    notifyOfficeBooksLocalChange(storageKey);
+  }
 }
 
 export function saveReportMeta(reportMeta, storageKey = "nhatky") {

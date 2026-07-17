@@ -1,7 +1,18 @@
-import { VEHICLE_TYPES, DIRECTION_LABEL, weekdayVN, splitDisplayDate } from "../utils/demXeConstants";
+import { VEHICLE_TYPES, weekdayVN, splitDisplayDate } from "../utils/demXeConstants";
 import { sumCounts, parseCount } from "../utils/demXeCompute";
+import { formatDemXeTime, parseDemXeTime } from "../utils/demXeFormFormat";
+import { countingHoursForDate } from "../utils/demXeQuarters";
 
-function ExcelInput({ value, onChange, type = "text", inputMode, align = "left", readOnly, ariaLabel }) {
+function ExcelInput({
+  value,
+  onChange,
+  type = "text",
+  inputMode,
+  align = "left",
+  readOnly,
+  ariaLabel,
+  inline = false
+}) {
   if (readOnly) {
     return <span className="demxe-xcell-readonly">{value || ""}</span>;
   }
@@ -9,7 +20,7 @@ function ExcelInput({ value, onChange, type = "text", inputMode, align = "left",
     <input
       type={type}
       inputMode={inputMode}
-      className={`demxe-xcell-input demxe-xcell-input--${align}`}
+      className={`demxe-xcell-input demxe-xcell-input--${align}${inline ? " demxe-xcell-input--inline" : ""}`}
       value={value ?? ""}
       onChange={(e) => onChange?.(e.target.value)}
       aria-label={ariaLabel}
@@ -17,26 +28,45 @@ function ExcelInput({ value, onChange, type = "text", inputMode, align = "left",
   );
 }
 
+function renderInfoCell(label, value, edit, editable) {
+  return (
+    <>
+      <span className="demxe-info-cell__label">{label}</span>{" "}
+      {editable && edit ? (
+        <span className="demxe-info-cell__edit">{edit}</span>
+      ) : (
+        <span className="demxe-info-cell__value">{value || ""}</span>
+      )}
+    </>
+  );
+}
+
 function InfoRow({ leftLabel, leftValue, leftEdit, rightLabel, rightValue, rightEdit, editable }) {
   return (
     <tr>
-      <td className="demxe-info-label">{leftLabel}</td>
-      <td className={`demxe-xcell${editable && leftEdit ? " demxe-xcell--edit" : ""}`}>
-        {editable && leftEdit ? (
-          leftEdit
-        ) : (
-          <span>{leftValue || ""}</span>
-        )}
+      <td className="demxe-info-cell">
+        {renderInfoCell(leftLabel, leftValue, leftEdit, editable)}
       </td>
-      <td className="demxe-info-label">{rightLabel}</td>
-      <td className={`demxe-xcell${editable && rightEdit ? " demxe-xcell--edit" : ""}`}>
-        {editable && rightEdit ? (
-          rightEdit
-        ) : (
-          <span>{rightValue || ""}</span>
-        )}
+      <td className="demxe-info-cell">
+        {renderInfoCell(rightLabel, rightValue, rightEdit, editable)}
       </td>
     </tr>
+  );
+}
+
+function TimeCell({ value, onChange, editable, ariaLabel }) {
+  const display = formatDemXeTime(value);
+  if (!editable) {
+    return <span className="demxe-time-value">{display}</span>;
+  }
+  return (
+    <ExcelInput
+      value={display}
+      onChange={(text) => onChange(parseDemXeTime(text))}
+      align="left"
+      inline
+      ariaLabel={ariaLabel}
+    />
   );
 }
 
@@ -45,13 +75,15 @@ export default function DemXeCountSheet({
   direction,
   cover = {},
   editable = false,
-  onChange,
-  onDuplicate
+  onChange
 }) {
   if (!direction) return null;
   const total = sumCounts(direction.counts);
   const { day, month, year } = splitDisplayDate(date);
   const weekday = weekdayVN(date);
+  const defaultHours = countingHoursForDate(date);
+  const startTime = direction.startTime || defaultHours.startTime;
+  const endTime = direction.endTime || defaultHours.endTime;
 
   function setField(field, value) {
     onChange?.({ ...direction, [field]: value });
@@ -62,64 +94,52 @@ export default function DemXeCountSheet({
     onChange?.({ ...direction, counts });
   }
 
-  const hatLine = [cover.tenHat, direction.lyTrinh ? `lý trình đếm xe: ${direction.lyTrinh}` : ""]
-    .filter(Boolean)
-    .join(", ");
+  const roadName = cover.tenDuong || direction.roadName || "…………";
+  const hatName = cover.tenHat || "…………";
+  const lyTrinh = direction.lyTrinh || cover.lyTrinhQuanLy || "…………";
+  const dateHeader = `Ngày ${day || "….."} tháng ${month || "….."} năm ${year || "……"}`;
 
   return (
     <div
-      className={`demxe-sheet demxe-sheet--form demxe-count-sheet--a4 demxe-print-section${editable ? " demxe-count-sheet--editable" : ""}`}
+      className={`demxe-count-sheet--a4 demxe-print-section${editable ? " demxe-count-sheet--editable" : ""}`}
       data-print-section="form"
       data-print-date={date}
       data-print-dir={direction.id}
     >
-      {editable && onDuplicate && (
-        <div className="demxe-form-toolbar no-print">
-          <span className="demxe-form-toolbar-hint">
-            {DIRECTION_LABEL[direction.directionType]} · {day}/{month}/{year}
-          </span>
-          <button type="button" className="btn-secondary btn-primary--compact" onClick={onDuplicate}>
-            Nhân bản chiều
-          </button>
-        </div>
-      )}
+      <header className="demxe-count-sheet__head">
+        <p className="demxe-form-ref">Biểu mẫu báo cáo: (cho 1 trạm)</p>
+        <p className="demxe-form-ref">Bảng số 01</p>
+        <h2 className="demxe-form-title">ĐẾM THEO PHÂN LOẠI PHƯƠNG TIỆN</h2>
+        <p className="demxe-form-subline demxe-form-subline--center">Tên đường: {roadName}</p>
+        <p className="demxe-form-subline demxe-form-subline--center">
+          Tên Hạt: {hatName}, lý trình đếm xe: {lyTrinh}
+        </p>
+        <p className="demxe-form-subline demxe-form-subline--center">{dateHeader}</p>
+      </header>
 
-      <p className="demxe-form-ref">Biểu mẫu báo cáo: (cho 1 trạm)</p>
-      <p className="demxe-form-ref demxe-form-ref--center">Bảng số 01</p>
-      <h2 className="demxe-form-title">ĐẾM THEO PHÂN LOẠI PHƯƠNG TIỆN</h2>
-
-      <p className="demxe-form-subline">
-        Tên đường: {cover.tenDuong || direction.roadName || "…………"}
-        {hatLine ? ` · Tên Hạt: ${hatLine}` : ""}
-      </p>
-      <p className="demxe-form-subline demxe-form-subline--center">
-        Ngày {day || "…"} tháng {month || "…"} năm {year || "…"}
-        {!editable && ` · ${DIRECTION_LABEL[direction.directionType]}`}
-      </p>
-
-      <table className="demxe-info-table demxe-grid-table">
+      {/* Hình 2 — bảng thông tin */}
+      <table className="demxe-official-table demxe-info-meta-table">
+        <colgroup>
+          <col style={{ width: "50%" }} />
+          <col style={{ width: "50%" }} />
+        </colgroup>
         <tbody>
           <InfoRow
             editable={editable}
             leftLabel="Đường:"
             rightLabel="Lý trình:"
-            leftValue={direction.roadName}
-            rightValue={direction.lyTrinh}
-            leftEdit={
-              <ExcelInput
-                value={direction.roadName}
-                onChange={(v) => setField("roadName", v)}
-                ariaLabel="Đường"
-              />
-            }
+            leftValue={roadName}
+            rightValue={direction.lyTrinh || lyTrinh}
             rightEdit={
               <ExcelInput
                 value={direction.lyTrinh}
                 onChange={(v) => setField("lyTrinh", v)}
                 ariaLabel="Lý trình"
+                inline
               />
             }
           />
+          {/* Hướng từ / Đến cùng 1 hàng — giống mẫu */}
           <InfoRow
             editable={editable}
             leftLabel="Hướng xe chạy từ:"
@@ -127,35 +147,48 @@ export default function DemXeCountSheet({
             leftValue={direction.from}
             rightValue={direction.to}
             leftEdit={
-              <ExcelInput value={direction.from} onChange={(v) => setField("from", v)} ariaLabel="Từ" />
+              <ExcelInput
+                value={direction.from}
+                onChange={(v) => setField("from", v)}
+                ariaLabel="Từ"
+                inline
+              />
             }
-            rightEdit={<ExcelInput value={direction.to} onChange={(v) => setField("to", v)} ariaLabel="Đến" />}
+            rightEdit={
+              <ExcelInput
+                value={direction.to}
+                onChange={(v) => setField("to", v)}
+                ariaLabel="Đến"
+                inline
+              />
+            }
           />
-          <InfoRow
-            editable={editable}
-            leftLabel="Ngày…..tháng…..năm……."
-            rightLabel="Ngày trong tuần:"
-            leftValue={`${day}/${month}/${year}`}
-            rightValue={weekday}
-          />
+          <tr>
+            <td className="demxe-info-cell">
+              Ngày {day || "....."} tháng {month || "....."} năm {year || "......."}
+            </td>
+            <td className="demxe-info-cell">
+              {renderInfoCell("Ngày trong tuần:", weekday, null, false)}
+            </td>
+          </tr>
           <InfoRow
             editable={editable}
             leftLabel="Thời gian bắt đầu đếm:"
             rightLabel="Thời gian kết thúc đếm:"
-            leftValue={direction.startTime}
-            rightValue={direction.endTime}
+            leftValue={formatDemXeTime(startTime)}
+            rightValue={formatDemXeTime(endTime)}
             leftEdit={
-              <ExcelInput
-                type="time"
-                value={direction.startTime}
+              <TimeCell
+                value={startTime}
+                editable
                 onChange={(v) => setField("startTime", v)}
                 ariaLabel="Thời gian bắt đầu"
               />
             }
             rightEdit={
-              <ExcelInput
-                type="time"
-                value={direction.endTime}
+              <TimeCell
+                value={endTime}
+                editable
                 onChange={(v) => setField("endTime", v)}
                 ariaLabel="Thời gian kết thúc"
               />
@@ -164,9 +197,15 @@ export default function DemXeCountSheet({
         </tbody>
       </table>
 
-      <table className="demxe-official-table demxe-grid-table demxe-data-table">
+      {/* Hình 3 — bảng chủng loại xe, cách hình 2 = 1,5 cm */}
+      <table className="demxe-official-table demxe-count-data-table">
+        <colgroup>
+          <col style={{ width: "40%" }} />
+          <col style={{ width: "45%" }} />
+          <col style={{ width: "15%" }} />
+        </colgroup>
         <thead>
-          <tr>
+          <tr className="demxe-data-header-row">
             <th className="demxe-col-type">CHỦNG LOẠI XE</th>
             <th className="demxe-col-count">SỐ LIỆU ĐẾM</th>
             <th className="demxe-col-sum">CỘNG</th>
@@ -198,7 +237,9 @@ export default function DemXeCountSheet({
             );
           })}
           <tr className="demxe-grand-total-row">
-            <td className="demxe-col-type"><strong>CỘNG</strong></td>
+            <td className="demxe-col-type">
+              <strong>CỘNG</strong>
+            </td>
             <td className="demxe-col-count" />
             <td className="demxe-col-sum demxe-xcell demxe-xcell--readonly">
               <strong>{total || ""}</strong>
@@ -208,12 +249,12 @@ export default function DemXeCountSheet({
       </table>
 
       <div className="demxe-sign-row">
-        <div>
+        <p>
           <strong>NGƯỜI GIÁM SÁT</strong>
-        </div>
-        <div>
+        </p>
+        <p>
           <strong>TỔ TRƯỞNG TỔ ĐẾM XE</strong>
-        </div>
+        </p>
       </div>
     </div>
   );

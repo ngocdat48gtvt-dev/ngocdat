@@ -5,16 +5,20 @@ import {
   RIGHT_COLS,
   sumCols
 } from "../hooks/useColumnWidths";
-import { useNhatKySpreadFit, pageNaturalWidth } from "../hooks/useNhatKySpreadFit";
+import {
+  useNhatKySpreadFit,
+  pageNaturalWidth,
+  spreadNaturalWidth
+} from "../hooks/useNhatKySpreadFit";
 import {
   formatLocationCol,
   formatContentCol,
   formatDisplayDate,
   displayDayWeather,
   OFFICIAL_HEADERS,
-  PART_LABELS,
   SECTIONS,
-  compareEntriesByTypeAndKm
+  compareEntriesByTypeAndKm,
+  formatSectionHeading
 } from "../utils/nhatKyFormat";
 import WeatherQuickPicker from "./WeatherQuickPicker";
 
@@ -204,6 +208,9 @@ export default function NhatKyReview({
   const clusterMinWidth = stacked
     ? `${Math.max(pageNaturalWidth(leftW), pageNaturalWidth(rightW))}px`
     : spreadGridWidth(leftW, rightW);
+  const baseWidthPx = stacked
+    ? Math.max(pageNaturalWidth(leftW), pageNaturalWidth(rightW))
+    : spreadNaturalWidth(leftW, rightW);
 
   function itemFieldHandler(item, field) {
     if (item._draft) {
@@ -250,22 +257,7 @@ export default function NhatKyReview({
     });
 
     for (const block of bodyBlocks) {
-      if (block.type === "part") {
-        rows.push({
-          key: block.key,
-          left: {
-            className: "nhatky-part-row",
-            cells: emptyCols(block.label, "nhatky-col-label nhatky-col-label--part")
-          },
-          right: {
-            className: "nhatky-part-row nhatky-right-align",
-            cells: blankRightCells()
-          }
-        });
-        continue;
-      }
-
-      const label = `${block.section.num}. ${block.section.title}`;
+      const label = formatSectionHeading(block.section);
       rows.push({
         key: `${block.key}-h`,
         left: {
@@ -379,20 +371,14 @@ export default function NhatKyReview({
     return rows;
   }
 
-  const bodyBlocks = ["I", "II"].flatMap((part) => {
-    const sections = SECTIONS.filter((s) => s.part === part);
-    return [
-      { type: "part", key: `part-${part}`, label: PART_LABELS[part] },
-      ...sections.map((section) => ({
-        type: "section",
-        key: section.key,
-        section,
-        rows: allItems
-          .filter((x) => x.section === section.title)
-          .sort(compareEntriesByTypeAndKm)
-      }))
-    ];
-  });
+  const bodyBlocks = SECTIONS.map((section) => ({
+    type: "section",
+    key: section.key,
+    section,
+    rows: allItems
+      .filter((x) => x.section === section.title)
+      .sort(compareEntriesByTypeAndKm)
+  }));
 
   const syncRows = buildSyncRows();
 
@@ -409,13 +395,20 @@ export default function NhatKyReview({
         <div className="nhatky-review-canvas" ref={canvasRef}>
           <div className="nhatky-spread-wrap">
             <div
-              className={`nhatky-spread-book${stacked ? " nhatky-spread--stacked" : ""}`}
-              style={{ zoom: scale }}
+              className="nhatky-spread-stage"
+              style={{
+                width: baseWidthPx,
+                zoom: scale
+              }}
             >
               <div
-                className="nhatky-sticky-head-cluster"
-                style={{ minWidth: clusterMinWidth }}
+                className={`nhatky-spread-book${stacked ? " nhatky-spread--stacked" : ""}`}
+                style={{
+                  width: baseWidthPx,
+                  minWidth: clusterMinWidth
+                }}
               >
+              <div className="nhatky-sticky-head-cluster">
                 <SyncedHeadGrid
                   leftW={leftW}
                   rightW={rightW}
@@ -457,6 +450,7 @@ export default function NhatKyReview({
                   </SyncedRowTable>
                 </div>
               ])}
+              </div>
               </div>
             </div>
           </div>

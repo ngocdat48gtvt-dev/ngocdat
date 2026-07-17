@@ -12,6 +12,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { PageHeader } from '@/components/common/PageParts'
+import { OfficeBooksCatalogCard } from '@/components/dispatch/OfficeBooksCatalogCard'
 import { Dialog } from '@/components/ui/dialog'
 import { Badge, Button, Card, Label, Textarea } from '@/components/ui/primitives'
 import {
@@ -70,7 +71,7 @@ function cleanBundle(b: MasterDataBundle): MasterDataBundle {
 }
 
 export function DispatchCatalogPage() {
-  const { isCompanyAdmin, catalogOwnerUid, isCatalogDelegate, loading: authLoading } = useAuth()
+  const { isCompanyAdmin, catalogOwnerUid, isCatalogDelegate, profile, loading: authLoading } = useAuth()
   const [bundle, setBundle] = useState<MasterDataBundle>(EMPTY)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -301,7 +302,7 @@ export function DispatchCatalogPage() {
       ) : null}
       <PageHeader
         title="Quản lý danh mục"
-        description="Tuyến đường tách riêng; nhóm & loại sự cố dạng bảng phân cấp — đồng bộ xuống app hiện trường sau khi lưu."
+        description="Tuyến đường & nhóm sự cố đồng bộ app hiện trường; danh mục sổ nội nghiệp (hạt) gán cho từng USER."
         action={
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" size="sm" disabled={loading} onClick={() => void loadCatalog()}>
@@ -552,6 +553,10 @@ export function DispatchCatalogPage() {
           </Card>
         </div>
       )}
+
+      {!loading && profile?.companyId ? (
+        <OfficeBooksCatalogCard companyId={profile.companyId} />
+      ) : null}
 
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 p-3 backdrop-blur lg:hidden">
         <Button type="button" className="w-full" disabled={saving || loading} onClick={() => void handleSave()}>

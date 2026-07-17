@@ -76,15 +76,29 @@ export async function loadUserProfile(uid, email) {
     String(data.catalogOwnerUid ?? "")
   );
 
+  let officeRole = "user";
+  if (roleRaw === "ADMIN") officeRole = "admin";
+  else if (roleRaw === "VIEWER") officeRole = "viewer";
+
+  const viewerRaw = data.viewerAccess;
+  const viewerAccess = {
+    mode: viewerRaw?.mode === "users" ? "users" : "all",
+    userUids: Array.isArray(viewerRaw?.userUids)
+      ? viewerRaw.userUids.map((id) => String(id).trim()).filter(Boolean)
+      : []
+  };
+
   return {
     uid,
-    role: roleRaw === "ADMIN" ? "ADMIN" : "USER",
+    role: roleRaw === "ADMIN" ? "ADMIN" : roleRaw === "VIEWER" ? "VIEWER" : "USER",
+    officeRole,
     companyId,
     companyName: String(data.companyName ?? data.company ?? ""),
     displayName: String(data.name ?? email ?? ""),
     email: String(data.email ?? email ?? ""),
     active: true,
     expireDate,
-    catalogOwnerUid
+    catalogOwnerUid,
+    viewerAccess
   };
 }

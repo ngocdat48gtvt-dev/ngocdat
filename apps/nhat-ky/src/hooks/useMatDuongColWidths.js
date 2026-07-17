@@ -62,6 +62,11 @@ function loadWidths() {
   }
 }
 
+/** Đọc bề rộng cột đã chỉnh trên sổ mặt đường (localStorage). */
+export function getMatDuongColWidths() {
+  return loadWidths();
+}
+
 export function sumMatDuongCols(widths) {
   return MAT_DUONG_COLS.reduce((s, c) => s + widths[c.key], 0);
 }

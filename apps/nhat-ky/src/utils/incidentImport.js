@@ -10,7 +10,7 @@ export const NHAT_KY_SECTION_TITLES = new Set(SECTIONS.map((s) => s.title));
 export function getImportSectionOptions() {
   const manual = SECTIONS.map((s) => ({
     value: s.title,
-    label: `${s.title} (${s.part}.${s.num})`,
+    label: `${s.num}. ${s.title}`,
     part: s.part
   }));
   return [{ value: "auto", label: "Tự động theo nhóm app", part: "" }, ...manual];

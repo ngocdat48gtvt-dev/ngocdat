@@ -289,14 +289,19 @@ export function buildBulkMatDuongEntries(pasteText, common, date) {
 
 export const EMPTY_MAT_DUONG_QUICK_ROW = {
   kmFrom: "",
+  kmTo: "",
   side: "",
   length: "",
   width: "",
   height: "",
   type: "",
+  content: "",
+  quantity: "",
+  unit: "",
   resolvedStatus: "",
   exportMatDuong: true,
-  plannedRepairDate: ""
+  plannedRepairDate: "",
+  exportPhieuCau: true
 };
 
 export function makeEmptyQuickRows(count = 8) {

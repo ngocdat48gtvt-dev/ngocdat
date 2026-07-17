@@ -47,35 +47,110 @@ export function formatMatDuongKmLine(reportMeta) {
   return `Lý trình: ${range}/${road}`;
 }
 
-/** Hằng số bố cục trang A4 ngang. */
+/** Hằng số bố cục trang A4 ngang — dùng chung preview + in. */
 export const MAT_DUONG_SHEET_LAYOUT = {
+  sheetWidthMm: 297,
   sheetHeightMm: 210,
   paddingVerticalMm: 22,
-  topBlockMm: 52,
-  theadMm: 22,
-  emptyRowMm: 6.5,
-  minEmptyRows: 8
+  topBlockMm: 34,
+  theadMm: 24,
+  /** Chiều cao hàng dữ liệu tối thiểu (mm) */
+  dataRowMinMm: 8.6,
+  emptyRowMm: 7.2,
+  minEmptyRows: 4,
+  /**
+   * Chừa đáy đủ lớn để hàng cuối luôn nguyên viền dưới
+   * (tránh ngắt giữa hàng → mất border như trang 1).
+   */
+  safetyMm: 14
 };
 
-function estimateMatDuongDataRowMm(entry) {
-  const damage = formatDamageLevel(entry);
-  const lines = Math.max(1, damage ? 1 : 0);
-  const note = entry?.inspectorNote?.trim() || "";
-  const noteLines = note ? note.split("\n").length : 1;
-  return Math.max(6.5, 4 + Math.max(lines, noteLines) * 4);
+export function matDuongBodyBudgetMm(margins) {
+  const L = MAT_DUONG_SHEET_LAYOUT;
+  const padV =
+    margins != null
+      ? (Number(margins.top) || 0) + (Number(margins.bottom) || 0)
+      : L.paddingVerticalMm;
+  return Math.max(
+    40,
+    L.sheetHeightMm - padV - L.topBlockMm - L.theadMm - L.safetyMm
+  );
 }
 
-export function computeMatDuongPadRows(entries) {
+export function estimateMatDuongDataRowMm(entry) {
   const L = MAT_DUONG_SHEET_LAYOUT;
-  const budgetMm =
-    L.sheetHeightMm - L.paddingVerticalMm - L.topBlockMm - L.theadMm;
-  const dataMm = (entries || []).reduce((sum, e) => sum + estimateMatDuongDataRowMm(e), 0);
+  const damage = formatDamageLevel(entry);
+  const note = entry?.inspectorNote?.trim() || "";
+
+  function countLines(text, charsPerLine) {
+    if (!text) return 0;
+    let n = 0;
+    String(text)
+      .split("\n")
+      .forEach((line) => {
+        n += Math.max(1, Math.ceil(line.length / charsPerLine));
+      });
+    return n;
+  }
+
+  const lines = Math.max(1, countLines(damage, 26), countLines(note, 20));
+  // +0.4mm viền/border-collapse để không cắt cạnh dưới hàng
+  return Math.max(L.dataRowMinMm, 5.5 + (lines - 1) * 3.8) + 0.4;
+}
+
+/**
+ * Đệm hàng trống — chia đều phần còn lại sau dữ liệu (cùng công thức preview/in).
+ */
+export function computeMatDuongPadRows(entries, margins) {
+  const L = MAT_DUONG_SHEET_LAYOUT;
+  const budgetMm = matDuongBodyBudgetMm(margins);
+  const dataMm = (entries || []).reduce(
+    (sum, e) => sum + estimateMatDuongDataRowMm(e),
+    0
+  );
   const remainMm = Math.max(0, budgetMm - dataMm);
-  const count = Math.max(L.minEmptyRows, Math.round(remainMm / L.emptyRowMm));
+
+  if (remainMm < 3) {
+    return { count: 0, rowHeightMm: L.emptyRowMm, remainMm: 0 };
+  }
+
+  const count = Math.max(
+    entries?.length ? 1 : L.minEmptyRows,
+    Math.floor(remainMm / L.emptyRowMm)
+  );
   return {
     count,
-    rowHeightMm: Math.max(L.emptyRowMm * 0.9, remainMm / count)
+    rowHeightMm: remainMm / count,
+    remainMm
   };
+}
+
+/** Chia dòng dữ liệu thành nhiều tờ A4 ngang — không cắt giữa hàng. */
+export function packMatDuongPages(entries, margins) {
+  const budgetMm = matDuongBodyBudgetMm(margins);
+  const list = entries || [];
+  if (!list.length) return [[]];
+
+  const pages = [];
+  let bucket = [];
+  let used = 0;
+  list.forEach((entry) => {
+    const h = estimateMatDuongDataRowMm(entry);
+    // Ngắt sang tờ mới TRƯỚC khi thêm hàng không còn đủ chỗ (kể cả viền)
+    if (bucket.length > 0 && used + h > budgetMm) {
+      pages.push(bucket);
+      bucket = [];
+      used = 0;
+    }
+    if (bucket.length === 0 && h > budgetMm) {
+      pages.push([entry]);
+      return;
+    }
+    bucket.push(entry);
+    used += h;
+  });
+  if (bucket.length) pages.push(bucket);
+  return pages.length ? pages : [[]];
 }
 
 export function entryInMonth(entry, yearMonth) {
