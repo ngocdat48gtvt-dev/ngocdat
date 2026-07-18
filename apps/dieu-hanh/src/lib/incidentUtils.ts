@@ -86,7 +86,7 @@ export function statusFromProgress(progress?: number): IncidentStatus {
 }
 
 export function formatDimValue(value?: number): string {
-  if (value == null || value === 0) return '—'
+  if (value == null || value === 0) return ''
   return Number.isInteger(value) ? String(value) : value.toFixed(1)
 }
 

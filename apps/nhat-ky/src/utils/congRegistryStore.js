@@ -49,22 +49,24 @@ function readKey(key) {
   return [];
 }
 
-/** Danh sách cống đã lưu của 1 đường. */
+function emitChanged() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(CONG_REGISTRY_EVENT));
+  }
+}
+
+/** Danh sách cống đã lưu của 1 đường (không tự copy legacy → tránh chặn hydrate cloud). */
 export function loadCongRegistry(scope) {
   const key = storageKeyFor(scope);
   if (cacheByKey.has(key)) return cacheByKey.get(key);
-
-  let list = readKey(key);
-  // Di trú: nếu đường này chưa có dữ liệu nhưng có dữ liệu cũ toàn cục → kế thừa.
-  if (list.length === 0 && key !== LEGACY_KEY) {
-    const legacy = readKey(LEGACY_KEY);
-    if (legacy.length) {
-      list = legacy;
-      localStorage.setItem(key, JSON.stringify(list));
-    }
-  }
+  const list = readKey(key);
   cacheByKey.set(key, list);
   return list;
+}
+
+/** Dữ liệu cũ toàn cục (trước khi tách theo uid+road) — dùng khi hydrate không có cloud. */
+export function loadLegacyCongRegistry() {
+  return readKey(LEGACY_KEY);
 }
 
 export function saveCongRegistry(scope, list) {
@@ -74,9 +76,7 @@ export function saveCongRegistry(scope, list) {
     .filter((e) => e.km || e.type || e.length);
   localStorage.setItem(key, JSON.stringify(clean));
   cacheByKey.set(key, clean);
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent(CONG_REGISTRY_EVENT));
-  }
+  emitChanged();
   return clean;
 }
 
@@ -84,9 +84,7 @@ export function clearCongRegistry(scope) {
   const key = storageKeyFor(scope);
   localStorage.removeItem(key);
   cacheByKey.delete(key);
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent(CONG_REGISTRY_EVENT));
-  }
+  emitChanged();
 }
 
 /** Ghi đè dữ liệu của 1 đường (vd nạp từ cloud) vào localStorage + cache. */
@@ -95,6 +93,7 @@ export function setCongRegistry(scope, list) {
   const clean = (Array.isArray(list) ? list : []).map(normalize);
   localStorage.setItem(key, JSON.stringify(clean));
   cacheByKey.set(key, clean);
+  emitChanged();
   return clean;
 }
 

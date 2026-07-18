@@ -3,6 +3,7 @@ import { formatKmDisplay } from '@quanlysuco/shared'
 import {
   afterConstructionImages,
   beforeConstructionImages,
+  webDisplayImageUrls,
 } from '@/lib/incidentUtils'
 import { resolveDisplayImageUrl } from '@/services/imageUrlService'
 import type { IncidentRecord } from '@/types/incident'
@@ -21,6 +22,7 @@ function sanitizeFilePart(raw: string): string {
   return s.slice(0, 80) || 'sc'
 }
 
+/** Thư mục 1 điểm: STT_Tuyến_LýTrình_LoạiSựCố */
 function incidentFolderName(inc: IncidentRecord, index: number): string {
   const road = sanitizeFilePart(inc.road || 'Tuyen')
   const km = sanitizeFilePart(formatKmDisplay(inc.km) || 'Km')
@@ -72,57 +74,74 @@ function triggerDownload(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(href), 30_000)
 }
 
-export type PhotoZipKind = 'before' | 'after' | 'both'
+async function addImagesToFolder(
+  zip: JSZip,
+  folderPath: string,
+  refs: string[],
+): Promise<{ fileCount: number; skipped: number }> {
+  let fileCount = 0
+  let skipped = 0
+  let imgIdx = 0
+  for (const raw of refs) {
+    const { url } = await resolveDisplayImageUrl(raw)
+    if (!url) {
+      skipped++
+      continue
+    }
+    const blob = await fetchImageBlob(url)
+    if (!blob) {
+      skipped++
+      continue
+    }
+    imgIdx++
+    const ext = extFromUrlOrBlob(url, blob)
+    zip.file(`${folderPath}/${String(imgIdx).padStart(2, '0')}.${ext}`, blob)
+    fileCount++
+  }
+  return { fileCount, skipped }
+}
 
 /**
  * Xuất ZIP ảnh sự cố đã chọn.
- * Cấu trúc: Anh_hien_trang/… và/hoặc Anh_xu_ly/… — mỗi sự cố một thư mục con.
+ *
+ * Lấy hết ảnh HT + XL đang hiện trên web (gộp trùng theo tên file),
+ * bỏ ảnh chỉ lưu local trên app.
+ *
+ * Cấu trúc mỗi điểm:
+ *   01_Tuyến_Km_LoạiSựCố/
+ *     Anh_hien_trang/
+ *     Anh_sau_xu_ly/
  */
 export async function exportIncidentPhotosZip(
   items: IncidentRecord[],
-  kind: PhotoZipKind = 'both',
 ): Promise<{ fileCount: number; skipped: number }> {
   if (items.length === 0) {
     throw new Error('Chưa chọn sự cố nào')
   }
 
   const zip = new JSZip()
-  const includeBefore = kind === 'before' || kind === 'both'
-  const includeAfter = kind === 'after' || kind === 'both'
   let fileCount = 0
   let skipped = 0
 
   for (let i = 0; i < items.length; i++) {
     const inc = items[i]
-    const folder = incidentFolderName(inc, i)
+    const pointFolder = incidentFolderName(inc, i)
+    // Cùng danh sách gallery web — không dump mọi URL trùng token.
+    const beforeUrls = webDisplayImageUrls(beforeConstructionImages(inc))
+    const afterUrls = webDisplayImageUrls(afterConstructionImages(inc))
 
-    const jobs: { folder: string; refs: string[] }[] = []
-    if (includeBefore) {
-      jobs.push({ folder: `Anh_hien_trang/${folder}`, refs: beforeConstructionImages(inc) })
-    }
-    if (includeAfter) {
-      jobs.push({ folder: `Anh_xu_ly/${folder}`, refs: afterConstructionImages(inc) })
-    }
-
-    for (const job of jobs) {
-      let imgIdx = 0
-      for (const raw of job.refs) {
-        const { url } = await resolveDisplayImageUrl(raw)
-        if (!url) {
-          skipped++
-          continue
-        }
-        const blob = await fetchImageBlob(url)
-        if (!blob) {
-          skipped++
-          continue
-        }
-        imgIdx++
-        const ext = extFromUrlOrBlob(url, blob)
-        zip.file(`${job.folder}/${String(imgIdx).padStart(2, '0')}.${ext}`, blob)
-        fileCount++
-      }
-    }
+    const before = await addImagesToFolder(
+      zip,
+      `${pointFolder}/Anh_hien_trang`,
+      beforeUrls,
+    )
+    const after = await addImagesToFolder(
+      zip,
+      `${pointFolder}/Anh_sau_xu_ly`,
+      afterUrls,
+    )
+    fileCount += before.fileCount + after.fileCount
+    skipped += before.skipped + after.skipped
   }
 
   if (fileCount === 0) {
@@ -130,9 +149,7 @@ export async function exportIncidentPhotosZip(
   }
 
   const stamp = new Date().toISOString().slice(0, 10)
-  const kindLabel =
-    kind === 'before' ? 'hien-trang' : kind === 'after' ? 'xu-ly' : 'anh-su-co'
   const out = await zip.generateAsync({ type: 'blob' })
-  triggerDownload(out, `${kindLabel}_${items.length}diem_${stamp}.zip`)
+  triggerDownload(out, `anh-su-co_${items.length}diem_${stamp}.zip`)
   return { fileCount, skipped }
 }

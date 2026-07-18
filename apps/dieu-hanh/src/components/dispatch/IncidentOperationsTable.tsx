@@ -26,10 +26,8 @@ import {
   softDeleteIncident,
   softDeleteIncidentsBulk,
 } from '@/services/incidentsService'
-import {
-  exportIncidentPhotosZip,
-  type PhotoZipKind,
-} from '@/services/incidentPhotoZipService'
+import { exportIncidentPhotosZip } from '@/services/incidentPhotoZipService'
+import { useColumnOrder } from '@/hooks/useColumnOrder'
 import { useResizableTableColumns } from '@/hooks/useResizableTableColumns'
 import { IncidentDetailDrawer } from './IncidentDetailDrawer'
 import { IncidentEditDialog } from './IncidentEditDialog'
@@ -41,6 +39,7 @@ import { cn } from '@/lib/utils'
 import type { IncidentRecord } from '@/types/incident'
 
 const STORAGE_KEY = 'qlsc-dispatch-ops-col-widths-v8'
+const ORDER_STORAGE_KEY = 'qlsc-dispatch-ops-col-order-v1'
 
 type ColId =
   | 'select'
@@ -193,10 +192,21 @@ export function IncidentOperationsTable() {
   const [bulkBusy, setBulkBusy] = useState(false)
   const [bulkRound, setBulkRound] = useState('1')
 
-  const columnIds = useMemo((): ColId[] => {
-    const base = isCompanyAdmin ? (['select', ...BASE_COLS, 'actions'] as ColId[]) : BASE_COLS
-    return base
-  }, [isCompanyAdmin])
+  const pinnedStart = useMemo(
+    (): ColId[] => (isCompanyAdmin ? ['select'] : []),
+    [isCompanyAdmin],
+  )
+  const pinnedEnd = useMemo(
+    (): ColId[] => (isCompanyAdmin ? ['actions'] : []),
+    [isCompanyAdmin],
+  )
+
+  const { columnIds, moveColumn } = useColumnOrder(
+    BASE_COLS,
+    ORDER_STORAGE_KEY,
+    pinnedStart,
+    pinnedEnd,
+  )
 
   const visibleKeySet = useMemo(
     () => new Set(sorted.map(rowKeyOf)),
@@ -242,9 +252,17 @@ export function IncidentOperationsTable() {
 
   async function handleBulkDelete() {
     if (checkedIncidents.length === 0) return
+    const n = checkedIncidents.length
     if (
       !window.confirm(
-        `Chuyển ${checkedIncidents.length} sự cố vào thùng rác?\n\nGiữ 7 ngày — có thể khôi phục.`,
+        `Chuyển ${n} sự cố vào thùng rác?\n\nGiữ 7 ngày — có thể khôi phục.`,
+      )
+    ) {
+      return
+    }
+    if (
+      !window.confirm(
+        `Xác nhận lần 2: thật sự xóa ${n} điểm đã chọn?\n\nBấm OK để tiếp tục, Cancel để hủy.`,
       )
     ) {
       return
@@ -302,25 +320,20 @@ export function IncidentOperationsTable() {
     }
   }
 
-  async function handleBulkExportPhotos(kind: PhotoZipKind) {
+  async function handleBulkExportPhotos() {
     if (checkedIncidents.length === 0) return
     setBulkBusy(true)
-    const tip =
-      kind === 'before'
-        ? 'ảnh hiện trạng'
-        : kind === 'after'
-          ? 'ảnh xử lý'
-          : 'ảnh hiện trạng + xử lý'
-    const toastId = toast.loading(`Đang đóng gói ${tip}…`)
+    const toastId = toast.loading(
+      `Đang đóng gói ảnh ${checkedIncidents.length} điểm…`,
+    )
     try {
       const { fileCount, skipped } = await exportIncidentPhotosZip(
         checkedIncidents,
-        kind,
       )
       toast.success(
         skipped > 0
           ? `Đã xuất ${fileCount} ảnh (${skipped} bỏ qua)`
-          : `Đã xuất ${fileCount} ảnh`,
+          : `Đã xuất ${fileCount} ảnh · ${checkedIncidents.length} điểm`,
         { id: toastId },
       )
     } catch (e) {
@@ -438,7 +451,7 @@ export function IncidentOperationsTable() {
             className={cn(cellBorder, cellBg, 'text-xs font-semibold')}
             style={colStyle(col)}
           >
-            {inc.road || '—'}
+            {inc.road || ''}
           </TD>
         )
       case 'km':
@@ -448,13 +461,13 @@ export function IncidentOperationsTable() {
             className={cn(cellBorder, bg, 'font-mono text-xs')}
             style={colStyle(col)}
           >
-            {formatKmDisplay(inc.km) || '—'}
+            {formatKmDisplay(inc.km) || ''}
           </TD>
         )
       case 'side':
         return (
           <TD key={col} className={cn(cellBorder, bg, 'text-xs')} style={colStyle(col)}>
-            {positionLabel(inc.position)}
+            {inc.position?.trim() ? positionLabel(inc.position) : ''}
           </TD>
         )
       case 'type':
@@ -465,14 +478,14 @@ export function IncidentOperationsTable() {
             style={colStyle(col)}
             title={inc.type}
           >
-            {inc.type || '—'}
+            {inc.type || ''}
           </TD>
         )
       case 'dai':
         return (
           <TD
             key={col}
-            className={cn(cellBorder, cellBg, 'px-1 text-right tabular-nums text-xs')}
+            className={cn(cellBorder, cellBg, 'px-1 text-center tabular-nums text-xs')}
             style={colStyle(col)}
           >
             {formatDimValue(inc.dai)}
@@ -482,7 +495,7 @@ export function IncidentOperationsTable() {
         return (
           <TD
             key={col}
-            className={cn(cellBorder, cellBg, 'px-1 text-right tabular-nums text-xs')}
+            className={cn(cellBorder, cellBg, 'px-1 text-center tabular-nums text-xs')}
             style={colStyle(col)}
           >
             {formatDimValue(inc.rong)}
@@ -492,7 +505,7 @@ export function IncidentOperationsTable() {
         return (
           <TD
             key={col}
-            className={cn(cellBorder, cellBg, 'px-1 text-right tabular-nums text-xs')}
+            className={cn(cellBorder, cellBg, 'px-1 text-center tabular-nums text-xs')}
             style={colStyle(col)}
           >
             {formatDimValue(inc.cao)}
@@ -505,7 +518,7 @@ export function IncidentOperationsTable() {
             className={cn(cellBorder, cellBg, 'px-1 text-center text-xs')}
             style={colStyle(col)}
           >
-            {inc.unit?.trim() || '—'}
+            {inc.unit?.trim() || ''}
           </TD>
         )
       case 'vol':
@@ -515,12 +528,12 @@ export function IncidentOperationsTable() {
             className={cn(
               cellBorder,
               cellBg,
-              'px-1 text-right tabular-nums text-xs font-medium',
+              'px-1 text-center tabular-nums text-xs font-medium',
               highVol && totalVol > 0 && highVolumeVolCellClass,
             )}
             style={colStyle(col)}
           >
-            {totalVol > 0 ? totalVol.toFixed(1) : '—'}
+            {totalVol > 0 ? totalVol.toFixed(1) : ''}
           </TD>
         )
       case 'volDat':
@@ -530,12 +543,12 @@ export function IncidentOperationsTable() {
             className={cn(
               cellBorder,
               cellBg,
-              'px-1 text-right tabular-nums text-xs font-medium',
+              'px-1 text-center tabular-nums text-xs font-medium',
               highVol && soil != null && highVolumeVolCellClass,
             )}
             style={colStyle(col)}
           >
-            {soil != null ? soil.toFixed(1) : '—'}
+            {soil != null ? soil.toFixed(1) : ''}
           </TD>
         )
       case 'volDa':
@@ -545,32 +558,40 @@ export function IncidentOperationsTable() {
             className={cn(
               cellBorder,
               cellBg,
-              'px-1 text-right tabular-nums text-xs font-medium',
+              'px-1 text-center tabular-nums text-xs font-medium',
               highVol && rock != null && highVolumeVolCellClass,
             )}
             style={colStyle(col)}
           >
-            {rock != null ? rock.toFixed(1) : '—'}
+            {rock != null ? rock.toFixed(1) : ''}
           </TD>
         )
       case 'note':
         return (
           <TD
             key={col}
-            className={cn(cellBorder, cellBg, 'truncate text-xs text-muted-foreground')}
+            className={cn(
+              cellBorder,
+              cellBg,
+              'truncate text-center text-xs text-muted-foreground',
+            )}
             style={colStyle(col)}
             title={inc.note?.trim() || undefined}
           >
-            {inc.note?.trim() || '—'}
+            {inc.note?.trim() || ''}
           </TD>
         )
       case 'dossier': {
         const round = Number(inc.dossierRound) > 0 ? Math.floor(Number(inc.dossierRound)) : 0
         const label = dossierLabel(round)
         return (
-          <TD key={col} className={cn(cellBorder, cellBg)} style={colStyle(col)}>
+          <TD
+            key={col}
+            className={cn(cellBorder, cellBg, 'text-center')}
+            style={colStyle(col)}
+          >
             {round > 0 ? (
-              <Badge variant="default" className="w-fit text-[10px]">
+              <Badge variant="default" className="mx-auto w-fit text-[10px]">
                 {label}
               </Badge>
             ) : (
@@ -581,8 +602,12 @@ export function IncidentOperationsTable() {
       }
       case 'progress':
         return (
-          <TD key={col} className={cn(cellBorder, cellBg)} style={colStyle(col)}>
-            <div className="flex flex-col gap-0.5">
+          <TD
+            key={col}
+            className={cn(cellBorder, cellBg, 'text-center')}
+            style={colStyle(col)}
+          >
+            <div className="flex flex-col items-center gap-0.5">
               <Badge
                 variant={
                   status === 'DONE'
@@ -605,20 +630,20 @@ export function IncidentOperationsTable() {
         return (
           <TD
             key={col}
-            className={cn(cellBorder, cellBg, 'whitespace-nowrap text-xs')}
+            className={cn(cellBorder, cellBg, 'whitespace-nowrap text-center text-xs')}
             style={colStyle(col)}
           >
-            {inc.date || '—'}
+            {inc.date || ''}
           </TD>
         )
       case 'completedDate':
         return (
           <TD
             key={col}
-            className={cn(cellBorder, cellBg, 'whitespace-nowrap text-xs')}
+            className={cn(cellBorder, cellBg, 'whitespace-nowrap text-center text-xs')}
             style={colStyle(col)}
           >
-            {inc.completedDate?.trim() || '—'}
+            {inc.completedDate?.trim() || ''}
           </TD>
         )
       case 'rework': {
@@ -628,7 +653,7 @@ export function IncidentOperationsTable() {
         return (
           <TD
             key={col}
-            className={cn(cellBorder, cellBg)}
+            className={cn(cellBorder, cellBg, 'text-center')}
             style={colStyle(col)}
           >
             {showRework && reworkLabel ? (
@@ -645,7 +670,7 @@ export function IncidentOperationsTable() {
                 {reworkLabel}
               </span>
             ) : (
-              <span className="text-xs text-muted-foreground">—</span>
+              <span className="text-xs text-muted-foreground" />
             )}
           </TD>
         )
@@ -769,32 +794,11 @@ export function IncidentOperationsTable() {
               size="sm"
               className="gap-1"
               disabled={bulkBusy}
-              onClick={() => void handleBulkExportPhotos('before')}
+              title="Mỗi điểm 1 thư mục · trong đó Anh_hien_trang + Anh_sau_xu_ly"
+              onClick={() => void handleBulkExportPhotos()}
             >
               <FolderDown className="h-3.5 w-3.5" />
-              Ảnh hiện trạng
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-1"
-              disabled={bulkBusy}
-              onClick={() => void handleBulkExportPhotos('after')}
-            >
-              <FolderDown className="h-3.5 w-3.5" />
-              Ảnh xử lý
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-1"
-              disabled={bulkBusy}
-              onClick={() => void handleBulkExportPhotos('both')}
-            >
-              <FolderDown className="h-3.5 w-3.5" />
-              Cả hai
+              Xuất folder ảnh
             </Button>
             <div className="mx-1 h-5 w-px bg-border" />
             <Button
@@ -829,37 +833,43 @@ export function IncidentOperationsTable() {
               </colgroup>
               <THead>
                 <TR className="border-b-2 border-border">
-                  {columnIds.map((id) => (
-                    <ResizableTh
-                      key={id}
-                      colId={id}
-                      width={widths[id] ?? DEFAULT_WIDTHS[id]}
-                      onResizeStart={startResize}
-                      resizable={id !== 'select'}
-                      className={
-                        id === 'vol' || id === 'volDat' || id === 'volDa'
-                          ? 'text-[10px] uppercase tracking-wide'
-                          : id === 'rework'
-                            ? 'bg-slate-100 dark:bg-slate-900/60'
-                            : id === 'select'
-                              ? 'px-1 text-center'
-                              : undefined
-                      }
-                    >
-                      {id === 'select' ? (
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 cursor-pointer accent-primary"
-                          checked={allVisibleChecked}
-                          disabled={bulkBusy || sorted.length === 0}
-                          aria-label="Chọn tất cả trên trang lọc"
-                          onChange={(e) => toggleAllVisible(e.target.checked)}
-                        />
-                      ) : (
-                        HEAD_LABELS[id]
-                      )}
-                    </ResizableTh>
-                  ))}
+                  {columnIds.map((id) => {
+                    const canReorder =
+                      id !== 'select' && id !== 'actions'
+                    return (
+                      <ResizableTh
+                        key={id}
+                        colId={id}
+                        width={widths[id] ?? DEFAULT_WIDTHS[id]}
+                        onResizeStart={startResize}
+                        resizable={id !== 'select'}
+                        reorderable={canReorder}
+                        onReorder={moveColumn}
+                        className={
+                          id === 'vol' || id === 'volDat' || id === 'volDa'
+                            ? 'text-[10px] uppercase tracking-wide'
+                            : id === 'rework'
+                              ? 'bg-slate-100 dark:bg-slate-900/60'
+                              : id === 'select'
+                                ? 'px-1 text-center'
+                                : undefined
+                        }
+                      >
+                        {id === 'select' ? (
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 cursor-pointer accent-primary"
+                            checked={allVisibleChecked}
+                            disabled={bulkBusy || sorted.length === 0}
+                            aria-label="Chọn tất cả trên trang lọc"
+                            onChange={(e) => toggleAllVisible(e.target.checked)}
+                          />
+                        ) : (
+                          HEAD_LABELS[id]
+                        )}
+                      </ResizableTh>
+                    )
+                  })}
                 </TR>
               </THead>
               <tbody>

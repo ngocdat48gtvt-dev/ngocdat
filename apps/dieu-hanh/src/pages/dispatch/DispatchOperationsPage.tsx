@@ -76,6 +76,10 @@ export function DispatchOperationsPage() {
               </span>{' '}
               sự cố sau lọc · Lý trình tăng dần ·{' '}
               <span className="text-foreground/80">Bấm dòng để xem chi tiết</span>
+              {' · '}
+              <span className="text-foreground/80">
+                Kéo tiêu đề cột để đổi thứ tự (lưu máy)
+              </span>
               {hasHighVolume ? (
                 <>
                   {' '}

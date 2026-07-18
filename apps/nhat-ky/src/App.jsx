@@ -24,6 +24,7 @@ import { useIncidentSync } from "./hooks/useIncidentSync";
 import { useDataNoiNghiepSync } from "./hooks/useDataNoiNghiepSync";
 import { useOfficeBooksSync } from "./hooks/useOfficeBooksSync";
 import { useCauInspectionSync } from "./hooks/useCauInspectionSync";
+import { useCongRegistryHydrate } from "./hooks/useCongRegistryHydrate";
 import { useOfficePermissions } from "./hooks/useOfficePermissions";
 import { formatKmDisplay, roadDisplayLabel } from "./utils/roadsCatalog";
 
@@ -244,7 +245,7 @@ function AppContent() {
   const { canEditOfficeData, canUseFieldApp, isOfficeReadOnly, needsBrowsePicker } =
     useOfficePermissions();
   const browse = useOfficeBrowse();
-  const { ready, roadSelected, storageKey, activeRoad, activeRoadId, ownerUid, browseMode, clearRoad } =
+  const { ready, roadSelected, storageKey, activeRoad, activeRoadId, ownerUid, browseMode, clearRoad, roads } =
     useRoadWorkspace();
   const [portal, setPortal] = useState("nhatky");
   const [page, setPage] = useState(() => (needsBrowsePicker ? "sonhatky" : "nhaplieu"));
@@ -297,6 +298,13 @@ function AppContent() {
     canPush: canEditOfficeData && !browseMode,
     browseMode,
     onHydrated: () => setStorageTick((t) => t + 1)
+  });
+
+  useCongRegistryHydrate({
+    uid: ownerUid,
+    roads,
+    ready: ready && !!ownerUid && workspaceOpen,
+    enabled: canAccess
   });
 
   function handleImported(nhatKyDate) {

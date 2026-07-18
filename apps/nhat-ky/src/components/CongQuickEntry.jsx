@@ -17,6 +17,7 @@ import {
   needMaintenanceForType
 } from "../utils/baoDuongQualityStore";
 import { loadCongRegistry, congScope, CONG_REGISTRY_EVENT } from "../utils/congRegistryStore";
+import { hydrateCongRegistriesFromCloud } from "../services/congRegistryService";
 import { formatKmCell } from "../utils/matDuongFormat";
 import { useAuth } from "../context/AuthContext";
 import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
@@ -149,17 +150,28 @@ export default function CongQuickEntry({
 }) {
   const displayDate = formatDisplayDate(date);
   const { profile } = useAuth();
-  const { activeRoadId, ownerUid } = useRoadWorkspace();
+  const { activeRoadId, activeRoad, ownerUid } = useRoadWorkspace();
   const uid = ownerUid || profile?.uid || "";
   const scope = congScope(uid, activeRoadId);
   const [registry, setRegistry] = useState(() => loadCongRegistry(scope));
 
   useEffect(() => {
-    setRegistry([...loadCongRegistry(scope)]);
+    let cancelled = false;
+    async function refresh() {
+      if (uid && activeRoad) {
+        await hydrateCongRegistriesFromCloud(uid, [activeRoad], { force: false });
+      }
+      if (cancelled) return;
+      setRegistry([...loadCongRegistry(scope)]);
+    }
+    void refresh();
     const onChange = () => setRegistry([...loadCongRegistry(scope)]);
     window.addEventListener(CONG_REGISTRY_EVENT, onChange);
-    return () => window.removeEventListener(CONG_REGISTRY_EVENT, onChange);
-  }, [scope]);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(CONG_REGISTRY_EVENT, onChange);
+    };
+  }, [scope, uid, activeRoad]);
 
   const validCount = useMemo(() => rows.filter(rowIsValid).length, [rows]);
   const editCount = useMemo(

@@ -2,12 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import {
   loadCongRegistry,
   saveCongRegistry,
-  setCongRegistry,
   congScope,
   makeEmptyCongRows,
   parseCongPaste
 } from "../utils/congRegistryStore";
-import { fetchAllCong, pushManyCong } from "../services/congRegistryService";
+import { hydrateCongRegistriesFromCloud, pushManyCong } from "../services/congRegistryService";
 import { formatKmCell } from "../utils/matDuongFormat";
 import { useAuth } from "../context/AuthContext";
 import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
@@ -43,20 +42,8 @@ export default function HoSoCong({ readOnly = false }) {
   useEffect(() => {
     let cancelled = false;
     async function build() {
-      // Đường nào máy chưa có dữ liệu thì thử lấy từ cloud.
-      const anyEmpty = roads.some(
-        (r) => loadCongRegistry(congScope(uid, r.id)).length === 0
-      );
-      if (uid && anyEmpty) {
-        const cloud = await fetchAllCong(uid);
-        if (cancelled) return;
-        for (const r of roads) {
-          const scope = congScope(uid, r.id);
-          if (loadCongRegistry(scope).length === 0) {
-            const list = cloud[roadName(r.id)];
-            if (list && list.length) setCongRegistry(scope, list);
-          }
-        }
+      if (uid && roads.length) {
+        await hydrateCongRegistriesFromCloud(uid, roads, { force: readOnly });
       }
       if (cancelled) return;
       const all = [];
@@ -72,12 +59,12 @@ export default function HoSoCong({ readOnly = false }) {
           : makeEmptyCongRows(8).map((x) => ({ ...x, roadId: activeRoadId }))
       );
     }
-    build();
+    void build();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uid, roadsKey, activeRoadId]);
+  }, [uid, roadsKey, activeRoadId, readOnly]);
 
   const filledCount = useMemo(
     () => rows.filter((r) => String(r.km || "").trim()).length,
