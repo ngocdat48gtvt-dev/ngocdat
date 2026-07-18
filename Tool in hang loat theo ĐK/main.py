@@ -10,7 +10,7 @@ import win32gui
 import win32con
 import win32api
 from PyQt5.QtWidgets import *
-from PyQt5.QtCore import Qt, QEvent, QSettings, QRect, QEventLoop
+from PyQt5.QtCore import Qt, QEvent, QSettings, QRect, QEventLoop, QTimer, QStringListModel
 from PyPDF2 import PdfMerger
 from PyQt5.QtGui import QIcon, QFont, QColor
 import tempfile
@@ -19,7 +19,11 @@ from PyQt5.QtWidgets import QGridLayout
 from firebase_auth import require_login
 SETTINGS_ORG = "QLDTool"
 SETTINGS_APP = "PrintControlPRO"
+APP_VERSION = "1.1"
 MAPPING_ROW_HEIGHT = 28
+FLEX_DEFAULT_COLS = 8
+MAPPING_MODE_FIXED = "fixed"
+MAPPING_MODE_FLEX = "flex"
 
 def app_dir():
     if getattr(sys, "frozen", False):
@@ -201,6 +205,22 @@ QFrame#panelRight {
     background: #ffffff;
     border: 1px solid #bbdefb;
     border-radius: 4px;
+}
+QPushButton#modeTab {
+    background: #e3f2fd;
+    color: #0d47a1;
+    border: 1px solid #90caf9;
+    border-radius: 6px;
+    padding: 3px 12px;
+    min-height: 22px;
+    max-height: 26px;
+    font-weight: 600;
+}
+QPushButton#modeTab:hover { background: #bbdefb; }
+QPushButton#modeTab[active="true"] {
+    background: #1976d2;
+    color: white;
+    border-color: #1565c0;
 }
 """
 
@@ -489,7 +509,7 @@ class PrintControl(QMainWindow):
         self.hidden_mapping_sheets = set()
         self.sheet_print_order = []
         self._selected_order_col = None
-        self.setWindowTitle("Print QLCL")
+        self.setWindowTitle(f"Print QLCL v{APP_VERSION}")
         if os.path.exists(ICON_APP):
             self.setWindowIcon(QIcon(ICON_APP))
         self.setStyleSheet(APP_STYLESHEET)
@@ -510,17 +530,17 @@ class PrintControl(QMainWindow):
         self.lbl_workbook.setObjectName("bannerWorkbook")
         self.lbl_workbook.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
-        btn_tile_excel = QPushButton("Canh cạnh Excel")
-        btn_tile_excel.setObjectName("btnSecondary")
-        btn_tile_excel.setToolTip(
-            "Xếp Excel bên trái, tool bên phải — không cần tự chia màn hình"
+        btn_pick_excel = QPushButton("Chọn Excel")
+        btn_pick_excel.setObjectName("btnSecondary")
+        btn_pick_excel.setToolTip(
+            "Chọn file Excel đang mở để làm việc (khi có nhiều file)"
         )
-        btn_tile_excel.clicked.connect(self.tile_beside_excel)
+        btn_pick_excel.clicked.connect(self.pick_excel_workbook)
 
         banner_row = QHBoxLayout()
         banner_row.setSpacing(8)
         banner_row.addWidget(self.lbl_workbook, 1)
-        banner_row.addWidget(btn_tile_excel)
+        banner_row.addWidget(btn_pick_excel)
         main_layout.addLayout(banner_row)
 
         # ================= WIDGETS Ô NHẬP =================
@@ -656,7 +676,44 @@ class PrintControl(QMainWindow):
         main_layout.addLayout(row_top)
 
         # ================= BẢNG CHỌN SHEET THEO ĐIỀU KIỆN =================
-        main_layout.addWidget(self._section_title("4. CHỌN SHEET IN THEO ĐIỀU KIỆN"))
+        self.mapping_mode = MAPPING_MODE_FLEX  # Cách 1 mặc định (chọn sheet từng ô)
+        self.flex_col_count = FLEX_DEFAULT_COLS
+        self.flex_combos = []  # legacy unused
+        self._sheet_name_cache = []
+
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(8)
+        mode_row.setContentsMargins(0, 0, 0, 0)
+        mode_row.addWidget(self._section_title("4. CHỌN SHEET IN THEO ĐIỀU KIỆN"), 1)
+
+        self.btn_mode_flex = QPushButton("Cách 1")
+        self.btn_mode_flex.setObjectName("modeTab")
+        self.btn_mode_flex.setToolTip(
+            "Mỗi điều kiện chọn sheet riêng theo thứ tự in (ô 1, 2, 3…)"
+        )
+        self.btn_mode_flex.clicked.connect(
+            lambda: self._set_mapping_mode(MAPPING_MODE_FLEX)
+        )
+
+        self.btn_mode_fixed = QPushButton("Cách 2")
+        self.btn_mode_fixed.setObjectName("modeTab")
+        self.btn_mode_fixed.setToolTip(
+            "Cột = tên sheet cố định — tick theo thứ tự muốn in"
+        )
+        self.btn_mode_fixed.clicked.connect(
+            lambda: self._set_mapping_mode(MAPPING_MODE_FIXED)
+        )
+
+        self.btn_add_flex_col = QPushButton("Thêm cột")
+        self.btn_add_flex_col.setObjectName("btnSecondary")
+        self.btn_add_flex_col.setToolTip("Thêm một vị trí thứ tự in (chỉ Cách 1)")
+        self.btn_add_flex_col.clicked.connect(self._add_flex_column)
+
+        mode_row.addWidget(self.btn_mode_flex)
+        mode_row.addWidget(self.btn_mode_fixed)
+        mode_row.addWidget(self.btn_add_flex_col)
+        main_layout.addLayout(mode_row)
+
         cond_layout = QVBoxLayout()
         cond_layout.setContentsMargins(0, 0, 0, 0)
         cond_layout.setSpacing(0)
@@ -677,8 +734,10 @@ class PrintControl(QMainWindow):
         hdr_print.sectionClicked.connect(self._on_print_order_header_clicked)
         hdr_print.sectionMoved.connect(self._on_print_column_moved)
 
-        self.table_left.setMinimumWidth(88)
-        self.table_left.setMaximumWidth(160)
+        self.table_left.setMinimumWidth(100)
+        self.table_left.setMaximumWidth(130)
+        self.table_left.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.table_right.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self.table_left.verticalHeader().setVisible(False)
         self.table_right.verticalHeader().setVisible(False)
@@ -686,7 +745,6 @@ class PrintControl(QMainWindow):
 
         self.table_left.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.table_right.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
-
         self.table_right.setMouseTracking(True)
         self.table_left.setMouseTracking(True)
         self.table_right.setSelectionMode(QAbstractItemView.NoSelection)
@@ -695,23 +753,20 @@ class PrintControl(QMainWindow):
         self.table_left.viewport().installEventFilter(self)
         self.table_right.setItemDelegate(MappingCheckDelegate(self.table_right, self))
 
-        # cho table giãn full
-        self.table_left.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.table_right.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-        # ================= SPLITTER (CHÌA KHÓA) =================
         splitter = QSplitter(Qt.Horizontal)
+        splitter.setHandleWidth(2)
+        splitter.setChildrenCollapsible(False)
         splitter.addWidget(self.table_left)
         splitter.addWidget(self.table_right)
-
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 4)
-        splitter.setChildrenCollapsible(False)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([130, 800])
         splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.mapping_splitter = splitter
 
         cond_layout.addWidget(splitter, 1)
-        cond_layout.setStretch(0, 1)
         main_layout.addWidget(cond_frame, 1)
+        self._refresh_mapping_mode_tabs()
 
         # ================= CẤU HÌNH & XUẤT IN =================
         profile_layout = QHBoxLayout()
@@ -1008,10 +1063,10 @@ class PrintControl(QMainWindow):
         return item is not None and item.checkState() == Qt.Checked
 
     def _has_mapping_selection(self):
+        """True nếu có ít nhất một điều kiện đã chọn sheet (tick hoặc dropdown)."""
         for row in range(self.table_left.rowCount()):
-            for col in range(self.table_right.columnCount()):
-                if self._mapping_cell_checked(row, col):
-                    return True
+            if self._checked_sheets_for_row(row):
+                return True
         return False
 
     # ================= LOAD DATA =================
@@ -1294,8 +1349,155 @@ class PrintControl(QMainWindow):
         return ordered
 
     def _sheet_name_for_col(self, col):
+        """Cách 2: tên sheet từ header cột. Cách 1: không dùng (sheet theo từng ô)."""
+        if getattr(self, "mapping_mode", MAPPING_MODE_FIXED) == MAPPING_MODE_FLEX:
+            return ""
         hdr = self.table_right.horizontalHeaderItem(col)
         return self._pure_sheet_name(hdr.text() if hdr else "")
+
+    def _refresh_mapping_mode_tabs(self):
+        is_flex = getattr(self, "mapping_mode", MAPPING_MODE_FLEX) == MAPPING_MODE_FLEX
+        if hasattr(self, "btn_mode_fixed"):
+            self.btn_mode_fixed.setProperty("active", "false" if is_flex else "true")
+            self.btn_mode_flex.setProperty("active", "true" if is_flex else "false")
+            for btn in (self.btn_mode_fixed, self.btn_mode_flex):
+                btn.style().unpolish(btn)
+                btn.style().polish(btn)
+            self.btn_add_flex_col.setVisible(is_flex)
+        if hasattr(self, "table_right"):
+            hdr = self.table_right.horizontalHeader()
+            hdr.setSectionsMovable(not is_flex)
+            hdr.setDragEnabled(not is_flex)
+            hdr.show()
+            self.table_left.horizontalHeader().show()
+
+    def _set_mapping_mode(self, mode):
+        mode = MAPPING_MODE_FLEX if mode == MAPPING_MODE_FLEX else MAPPING_MODE_FIXED
+        if getattr(self, "mapping_mode", MAPPING_MODE_FLEX) == mode:
+            self._refresh_mapping_mode_tabs()
+            return
+        self.setUpdatesEnabled(False)
+        self.table_right.setUpdatesEnabled(False)
+        self.table_left.setUpdatesEnabled(False)
+        try:
+            conditions, checks = self._save_mapping_state()
+            if mode == MAPPING_MODE_FLEX:
+                need = FLEX_DEFAULT_COLS
+                for sheets in checks.values():
+                    need = max(need, len(sheets or []))
+                self.flex_col_count = need
+            self.mapping_mode = mode
+            self._refresh_mapping_mode_tabs()
+            if conditions:
+                self._restore_mapping_state(conditions, checks)
+            else:
+                self.build_mapping_table([])
+        finally:
+            self.table_left.setUpdatesEnabled(True)
+            self.table_right.setUpdatesEnabled(True)
+            self.setUpdatesEnabled(True)
+        self.status_label.setText(
+            "Cách 1 — mỗi điều kiện chọn sheet theo thứ tự in (cột 1, 2, 3…)"
+            if mode == MAPPING_MODE_FLEX
+            else "Cách 2 — tick sheet trên cột tên cố định"
+        )
+
+    def _all_workbook_sheet_names(self):
+        if self._sheet_name_cache:
+            return self._sheet_name_cache
+        try:
+            self._sheet_name_cache = [s.name for s in self.wb.sheets]
+        except Exception:
+            self._sheet_name_cache = []
+        return self._sheet_name_cache
+
+    def _invalidate_sheet_cache(self):
+        self._sheet_name_cache = []
+        self._sheet_qstring_model = None
+
+    def _sheet_completer_model(self):
+        """Model dùng chung cho completer — tránh tạo lại danh sách mỗi ô."""
+        if getattr(self, "_sheet_qstring_model", None) is None:
+            self._sheet_qstring_model = QStringListModel(self._all_workbook_sheet_names())
+        return self._sheet_qstring_model
+
+    def _make_cell_sheet_combo(self, row, col, selected=""):
+        """Ô chọn sheet cho một điều kiện tại vị trí thứ tự in."""
+        sheets = self._all_workbook_sheet_names()
+        combo = QComboBox()
+        combo.setEditable(True)
+        combo.setInsertPolicy(QComboBox.NoInsert)
+        combo.setMaxVisibleItems(16)
+        combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        combo.setStyleSheet(
+            "QComboBox{background:#fff;border:1px solid #90caf9;"
+            "border-radius:3px;padding:0 4px;min-height:24px;}"
+        )
+        combo.blockSignals(True)
+        combo.addItem("")
+        combo.addItems(sheets)
+        if selected and selected in sheets:
+            combo.setCurrentText(selected)
+        else:
+            combo.setCurrentIndex(0)
+        combo.blockSignals(False)
+        if combo.lineEdit():
+            combo.lineEdit().setPlaceholderText("Sheet…")
+            combo.lineEdit().setClearButtonEnabled(True)
+        completer = QCompleter(self._sheet_completer_model(), combo)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchContains)
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        combo.setCompleter(completer)
+        combo.setProperty("map_row", row)
+        combo.setProperty("map_col", col)
+        combo.activated.connect(
+            lambda _i, r=row, c=col, cb=combo: self._on_cell_sheet_chosen(r, c, cb)
+        )
+        if combo.lineEdit():
+            combo.lineEdit().editingFinished.connect(
+                lambda r=row, c=col, cb=combo: self._on_cell_sheet_chosen(r, c, cb)
+            )
+        return combo
+
+    def _on_cell_sheet_chosen(self, row, col, combo):
+        if self.mapping_mode != MAPPING_MODE_FLEX:
+            return
+        name = str(combo.currentText() or "").strip()
+        sheets = set(self._all_workbook_sheet_names())
+        if name and name not in sheets:
+            return
+        # Không cho trùng sheet trong cùng một hàng điều kiện
+        if name:
+            for c in range(self.table_right.columnCount()):
+                if c == col:
+                    continue
+                other = self.table_right.cellWidget(row, c)
+                if isinstance(other, QComboBox) and other.currentText().strip() == name:
+                    QMessageBox.warning(
+                        self,
+                        "Trùng sheet",
+                        f"Sheet «{name}» đã có ở vị trí {c + 1} của điều kiện này.",
+                    )
+                    combo.blockSignals(True)
+                    combo.setCurrentIndex(0)
+                    combo.blockSignals(False)
+                    return
+        self.mapping_tick_order[row] = self._checked_sheets_for_row(row)
+
+    def _add_flex_column(self):
+        if self.mapping_mode != MAPPING_MODE_FLEX:
+            return
+        col = self.table_right.columnCount()
+        self.table_right.setColumnCount(col + 1)
+        self.table_right.setHorizontalHeaderItem(col, QTableWidgetItem(str(col + 1)))
+        self.table_right.setColumnWidth(col, 110)
+        for row in range(self.table_right.rowCount()):
+            self.table_right.setCellWidget(
+                row, col, self._make_cell_sheet_combo(row, col, "")
+            )
+        self.flex_col_count = col + 1
+        self.status_label.setText(f"Đã thêm vị trí in thứ {self.flex_col_count}")
 
     def _tick_order_for_row(self, row):
         if row not in self.mapping_tick_order:
@@ -1303,6 +1505,8 @@ class PrintControl(QMainWindow):
         return self.mapping_tick_order[row]
 
     def _order_number_for_cell(self, row, col):
+        if getattr(self, "mapping_mode", MAPPING_MODE_FLEX) == MAPPING_MODE_FLEX:
+            return None
         name = self._sheet_name_for_col(col)
         if not name:
             return None
@@ -1312,6 +1516,8 @@ class PrintControl(QMainWindow):
         return order.index(name) + 1
 
     def _sync_tick_order_on_check_change(self, row, col, checked):
+        if getattr(self, "mapping_mode", MAPPING_MODE_FLEX) == MAPPING_MODE_FLEX:
+            return
         name = self._sheet_name_for_col(col)
         if not name:
             return
@@ -1331,7 +1537,8 @@ class PrintControl(QMainWindow):
                 item.setBackground(QColor("#E3F2FD"))
             else:
                 item.setBackground(QColor("#FFFFFF"))
-        self.table_right.viewport().update()
+        if self.mapping_mode == MAPPING_MODE_FIXED:
+            self.table_right.viewport().update()
 
     def _save_mapping_state(self):
         conditions = []
@@ -1348,23 +1555,37 @@ class PrintControl(QMainWindow):
 
     def _restore_mapping_state(self, conditions, checks):
         self.build_mapping_table(conditions)
+        if self.mapping_mode == MAPPING_MODE_FLEX:
+            for r, cond in enumerate(conditions):
+                sheets = list(checks.get(cond, [])) if not isinstance(checks, set) else []
+                if isinstance(checks, set):
+                    continue
+                self.mapping_tick_order[r] = list(sheets)
+                for c, name in enumerate(sheets):
+                    if c >= self.table_right.columnCount():
+                        break
+                    w = self.table_right.cellWidget(r, c)
+                    if isinstance(w, QComboBox):
+                        w.blockSignals(True)
+                        w.setCurrentText(name if name in self._all_workbook_sheet_names() else "")
+                        w.blockSignals(False)
+            return
+
         self.table_right.blockSignals(True)
         try:
             for r, cond in enumerate(conditions):
                 if isinstance(checks, set):
                     ordered = []
                     for c in range(self.table_right.columnCount()):
-                        hdr = self.table_right.horizontalHeaderItem(c)
-                        sname = self._pure_sheet_name(hdr.text() if hdr else "")
-                        if (cond, sname) in checks:
+                        sname = self._sheet_name_for_col(c)
+                        if sname and (cond, sname) in checks:
                             ordered.append(sname)
                     self.mapping_tick_order[r] = ordered
                 else:
                     self.mapping_tick_order[r] = list(checks.get(cond, []))
                 for c in range(self.table_right.columnCount()):
-                    hdr = self.table_right.horizontalHeaderItem(c)
-                    sname = self._pure_sheet_name(hdr.text() if hdr else "")
-                    if sname in self.mapping_tick_order.get(r, []):
+                    sname = self._sheet_name_for_col(c)
+                    if sname and sname in self.mapping_tick_order.get(r, []):
                         it = self.table_right.item(r, c)
                         if it:
                             it.setCheckState(Qt.Checked)
@@ -1373,7 +1594,19 @@ class PrintControl(QMainWindow):
         self._refresh_all_rows_print_order()
 
     def _checked_sheets_for_row(self, row):
-        """Danh sách sheet đã tick, theo thứ tự người dùng tick chuột."""
+        """Danh sách sheet sẽ in cho điều kiện — theo thứ tự đã chọn."""
+        if self.mapping_mode == MAPPING_MODE_FLEX:
+            result = []
+            for col in range(self.table_right.columnCount()):
+                w = self.table_right.cellWidget(row, col)
+                if not isinstance(w, QComboBox):
+                    continue
+                name = w.currentText().strip()
+                if name:
+                    result.append(name)
+            self.mapping_tick_order[row] = result
+            return result
+
         order = list(self._tick_order_for_row(row))
         verified = []
         for name in order:
@@ -1388,7 +1621,8 @@ class PrintControl(QMainWindow):
 
     def _refresh_row_print_order(self, row):
         del row
-        self.table_right.viewport().update()
+        if self.mapping_mode == MAPPING_MODE_FIXED:
+            self.table_right.viewport().update()
 
     def _refresh_all_rows_print_order(self):
         for r in range(self.table_left.rowCount()):
@@ -1396,6 +1630,8 @@ class PrintControl(QMainWindow):
         self._sync_mapping_row_heights()
 
     def _on_mapping_item_changed(self, item):
+        if self.mapping_mode == MAPPING_MODE_FLEX:
+            return
         if item.column() < 0:
             return
         row, col = item.row(), item.column()
@@ -1403,7 +1639,6 @@ class PrintControl(QMainWindow):
         self._sync_tick_order_on_check_change(row, col, checked)
         self._refresh_row_print_order(row)
         self._sync_mapping_row_heights()
-
     def _sync_print_order_from_table(self):
         order = []
         for col in range(self.table_right.columnCount()):
@@ -1432,30 +1667,32 @@ class PrintControl(QMainWindow):
 
     def build_mapping_table(self, conditions):
         conditions = self._unique_preserve_order(conditions)
-        sheet_names = self._ordered_sheet_names()
         cond_font = self._mapping_condition_font()
+        is_flex = getattr(self, "mapping_mode", MAPPING_MODE_FLEX) == MAPPING_MODE_FLEX
+        # Giữ cache sheet khi đổi tab — chỉ đọc Excel khi cache trống
+
+        if is_flex:
+            n_cols = max(
+                FLEX_DEFAULT_COLS,
+                int(getattr(self, "flex_col_count", FLEX_DEFAULT_COLS) or FLEX_DEFAULT_COLS),
+            )
+            self.flex_col_count = n_cols
+            headers = [str(i + 1) for i in range(n_cols)]
+        else:
+            headers = self._ordered_sheet_names()
 
         self.mapping_tick_order = {}
-
-        # ===== CLEAR CŨ =====
-        self.table_left.clear()
-        self.table_right.clear()
-
-        self.table_left.setRowCount(0)
-        self.table_right.setRowCount(0)
-
-        # ===== SET SIZE =====
+        # Xóa widget cũ trước (nhanh hơn clear() khi nhiều combobox)
+        self.table_right.clearContents()
+        self.table_left.clearContents()
         self.table_left.setRowCount(len(conditions))
         self.table_left.setColumnCount(1)
-
         self.table_right.setRowCount(len(conditions))
-        self.table_right.setColumnCount(len(sheet_names))
+        self.table_right.setColumnCount(len(headers))
 
-        # ===== HEADER =====
         self.table_left.setHorizontalHeaderLabels(["ĐIỀU KIỆN"])
-        self.table_right.setHorizontalHeaderLabels(sheet_names)
+        self.table_right.setHorizontalHeaderLabels(headers)
 
-        # ===== STYLE HEADER =====
         header_style = """
         QHeaderView::section {
             background-color: #BBDEFB;
@@ -1464,58 +1701,52 @@ class PrintControl(QMainWindow):
             border: 1px solid #90A4AE;
         }
         """
-
         self.table_left.horizontalHeader().setStyleSheet(header_style)
         self.table_right.horizontalHeader().setStyleSheet(header_style)
-
-        # ===== FIX UI =====
         self.table_left.verticalHeader().setVisible(False)
         self.table_right.verticalHeader().setVisible(False)
-
-        self.table_left.setMinimumWidth(88)
-        self.table_left.setMaximumWidth(160)
-
-        self.table_left.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
-        self.table_right.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
-        self._setup_mapping_table_row_heights()
-
-        self.table_left.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
-        self.table_right.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
-        self.table_left.horizontalHeader().setStretchLastSection(True)
-        self.table_right.horizontalHeader().setStretchLastSection(True)
-
-        self.table_left.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.table_left.setMinimumWidth(100)
+        self.table_left.setMaximumWidth(130)
+        self.table_left.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self.table_right.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._setup_mapping_table_row_heights()
+        self.table_left.horizontalHeader().setStretchLastSection(True)
+        self.table_right.horizontalHeader().setStretchLastSection(not is_flex)
+        self.table_left.horizontalHeader().show()
+        self.table_right.horizontalHeader().show()
 
-        self.table_left.setStyleSheet("""
-            QTableWidget::item {
-                padding: 4px 6px;
-            }
-        """)
-        self.table_right.setStyleSheet("""
-            QTableWidget::item {
-                padding: 4px;
-            }
-        """)
+        if is_flex:
+            for c in range(len(headers)):
+                self.table_right.setColumnWidth(c, 110)
 
-        # ===== FILL DATA =====
         for row, cond in enumerate(conditions):
             self.mapping_tick_order[row] = []
-
             cond_item = QTableWidgetItem(str(cond))
             cond_item.setFont(cond_font)
             cond_item.setTextAlignment(Qt.AlignCenter)
             cond_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
             self.table_left.setItem(row, 0, cond_item)
 
-            for col in range(len(sheet_names)):
-                chk_item = QTableWidgetItem()
-                chk_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-                chk_item.setCheckState(Qt.Unchecked)
-                chk_item.setTextAlignment(Qt.AlignCenter)
-                self.table_right.setItem(row, col, chk_item)
+            for col in range(len(headers)):
+                if is_flex:
+                    self.table_right.setCellWidget(
+                        row, col, self._make_cell_sheet_combo(row, col, "")
+                    )
+                else:
+                    chk_item = QTableWidgetItem()
+                    chk_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+                    chk_item.setCheckState(Qt.Unchecked)
+                    chk_item.setTextAlignment(Qt.AlignCenter)
+                    self.table_right.setItem(row, col, chk_item)
 
-        # ===== SYNC SCROLL =====
+        try:
+            self.table_left.verticalScrollBar().valueChanged.disconnect()
+        except TypeError:
+            pass
+        try:
+            self.table_right.verticalScrollBar().valueChanged.disconnect()
+        except TypeError:
+            pass
         self.table_left.verticalScrollBar().valueChanged.connect(
             self.table_right.verticalScrollBar().setValue
         )
@@ -1527,8 +1758,10 @@ class PrintControl(QMainWindow):
             self.table_right.itemChanged.disconnect(self._on_mapping_item_changed)
         except TypeError:
             pass
-        self.table_right.itemChanged.connect(self._on_mapping_item_changed)
+        if not is_flex:
+            self.table_right.itemChanged.connect(self._on_mapping_item_changed)
 
+        self._refresh_mapping_mode_tabs()
         self._sync_mapping_row_heights()
         self._apply_mapping_column_visibility()
         self._refresh_all_rows_print_order()
@@ -1614,6 +1847,10 @@ class PrintControl(QMainWindow):
     def _apply_mapping_column_visibility(self):
         if not hasattr(self, "table_right"):
             return
+        if getattr(self, "mapping_mode", MAPPING_MODE_FLEX) == MAPPING_MODE_FLEX:
+            for col in range(self.table_right.columnCount()):
+                self.table_right.setColumnHidden(col, False)
+            return
         hide = (
             hasattr(self, "chk_hide_sheet_cols")
             and self.chk_hide_sheet_cols.isChecked()
@@ -1628,7 +1865,7 @@ class PrintControl(QMainWindow):
 
     # ================= PROFILE SAVE =================
     def clear_mapping_checks(self):
-        """Bỏ tick toàn bộ sheet trong bảng chọn điều kiện."""
+        """Xóa lựa chọn sheet trong bảng điều kiện."""
         if not hasattr(self, "table_right"):
             return
         self.table_right.blockSignals(True)
@@ -1636,6 +1873,11 @@ class PrintControl(QMainWindow):
             for row in range(self.table_right.rowCount()):
                 self.mapping_tick_order[row] = []
                 for col in range(self.table_right.columnCount()):
+                    w = self.table_right.cellWidget(row, col)
+                    if isinstance(w, QComboBox):
+                        w.blockSignals(True)
+                        w.setCurrentIndex(0)
+                        w.blockSignals(False)
                     item = self.table_right.item(row, col)
                     if item:
                         item.setCheckState(Qt.Unchecked)
@@ -1760,6 +2002,11 @@ class PrintControl(QMainWindow):
         config["hidden_mapping_sheets"] = sorted(self.hidden_mapping_sheets)
         config["hide_mapping_columns"] = self.chk_hide_sheet_cols.isChecked()
         config["sheet_print_order"] = self._ordered_sheet_names()
+        config["mapping_mode"] = getattr(self, "mapping_mode", MAPPING_MODE_FLEX)
+        if config["mapping_mode"] == MAPPING_MODE_FLEX:
+            config["flex_col_count"] = int(
+                getattr(self, "flex_col_count", FLEX_DEFAULT_COLS) or FLEX_DEFAULT_COLS
+            )
         seen_cond = set()
         for row in range(self.table_left.rowCount()):
             citem = self.table_left.item(row, 0)
@@ -1790,6 +2037,11 @@ class PrintControl(QMainWindow):
         self.radio_print.setChecked(not config.get("mode_pdf", True))
 
         self.sheet_print_order = config.get("sheet_print_order", [])
+        mode = config.get("mapping_mode", MAPPING_MODE_FLEX)
+        self.mapping_mode = (
+            MAPPING_MODE_FLEX if mode == MAPPING_MODE_FLEX else MAPPING_MODE_FIXED
+        )
+
         mapping = config.get("mapping", {})
         by_key = {}
         for cond, sheets in mapping.items():
@@ -1797,10 +2049,16 @@ class PrintControl(QMainWindow):
             if key not in by_key:
                 by_key[key] = (str(cond).strip(), sheets)
 
+        if self.mapping_mode == MAPPING_MODE_FLEX:
+            n = int(config.get("flex_col_count") or 0)
+            for _, sheets in by_key.values():
+                n = max(n, len(sheets or []))
+            self.flex_col_count = max(FLEX_DEFAULT_COLS, n)
+
+        self._refresh_mapping_mode_tabs()
         self.build_mapping_table([display for display, _ in by_key.values()])
 
-        self.table_right.blockSignals(True)
-        try:
+        if self.mapping_mode == MAPPING_MODE_FLEX:
             for row in range(self.table_left.rowCount()):
                 citem = self.table_left.item(row, 0)
                 cond = citem.text().strip() if citem else ""
@@ -1810,15 +2068,36 @@ class PrintControl(QMainWindow):
                     if entry:
                         sheets_for_cond = entry[1]
                 self.mapping_tick_order[row] = list(sheets_for_cond)
-                for col in range(self.table_right.columnCount()):
-                    hdr = self.table_right.horizontalHeaderItem(col)
-                    sheet_name = self._pure_sheet_name(hdr.text() if hdr else "")
-                    item = self.table_right.item(row, col)
-                    if item and sheet_name in sheets_for_cond:
-                        item.setCheckState(Qt.Checked)
-        finally:
-            self.table_right.blockSignals(False)
-        self._refresh_all_rows_print_order()
+                for col, name in enumerate(sheets_for_cond):
+                    if col >= self.table_right.columnCount():
+                        break
+                    w = self.table_right.cellWidget(row, col)
+                    if isinstance(w, QComboBox):
+                        w.blockSignals(True)
+                        w.setCurrentText(
+                            name if name in self._all_workbook_sheet_names() else ""
+                        )
+                        w.blockSignals(False)
+        else:
+            self.table_right.blockSignals(True)
+            try:
+                for row in range(self.table_left.rowCount()):
+                    citem = self.table_left.item(row, 0)
+                    cond = citem.text().strip() if citem else ""
+                    sheets_for_cond = mapping.get(cond, [])
+                    if not sheets_for_cond:
+                        entry = by_key.get(self._condition_key(cond))
+                        if entry:
+                            sheets_for_cond = entry[1]
+                    self.mapping_tick_order[row] = list(sheets_for_cond)
+                    for col in range(self.table_right.columnCount()):
+                        sheet_name = self._sheet_name_for_col(col)
+                        item = self.table_right.item(row, col)
+                        if item and sheet_name and sheet_name in sheets_for_cond:
+                            item.setCheckState(Qt.Checked)
+            finally:
+                self.table_right.blockSignals(False)
+            self._refresh_all_rows_print_order()
 
         self.apply_autofit_rows(config.get("autofit_map", {}))
 
@@ -1902,6 +2181,99 @@ class PrintControl(QMainWindow):
             f"[{page_index}/{page_total}] Đang in — sheet: {sheet_name}"
         )
         QApplication.processEvents(QEventLoop.AllEvents, 100)
+
+    def pick_excel_workbook(self):
+        """Chọn một trong các file Excel đang mở để làm việc."""
+        try:
+            books = list(xw.books)
+        except Exception as e:
+            QMessageBox.warning(self, "Excel", f"Không đọc được danh sách file:\n{e}")
+            return
+        if not books:
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Chọn file Excel",
+                "",
+                "Excel Files (*.xlsx *.xlsm *.xls)",
+            )
+            if not path:
+                return
+            try:
+                if len(xw.apps) == 0:
+                    xw.App(visible=True)
+                wb = xw.Book(path)
+            except Exception as e:
+                QMessageBox.critical(self, "Lỗi", f"Không mở được file:\n{e}")
+                return
+            self._switch_workbook(wb)
+            return
+
+        items = []
+        for b in books:
+            try:
+                full = getattr(b, "fullname", None) or b.name
+            except Exception:
+                full = b.name
+            items.append(str(full))
+
+        current = 0
+        try:
+            current = max(0, items.index(self.initial_wb_name))
+        except ValueError:
+            for i, b in enumerate(books):
+                if b.name == self.initial_wb_name:
+                    current = i
+                    break
+
+        choice, ok = QInputDialog.getItem(
+            self,
+            "Chọn file Excel",
+            "File Excel đang mở:",
+            items,
+            current,
+            False,
+        )
+        if not ok or not choice:
+            return
+        idx = items.index(choice)
+        self._switch_workbook(books[idx])
+
+    def _switch_workbook(self, wb):
+        """Đổi workbook đang làm việc và làm mới sheet / bảng điều kiện."""
+        try:
+            wb = _prepare_workbook(wb)
+        except Exception:
+            pass
+        self.wb = wb
+        self.initial_wb_name = _workbook_name(wb)
+        self.lbl_workbook.setText(f"📄 {self.initial_wb_name}")
+        try:
+            wb.activate()
+        except Exception:
+            pass
+
+        conditions, checks = ([], {})
+        try:
+            conditions, checks = self._save_mapping_state()
+        except Exception:
+            pass
+
+        old_sheet = self.combo_sheet_var.currentText()
+        self.load_sheets()
+        if old_sheet and self.combo_sheet_var.findText(old_sheet) >= 0:
+            self.combo_sheet_var.setCurrentText(old_sheet)
+
+        autofit_saved = self.get_autofit_rows_save()
+        self.load_autofit_table()
+        self.apply_autofit_rows(autofit_saved)
+        self._invalidate_sheet_cache()
+
+        if conditions:
+            self._restore_mapping_state(conditions, checks)
+        else:
+            self.build_mapping_table([])
+
+        self.status_label.setText(f"Đang làm việc với «{self.initial_wb_name}»")
 
     def _refresh_workbook(self):
         try:

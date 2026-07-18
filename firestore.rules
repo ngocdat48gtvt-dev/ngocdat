@@ -294,11 +294,13 @@ service cloud.firestore {
 
         allow create: if canWriteIncident(userId);
 
-        allow update: if (canWriteIncident(userId)
+        allow update: if isGlobalSeller()
+          || (canWriteIncident(userId)
             && (!incidentCoreLocked(resource.data) || !incidentCoreFieldsChanged()))
           || canCompanyAdminWriteIncident(userId);
 
-        allow delete: if canWriteIncident(userId)
+        allow delete: if isGlobalSeller()
+          || canWriteIncident(userId)
           || canCompanyAdminWriteIncident(userId);
       }
 

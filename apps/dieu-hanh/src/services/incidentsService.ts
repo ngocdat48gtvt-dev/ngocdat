@@ -57,6 +57,10 @@ function mapDocCore(snap: QueryDocumentSnapshot): IncidentRecord {
     selectedBefore: data.selectedBefore as string | undefined,
     selectedAfter: data.selectedAfter as string | undefined,
     reportImageOrder: data.reportImageOrder as string | undefined,
+    dossierRound: (() => {
+      const n = Number(data.dossierRound)
+      return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
+    })(),
     status: data.status as IncidentRecord['status'],
     progress: data.progress as number | undefined,
     locked: data.locked as boolean | undefined,
@@ -98,6 +102,15 @@ function mergeIncidentLists(lists: IncidentRecord[][]): IncidentRecord[] {
   return [...byKey.values()]
 }
 
+/** Chỉ giữ sự cố của thành viên còn active trong công ty. */
+function filterIncidentsByActiveMembers<T extends { ownerUid: string }>(
+  items: T[],
+  activeUids: Set<string>,
+): T[] {
+  if (activeUids.size === 0) return []
+  return items.filter((inc) => activeUids.has(inc.ownerUid))
+}
+
 async function fetchIncidentsByCompanyGroup(companyId: string): Promise<IncidentRecord[]> {
   const q = query(
     collectionGroup(db, 'incidents'),
@@ -113,9 +126,11 @@ export async function fetchIncidentsByCompany(
   const groupItems = await fetchIncidentsByCompanyGroup(companyId)
   try {
     const memberUids = await fetchCompanyMemberUids(companyId)
-    if (memberUids.length === 0) return groupItems
+    const active = new Set(memberUids)
+    const scopedGroup = filterIncidentsByActiveMembers(groupItems, active)
+    if (memberUids.length === 0) return scopedGroup
     const lists = await Promise.all(memberUids.map((uid) => fetchIncidentsByOwner(uid)))
-    return mergeIncidentLists([groupItems, ...lists])
+    return mergeIncidentLists([scopedGroup, ...lists])
   } catch {
     return groupItems
   }
@@ -165,9 +180,11 @@ export function subscribeIncidentsByCompany(
   const unsubs: Unsubscribe[] = []
   let groupItems: IncidentRecord[] = []
   const itemsByUid = new Map<string, IncidentRecord[]>()
+  let activeUids = new Set<string>()
 
   function emitAll() {
-    onData(mergeIncidentLists([groupItems, ...itemsByUid.values()]))
+    const scopedGroup = filterIncidentsByActiveMembers(groupItems, activeUids)
+    onData(mergeIncidentLists([scopedGroup, ...itemsByUid.values()]))
   }
 
   unsubs.push(
@@ -184,6 +201,8 @@ export function subscribeIncidentsByCompany(
   void fetchCompanyMemberUids(companyId)
     .then((uids) => {
       if (disposed) return
+      activeUids = new Set(uids)
+      emitAll()
       for (const uid of uids) {
         const unsub = subscribeIncidentsByOwner(
           uid,
@@ -199,7 +218,9 @@ export function subscribeIncidentsByCompany(
       }
     })
     .catch(() => {
-      /* collectionGroup vẫn chạy */
+      /* collectionGroup vẫn chạy — chưa có danh sách active thì ẩn hết group */
+      activeUids = new Set()
+      emitAll()
     })
 
   return () => {
@@ -248,6 +269,8 @@ export type IncidentPatch = {
   progress?: number
   status?: IncidentRecord['status']
   locked?: boolean
+  /** 0 = chưa trình; ≥1 = lần trình hồ sơ. */
+  dossierRound?: number
 }
 
 export async function updateIncidentRecord(
@@ -397,6 +420,53 @@ export async function softDeleteIncident(
   })
 }
 
+/** Soft-delete nhiều sự cố; trả về số thành công / thất bại. */
+export async function softDeleteIncidentsBulk(
+  items: Array<{ ownerUid: string; id: string }>,
+): Promise<{ ok: number; fail: number }> {
+  let ok = 0
+  let fail = 0
+  for (const item of items) {
+    try {
+      await softDeleteIncident(item.ownerUid, item.id)
+      ok++
+    } catch {
+      fail++
+    }
+  }
+  return { ok, fail }
+}
+
+/** Gán lần trình hồ sơ (0 = chưa trình). */
+export async function setIncidentsDossierRoundBulk(
+  items: Array<{ ownerUid: string; id: string; companyId?: string }>,
+  dossierRound: number,
+  fallbackCompanyId?: string,
+): Promise<{ ok: number; fail: number }> {
+  const round = Number.isFinite(dossierRound) && dossierRound > 0
+    ? Math.floor(dossierRound)
+    : 0
+  let ok = 0
+  let fail = 0
+  for (const item of items) {
+    try {
+      await updateIncidentRecord(
+        item.ownerUid,
+        item.id,
+        { dossierRound: round },
+        {
+          companyId:
+            item.companyId?.trim() || fallbackCompanyId?.trim() || undefined,
+        },
+      )
+      ok++
+    } catch {
+      fail++
+    }
+  }
+  return { ok, fail }
+}
+
 function mapTrashDoc(snap: QueryDocumentSnapshot): TrashIncidentRecord | null {
   const data = snap.data()
   if (data.deleted !== 1) return null
@@ -425,12 +495,14 @@ export async function fetchTrashIncidentsByCompany(
   const groupItems = mapTrashQueryDocs(groupSnap.docs)
   try {
     const memberUids = await fetchCompanyMemberUids(companyId)
-    if (memberUids.length === 0) return groupItems
+    const active = new Set(memberUids)
+    const scopedGroup = filterIncidentsByActiveMembers(groupItems, active)
+    if (memberUids.length === 0) return scopedGroup
     const lists = await Promise.all(
       memberUids.map((uid) => fetchTrashIncidentsByOwner(uid)),
     )
     const byKey = new Map<string, TrashIncidentRecord>()
-    for (const list of [groupItems, ...lists]) {
+    for (const list of [scopedGroup, ...lists]) {
       for (const item of list) byKey.set(incidentKey(item), item)
     }
     return [...byKey.values()].sort((a, b) => b.deletedAtMs - a.deletedAtMs)
@@ -465,10 +537,12 @@ export function subscribeTrashIncidentsForViewer(
     const unsubs: Unsubscribe[] = []
     let groupItems: TrashIncidentRecord[] = []
     const itemsByUid = new Map<string, TrashIncidentRecord[]>()
+    let activeUids = new Set<string>()
 
     function emitAll() {
+      const scopedGroup = filterIncidentsByActiveMembers(groupItems, activeUids)
       const byKey = new Map<string, TrashIncidentRecord>()
-      for (const list of [groupItems, ...itemsByUid.values()]) {
+      for (const list of [scopedGroup, ...itemsByUid.values()]) {
         for (const item of list) byKey.set(incidentKey(item), item)
       }
       onData(
@@ -494,6 +568,8 @@ export function subscribeTrashIncidentsForViewer(
     void fetchCompanyMemberUids(companyId)
       .then((uids) => {
         if (disposed) return
+        activeUids = new Set(uids)
+        emitAll()
         for (const uid of uids) {
           unsubs.push(
             onSnapshot(
@@ -510,7 +586,8 @@ export function subscribeTrashIncidentsForViewer(
         }
       })
       .catch(() => {
-        /* collectionGroup vẫn chạy */
+        activeUids = new Set()
+        emitAll()
       })
 
     return () => {

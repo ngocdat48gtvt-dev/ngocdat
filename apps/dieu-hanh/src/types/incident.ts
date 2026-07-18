@@ -74,6 +74,11 @@ export interface IncidentRecord {
   selectedAfter?: string
   /** Thứ tự ghép Word: `b:url|a:url|…` — STT = thứ tự trong chuỗi (HT/XL xen kẽ). */
   reportImageOrder?: string
+  /**
+   * Lần trình hồ sơ trên web điều hành: 0/undefined = chưa trình;
+   * 1 = Lần 1, 2 = Lần 2, …
+   */
+  dossierRound?: number
   status?: IncidentStatus
   progress?: number
   locked?: boolean
@@ -104,6 +109,10 @@ export interface DispatchFilters {
   dateTo: string
   /** UID users/{uid}/incidents — chủ sự cố trên app; rỗng = tất cả; nhiều phần tử = lọc OR. */
   ownerUids: string[]
+  /**
+   * Lọc lần trình hồ sơ: '' = tất cả; '0' = chưa trình; '1'|'2'|… = đúng lần đó.
+   */
+  dossierRound: string
 }
 
 export const emptyDispatchFilters: DispatchFilters = {
@@ -115,6 +124,7 @@ export const emptyDispatchFilters: DispatchFilters = {
   dateFrom: '',
   dateTo: '',
   ownerUids: [],
+  dossierRound: '',
 }
 
 export interface MasterDataBundle {

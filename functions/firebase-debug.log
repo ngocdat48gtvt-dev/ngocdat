@@ -1,0 +1,27 @@
+[debug] [2026-07-17T15:44:13.656Z] ----------------------------------------------------------------------
+[debug] [2026-07-17T15:44:13.658Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\PC\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js firestore:indexes
+[debug] [2026-07-17T15:44:13.658Z] CLI Version:   15.19.0
+[debug] [2026-07-17T15:44:13.658Z] Platform:      win32
+[debug] [2026-07-17T15:44:13.658Z] Node Version:  v24.15.0
+[debug] [2026-07-17T15:44:13.658Z] Time:          Fri Jul 17 2026 22:44:13 GMT+0700 (Giờ Đông Dương)
+[debug] [2026-07-17T15:44:13.658Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-07-17T15:44:16.638Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-07-17T15:44:16.638Z] > authorizing via signed-in user (ngocdat48gtvt@gmail.com)
+[debug] [2026-07-17T15:44:16.638Z] [iam] checking project quanlysuco-6797e for permissions ["datastore.indexes.list","firebase.projects.get"]
+[debug] [2026-07-17T15:44:16.639Z] Checked if tokens are valid: true, expires at: 1784306623678
+[debug] [2026-07-17T15:44:16.639Z] Checked if tokens are valid: true, expires at: 1784306623678
+[debug] [2026-07-17T15:44:16.640Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/quanlysuco-6797e:testIamPermissions [none]
+[debug] [2026-07-17T15:44:16.640Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/quanlysuco-6797e:testIamPermissions  x-goog-user-project=quanlysuco-6797e
+[debug] [2026-07-17T15:44:16.640Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/quanlysuco-6797e:testIamPermissions {"permissions":["datastore.indexes.list","firebase.projects.get"]}
+[debug] [2026-07-17T15:44:17.638Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/quanlysuco-6797e:testIamPermissions 200
+[debug] [2026-07-17T15:44:17.638Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/quanlysuco-6797e:testIamPermissions {"permissions":["datastore.indexes.list","firebase.projects.get"]}
+[debug] [2026-07-17T15:44:17.638Z] Checked if tokens are valid: true, expires at: 1784306623678
+[debug] [2026-07-17T15:44:17.638Z] Checked if tokens are valid: true, expires at: 1784306623678
+[debug] [2026-07-17T15:44:17.638Z] >>> [apiv2][query] GET https://firestore.googleapis.com/v1/projects/quanlysuco-6797e/databases/(default)/collectionGroups/-/indexes [none]
+[debug] [2026-07-17T15:44:18.012Z] <<< [apiv2][status] GET https://firestore.googleapis.com/v1/projects/quanlysuco-6797e/databases/(default)/collectionGroups/-/indexes 200
+[debug] [2026-07-17T15:44:18.012Z] <<< [apiv2][body] GET https://firestore.googleapis.com/v1/projects/quanlysuco-6797e/databases/(default)/collectionGroups/-/indexes {"indexes":[{"name":"projects/quanlysuco-6797e/databases/(default)/collectionGroups/incidents/indexes/CICAgOjXh4EK","queryScope":"COLLECTION_GROUP","fields":[{"fieldPath":"date","order":"DESCENDING"},{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}],"state":"READY","density":"SPARSE_ALL"},{"name":"projects/quanlysuco-6797e/databases/(default)/collectionGroups/incidents/indexes/CICAgJiUpoMK","queryScope":"COLLECTION_GROUP","fields":[{"fieldPath":"road","order":"ASCENDING"},{"fieldPath":"date","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}],"state":"READY","density":"SPARSE_ALL"}]}
+[debug] [2026-07-17T15:44:18.013Z] Checked if tokens are valid: true, expires at: 1784306623678
+[debug] [2026-07-17T15:44:18.013Z] Checked if tokens are valid: true, expires at: 1784306623678
+[debug] [2026-07-17T15:44:18.013Z] >>> [apiv2][query] GET https://firestore.googleapis.com/v1/projects/quanlysuco-6797e/databases/(default)/collectionGroups/-/fields?filter=indexConfig.usesAncestorConfig=false OR ttlConfig:* [none]
+[debug] [2026-07-17T15:44:18.123Z] <<< [apiv2][status] GET https://firestore.googleapis.com/v1/projects/quanlysuco-6797e/databases/(default)/collectionGroups/-/fields?filter=indexConfig.usesAncestorConfig=false OR ttlConfig:* 200

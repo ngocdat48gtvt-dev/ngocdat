@@ -469,60 +469,62 @@ function ImageLightbox({
       </div>
 
       <div
-        className="relative flex min-h-0 flex-1 items-center justify-center px-2 sm:px-12"
+        className="flex min-h-0 flex-1 items-center justify-center px-2"
         onClick={(e) => e.stopPropagation()}
       >
-        {items.length > 1 ? (
-          <button
-            type="button"
-            className="absolute left-1 z-10 rounded-full bg-black/50 p-2 text-white transition hover:bg-black/70 sm:left-3"
-            onClick={() => go(-1)}
-            aria-label="Ảnh trước"
-          >
-            <ChevronLeft className="h-7 w-7" />
-          </button>
-        ) : null}
+        <div className="flex max-h-full max-w-full items-center gap-1 sm:gap-2">
+          {items.length > 1 ? (
+            <button
+              type="button"
+              className="shrink-0 rounded-full bg-black/50 p-1.5 text-white transition hover:bg-black/70 sm:p-2"
+              onClick={() => go(-1)}
+              aria-label="Ảnh trước"
+            >
+              <ChevronLeft className="h-6 w-6 sm:h-7 sm:w-7" />
+            </button>
+          ) : null}
 
-        <div className="flex max-h-full max-w-full items-center justify-center p-2">
-          {resolving ? (
-            <div className="flex flex-col items-center gap-3 text-white/80">
-              <Loader2 className="h-10 w-10 animate-spin" />
-              <span className="text-sm">Đang tải…</span>
-            </div>
-          ) : null}
-          {!resolving && (error || errorKind || !displayUrl) ? (
-            <p className="text-sm text-white/70">{errorMessage(errorKind)}</p>
-          ) : null}
-          {displayUrl && !error ? (
-            <img
-              key={displayUrl}
-              src={displayUrl}
-              alt=""
-              className={cn(
-                'max-h-[calc(100dvh-8rem)] max-w-full object-contain transition-opacity duration-200 ease-out',
-                ready ? 'opacity-100' : 'opacity-0',
-              )}
-              draggable={false}
-              onLoad={() => setReady(true)}
-              onError={() => {
-                void refreshOnError().then((ok) => {
-                  if (!ok) setError(true)
-                })
-              }}
-            />
+          <div className="flex min-w-0 max-h-full max-w-full items-center justify-center">
+            {resolving ? (
+              <div className="flex flex-col items-center gap-3 text-white/80">
+                <Loader2 className="h-10 w-10 animate-spin" />
+                <span className="text-sm">Đang tải…</span>
+              </div>
+            ) : null}
+            {!resolving && (error || errorKind || !displayUrl) ? (
+              <p className="text-sm text-white/70">{errorMessage(errorKind)}</p>
+            ) : null}
+            {displayUrl && !error ? (
+              <img
+                key={displayUrl}
+                src={displayUrl}
+                alt=""
+                className={cn(
+                  'max-h-[calc(100dvh-8rem)] max-w-[calc(100vw-5.5rem)] object-contain transition-opacity duration-200 ease-out sm:max-w-[calc(100vw-7rem)]',
+                  ready ? 'opacity-100' : 'opacity-0',
+                )}
+                draggable={false}
+                onLoad={() => setReady(true)}
+                onError={() => {
+                  void refreshOnError().then((ok) => {
+                    if (!ok) setError(true)
+                  })
+                }}
+              />
+            ) : null}
+          </div>
+
+          {items.length > 1 ? (
+            <button
+              type="button"
+              className="shrink-0 rounded-full bg-black/50 p-1.5 text-white transition hover:bg-black/70 sm:p-2"
+              onClick={() => go(1)}
+              aria-label="Ảnh sau"
+            >
+              <ChevronRight className="h-6 w-6 sm:h-7 sm:w-7" />
+            </button>
           ) : null}
         </div>
-
-        {items.length > 1 ? (
-          <button
-            type="button"
-            className="absolute right-1 z-10 rounded-full bg-black/50 p-2 text-white transition hover:bg-black/70 sm:right-3"
-            onClick={() => go(1)}
-            aria-label="Ảnh sau"
-          >
-            <ChevronRight className="h-7 w-7" />
-          </button>
-        ) : null}
       </div>
 
       <div

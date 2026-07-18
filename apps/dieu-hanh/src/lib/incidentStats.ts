@@ -85,11 +85,23 @@ export function applyDispatchFilters(
     if (filters.status) {
       if (dispatchFilterStatus(inc) !== filters.status) return false
       if (filters.status === 'DONE') {
-        return matchesCompletedDateRange(inc, filters.dateFrom, filters.dateTo)
+        if (!matchesCompletedDateRange(inc, filters.dateFrom, filters.dateTo)) {
+          return false
+        }
+      } else if (!matchesDateRange(inc, filters.dateFrom, filters.dateTo)) {
+        return false
       }
+    } else if (!matchesDateRange(inc, filters.dateFrom, filters.dateTo)) {
+      return false
     }
 
-    return matchesDateRange(inc, filters.dateFrom, filters.dateTo)
+    if (filters.dossierRound !== '') {
+      const want = Number(filters.dossierRound)
+      const got = Number(inc.dossierRound) > 0 ? Math.floor(Number(inc.dossierRound)) : 0
+      if (!Number.isFinite(want) || got !== want) return false
+    }
+
+    return true
   })
 }
 

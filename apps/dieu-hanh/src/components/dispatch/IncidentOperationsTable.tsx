@@ -1,5 +1,5 @@
-import { useMemo, useState, type ReactNode } from 'react'
-import { Eye, Pencil, RefreshCw, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Eye, FolderDown, Pencil, RefreshCw, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useDispatch } from '@/context/DispatchContext'
 import { useAuth } from '@/hooks'
@@ -21,7 +21,15 @@ import {
   reworkDispatchTableTextClass,
 } from '@/lib/reworkUtils'
 import { positionLabel } from '@/lib/positionUtils'
-import { softDeleteIncident } from '@/services/incidentsService'
+import {
+  setIncidentsDossierRoundBulk,
+  softDeleteIncident,
+  softDeleteIncidentsBulk,
+} from '@/services/incidentsService'
+import {
+  exportIncidentPhotosZip,
+  type PhotoZipKind,
+} from '@/services/incidentPhotoZipService'
 import { useResizableTableColumns } from '@/hooks/useResizableTableColumns'
 import { IncidentDetailDrawer } from './IncidentDetailDrawer'
 import { IncidentEditDialog } from './IncidentEditDialog'
@@ -32,9 +40,10 @@ import { Table, THead, TR, TD } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 import type { IncidentRecord } from '@/types/incident'
 
-const STORAGE_KEY = 'qlsc-dispatch-ops-col-widths-v7'
+const STORAGE_KEY = 'qlsc-dispatch-ops-col-widths-v8'
 
 type ColId =
+  | 'select'
   | 'user'
   | 'road'
   | 'km'
@@ -48,11 +57,22 @@ type ColId =
   | 'volDat'
   | 'volDa'
   | 'note'
+  | 'dossier'
   | 'rework'
   | 'progress'
   | 'date'
   | 'completedDate'
   | 'actions'
+
+function rowKeyOf(inc: IncidentRecord): string {
+  return `${inc.ownerUid}-${inc.id}`
+}
+
+function dossierLabel(round?: number): string {
+  const n = Number(round)
+  if (!Number.isFinite(n) || n <= 0) return 'Chưa trình'
+  return `Lần ${Math.floor(n)}`
+}
 
 const BASE_COLS: ColId[] = [
   'user',
@@ -68,6 +88,7 @@ const BASE_COLS: ColId[] = [
   'volDa',
   'vol',
   'note',
+  'dossier',
   'progress',
   'date',
   'completedDate',
@@ -75,6 +96,7 @@ const BASE_COLS: ColId[] = [
 ]
 
 const DEFAULT_WIDTHS: Record<ColId, number> = {
+  select: 40,
   user: 128,
   road: 52,
   km: 88,
@@ -88,6 +110,7 @@ const DEFAULT_WIDTHS: Record<ColId, number> = {
   volDat: 64,
   volDa: 64,
   note: 132,
+  dossier: 88,
   progress: 104,
   date: 76,
   completedDate: 76,
@@ -96,12 +119,14 @@ const DEFAULT_WIDTHS: Record<ColId, number> = {
 }
 
 const MIN_WIDTHS: Partial<Record<ColId, number>> = {
+  select: 36,
   user: 72,
   road: 40,
   km: 64,
   side: 48,
   type: 64,
   note: 56,
+  dossier: 64,
   rework: 80,
   progress: 80,
   date: 64,
@@ -117,6 +142,7 @@ const MIN_WIDTHS: Partial<Record<ColId, number>> = {
 }
 
 const HEAD_LABELS: Record<ColId, ReactNode> = {
+  select: '',
   user: 'Người tạo',
   road: 'Tuyến',
   km: 'Lý trình',
@@ -130,6 +156,7 @@ const HEAD_LABELS: Record<ColId, ReactNode> = {
   volDa: 'KL đá',
   vol: 'Khối lượng tổng',
   note: 'Ghi chú',
+  dossier: 'Trình hồ sơ',
   progress: 'Tiến độ',
   date: 'Ngày xảy ra',
   completedDate: 'Hoàn thành',
@@ -150,6 +177,7 @@ export function IncidentOperationsTable() {
   const { user, profile } = useAuth()
   const assignedBy =
     profile?.displayName?.trim() || user?.email?.trim() || 'Admin'
+  const companyId = profile?.companyId?.trim() || undefined
   const duplicateChainageKeys = useMemo(
     () => buildDuplicateChainageKeySet(sorted),
     [sorted],
@@ -161,11 +189,148 @@ export function IncidentOperationsTable() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [reworkTarget, setReworkTarget] = useState<IncidentRecord | null>(null)
   const [reworkOpen, setReworkOpen] = useState(false)
+  const [checkedKeys, setCheckedKeys] = useState<Set<string>>(() => new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkRound, setBulkRound] = useState('1')
 
-  const columnIds = useMemo(
-    (): ColId[] => (isCompanyAdmin ? [...BASE_COLS, 'actions'] : BASE_COLS),
-    [isCompanyAdmin],
+  const columnIds = useMemo((): ColId[] => {
+    const base = isCompanyAdmin ? (['select', ...BASE_COLS, 'actions'] as ColId[]) : BASE_COLS
+    return base
+  }, [isCompanyAdmin])
+
+  const visibleKeySet = useMemo(
+    () => new Set(sorted.map(rowKeyOf)),
+    [sorted],
   )
+
+  useEffect(() => {
+    setCheckedKeys((prev) => {
+      let changed = false
+      const next = new Set<string>()
+      for (const k of prev) {
+        if (visibleKeySet.has(k)) next.add(k)
+        else changed = true
+      }
+      return changed || next.size !== prev.size ? next : prev
+    })
+  }, [visibleKeySet])
+
+  const allVisibleChecked =
+    sorted.length > 0 && sorted.every((inc) => checkedKeys.has(rowKeyOf(inc)))
+  const checkedIncidents = useMemo(
+    () => sorted.filter((inc) => checkedKeys.has(rowKeyOf(inc))),
+    [sorted, checkedKeys],
+  )
+
+  function toggleRow(inc: IncidentRecord, on: boolean) {
+    const key = rowKeyOf(inc)
+    setCheckedKeys((prev) => {
+      const next = new Set(prev)
+      if (on) next.add(key)
+      else next.delete(key)
+      return next
+    })
+  }
+
+  function toggleAllVisible(on: boolean) {
+    if (!on) {
+      setCheckedKeys(new Set())
+      return
+    }
+    setCheckedKeys(new Set(sorted.map(rowKeyOf)))
+  }
+
+  async function handleBulkDelete() {
+    if (checkedIncidents.length === 0) return
+    if (
+      !window.confirm(
+        `Chuyển ${checkedIncidents.length} sự cố vào thùng rác?\n\nGiữ 7 ngày — có thể khôi phục.`,
+      )
+    ) {
+      return
+    }
+    setBulkBusy(true)
+    try {
+      const { ok, fail } = await softDeleteIncidentsBulk(
+        checkedIncidents.map((i) => ({ ownerUid: i.ownerUid, id: i.id })),
+      )
+      if (ok > 0) toast.success(`Đã chuyển ${ok} sự cố vào thùng rác`)
+      if (fail > 0) toast.error(`${fail} sự cố xóa thất bại`)
+      setCheckedKeys(new Set())
+      reload()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Xóa hàng loạt thất bại')
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  async function handleBulkSetRound() {
+    if (checkedIncidents.length === 0) return
+    const round = Number(bulkRound)
+    if (!Number.isFinite(round) || round < 0) {
+      toast.error('Lần trình hồ sơ không hợp lệ')
+      return
+    }
+    const label = dossierLabel(round)
+    if (
+      !window.confirm(
+        `Gán «${label}» cho ${checkedIncidents.length} sự cố đã chọn?`,
+      )
+    ) {
+      return
+    }
+    setBulkBusy(true)
+    try {
+      const { ok, fail } = await setIncidentsDossierRoundBulk(
+        checkedIncidents.map((i) => ({
+          ownerUid: i.ownerUid,
+          id: i.id,
+          companyId: i.companyId,
+        })),
+        round,
+        companyId,
+      )
+      if (ok > 0) toast.success(`Đã gán ${label} cho ${ok} sự cố`)
+      if (fail > 0) toast.error(`${fail} sự cố cập nhật thất bại`)
+      setCheckedKeys(new Set())
+      reload()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Cập nhật thất bại')
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  async function handleBulkExportPhotos(kind: PhotoZipKind) {
+    if (checkedIncidents.length === 0) return
+    setBulkBusy(true)
+    const tip =
+      kind === 'before'
+        ? 'ảnh hiện trạng'
+        : kind === 'after'
+          ? 'ảnh xử lý'
+          : 'ảnh hiện trạng + xử lý'
+    const toastId = toast.loading(`Đang đóng gói ${tip}…`)
+    try {
+      const { fileCount, skipped } = await exportIncidentPhotosZip(
+        checkedIncidents,
+        kind,
+      )
+      toast.success(
+        skipped > 0
+          ? `Đã xuất ${fileCount} ảnh (${skipped} bỏ qua)`
+          : `Đã xuất ${fileCount} ảnh`,
+        { id: toastId },
+      )
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Xuất ảnh thất bại', {
+        id: toastId,
+      })
+    } finally {
+      setBulkBusy(false)
+    }
+  }
 
   const { widths, colStyle, totalWidth, startResize } = useResizableTableColumns(
     columnIds,
@@ -234,6 +399,27 @@ export function IncidentOperationsTable() {
     const bg = locationHighlightClass(inc, col)
 
     switch (col) {
+      case 'select': {
+        const key = rowKeyOf(inc)
+        const on = checkedKeys.has(key)
+        return (
+          <TD
+            key={col}
+            className={cn(cellBorder, cellBg, 'px-1 text-center')}
+            style={colStyle(col)}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              className="h-4 w-4 cursor-pointer accent-primary"
+              checked={on}
+              disabled={bulkBusy}
+              aria-label={`Chọn sự cố ${inc.road ?? ''} ${inc.km ?? ''}`}
+              onChange={(e) => toggleRow(inc, e.target.checked)}
+            />
+          </TD>
+        )
+      }
       case 'user':
         return (
           <TD
@@ -378,6 +564,21 @@ export function IncidentOperationsTable() {
             {inc.note?.trim() || '—'}
           </TD>
         )
+      case 'dossier': {
+        const round = Number(inc.dossierRound) > 0 ? Math.floor(Number(inc.dossierRound)) : 0
+        const label = dossierLabel(round)
+        return (
+          <TD key={col} className={cn(cellBorder, cellBg)} style={colStyle(col)}>
+            {round > 0 ? (
+              <Badge variant="default" className="w-fit text-[10px]">
+                {label}
+              </Badge>
+            ) : (
+              <span className="text-xs text-muted-foreground">{label}</span>
+            )}
+          </TD>
+        )
+      }
       case 'progress':
         return (
           <TD key={col} className={cn(cellBorder, cellBg)} style={colStyle(col)}>
@@ -524,6 +725,91 @@ export function IncidentOperationsTable() {
   return (
     <>
       <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        {isCompanyAdmin && checkedIncidents.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-2 border-b border-border bg-primary/5 px-3 py-2">
+            <span className="text-sm font-medium tabular-nums">
+              Đã chọn {checkedIncidents.length}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={bulkBusy}
+              onClick={() => setCheckedKeys(new Set())}
+            >
+              Bỏ chọn
+            </Button>
+            <div className="mx-1 h-5 w-px bg-border" />
+            <select
+              className="h-8 rounded-md border border-border bg-background px-2 text-sm"
+              value={bulkRound}
+              disabled={bulkBusy}
+              aria-label="Chọn lần trình hồ sơ"
+              onChange={(e) => setBulkRound(e.target.value)}
+            >
+              <option value="0">Chưa trình</option>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                <option key={n} value={String(n)}>
+                  Lần {n}
+                </option>
+              ))}
+            </select>
+            <Button
+              type="button"
+              size="sm"
+              disabled={bulkBusy}
+              onClick={() => void handleBulkSetRound()}
+            >
+              Gán lần trình
+            </Button>
+            <div className="mx-1 h-5 w-px bg-border" />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              disabled={bulkBusy}
+              onClick={() => void handleBulkExportPhotos('before')}
+            >
+              <FolderDown className="h-3.5 w-3.5" />
+              Ảnh hiện trạng
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              disabled={bulkBusy}
+              onClick={() => void handleBulkExportPhotos('after')}
+            >
+              <FolderDown className="h-3.5 w-3.5" />
+              Ảnh xử lý
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              disabled={bulkBusy}
+              onClick={() => void handleBulkExportPhotos('both')}
+            >
+              <FolderDown className="h-3.5 w-3.5" />
+              Cả hai
+            </Button>
+            <div className="mx-1 h-5 w-px bg-border" />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1 text-destructive hover:bg-destructive/10"
+              disabled={bulkBusy}
+              onClick={() => void handleBulkDelete()}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Xóa đã chọn
+            </Button>
+          </div>
+        ) : null}
         {loading ? (
           <div className="space-y-2 p-4">
             <Skeleton className="h-10 w-full" />
@@ -549,16 +835,29 @@ export function IncidentOperationsTable() {
                       colId={id}
                       width={widths[id] ?? DEFAULT_WIDTHS[id]}
                       onResizeStart={startResize}
-                      resizable
+                      resizable={id !== 'select'}
                       className={
                         id === 'vol' || id === 'volDat' || id === 'volDa'
                           ? 'text-[10px] uppercase tracking-wide'
                           : id === 'rework'
                             ? 'bg-slate-100 dark:bg-slate-900/60'
-                            : undefined
+                            : id === 'select'
+                              ? 'px-1 text-center'
+                              : undefined
                       }
                     >
-                      {HEAD_LABELS[id]}
+                      {id === 'select' ? (
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 cursor-pointer accent-primary"
+                          checked={allVisibleChecked}
+                          disabled={bulkBusy || sorted.length === 0}
+                          aria-label="Chọn tất cả trên trang lọc"
+                          onChange={(e) => toggleAllVisible(e.target.checked)}
+                        />
+                      ) : (
+                        HEAD_LABELS[id]
+                      )}
                     </ResizableTh>
                   ))}
                 </TR>

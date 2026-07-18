@@ -79,12 +79,17 @@ export async function fetchCompanyOfficeUsers(
   )
 }
 
-/** Mọi user thuộc công ty (kể cả inactive) — dùng tải sự cố ADMIN. */
+/**
+ * UID thành viên đang hoạt động trong công ty.
+ * User bị khóa (active !== true) không còn hiện trên điều hành / thùng rác.
+ */
 export async function fetchCompanyMemberUids(companyId: string): Promise<string[]> {
   if (!companyId) return []
   const q = query(collection(db, 'users'), where('companyId', '==', companyId))
   const snap = await getDocs(q)
-  return snap.docs.map((d) => d.id)
+  return snap.docs
+    .filter((d) => (d.data() as Record<string, unknown>).active === true)
+    .map((d) => d.id)
 }
 
 export function buildUserNameMap(users: CompanyUserEntry[]): Record<string, string> {

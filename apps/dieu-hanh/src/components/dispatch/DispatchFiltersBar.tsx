@@ -74,6 +74,15 @@ export function DispatchFiltersBar({ compact = false }: { compact?: boolean }) {
     setFilters((f) => ({ ...f, ownerUids: valid }))
   }, [ownerUidOptions, filters.ownerUids, setFilters])
 
+  const dossierRoundOptions = useMemo(() => {
+    const rounds = new Set<number>()
+    for (const inc of items) {
+      const n = Number(inc.dossierRound)
+      if (Number.isFinite(n) && n > 0) rounds.add(Math.floor(n))
+    }
+    return [...rounds].sort((a, b) => a - b)
+  }, [items])
+
   const activeCount = [
     filters.roads.length > 0 ? 'roads' : '',
     filters.chainageQuery.trim() ? 'chainage' : '',
@@ -83,6 +92,7 @@ export function DispatchFiltersBar({ compact = false }: { compact?: boolean }) {
     filters.dateFrom,
     filters.dateTo,
     filters.ownerUids.length > 0 ? 'owners' : '',
+    filters.dossierRound !== '' ? 'dossier' : '',
   ].filter(Boolean).length
 
   const filterByCompletedDate = filters.status === 'DONE'
@@ -107,7 +117,7 @@ export function DispatchFiltersBar({ compact = false }: { compact?: boolean }) {
       ) : null}
       <div
         className={cn(
-          'grid sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8',
+          'grid sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-9',
           compact ? 'gap-2 p-2' : 'gap-4 p-4',
         )}
       >
@@ -209,6 +219,32 @@ export function DispatchFiltersBar({ compact = false }: { compact?: boolean }) {
             <option value="NEW">Chưa xử lý</option>
             <option value="PARTIAL">Đang xử lý</option>
             <option value="DONE">Hoàn thành</option>
+          </select>
+        </FilterField>
+        <FilterField label="Trình hồ sơ" compact={compact}>
+          <select
+            className={selectClass}
+            value={filters.dossierRound}
+            onChange={(e) =>
+              setFilters((f) => ({ ...f, dossierRound: e.target.value }))
+            }
+            aria-label="Lần trình hồ sơ"
+          >
+            <option value="">Tất cả lần</option>
+            <option value="0">Chưa trình</option>
+            {dossierRoundOptions.map((n) => (
+              <option key={n} value={String(n)}>
+                Lần {n}
+              </option>
+            ))}
+            {/* Cho phép lọc lần chưa có trong data hiện tại (vd. vừa gán) */}
+            {[1, 2, 3, 4, 5]
+              .filter((n) => !dossierRoundOptions.includes(n))
+              .map((n) => (
+                <option key={`extra-${n}`} value={String(n)}>
+                  Lần {n}
+                </option>
+              ))}
           </select>
         </FilterField>
         <FilterField label="Người tạo (tên)" compact={compact}>
