@@ -96,3 +96,16 @@ export function applyPermitUpdates(permits, updates) {
     return next === p ? p : next;
   });
 }
+
+/** Dòng BM01 có dữ liệu nhập (bất kỳ cột nào ngoài STT). */
+export function isPermitRowFilled(permit) {
+  return SUMMARY_FIELD_KEYS.some((field) => {
+    if (!field) return false;
+    return String(permit?.[field] ?? "").trim() !== "";
+  });
+}
+
+/** Số công trình thực sự đã kê (không tính dòng trống). */
+export function countFilledPermits(permits) {
+  return (permits || []).filter(isPermitRowFilled).length;
+}

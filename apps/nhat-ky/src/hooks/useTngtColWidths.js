@@ -52,6 +52,14 @@ function loadWidths() {
   }
 }
 
+export function getTngtColWidths() {
+  return loadWidths();
+}
+
+export function sumTngtCols(widths) {
+  return TNGT_COLS.reduce((s, c) => s + (widths[c.key] || 0), 0);
+}
+
 export function useTngtColWidths() {
   const [widths, setWidths] = useState(loadWidths);
 

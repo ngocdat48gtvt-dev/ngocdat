@@ -266,9 +266,78 @@ export function webDisplayImageUrls(pool: string[]): string[] {
     }
     if (s.startsWith('http') && !prev.startsWith('http')) {
       byToken.set(token, s)
+    } else if (s.startsWith('http') && prev.startsWith('http')) {
+      byToken.set(token, preferOriginalCloudUrl(prev, s))
     }
   }
   return [...byToken.values()].filter((s) => !isLocalOnlyForWeb(s))
+}
+
+/** Millis upload trong tên file Storage — chọn bản gốc (upload sớm nhất). */
+export function uploadMillisFromPath(path: string): number | null {
+  let name = (path ?? '').trim().split(/[?#]/)[0]
+  const slash = name.lastIndexOf('/')
+  if (slash >= 0) name = name.slice(slash + 1)
+  try {
+    name = decodeURIComponent(name)
+  } catch {
+    /* giữ nguyên */
+  }
+  const m = /^(\d{13})/.exec(name)
+  if (!m) return null
+  const n = Number(m[1])
+  return Number.isFinite(n) ? n : null
+}
+
+/** Giữ URL upload sớm hơn khi trùng photoToken (ảnh gốc = timestamp nhỏ nhất trong tên file). */
+export function preferOriginalCloudUrl(current: string, candidate: string): string {
+  if (!current.startsWith('http')) return candidate.startsWith('http') ? candidate : current
+  if (!candidate.startsWith('http')) return current
+  const a = uploadMillisFromPath(current)
+  const b = uploadMillisFromPath(candidate)
+  if (a != null && b != null && a !== b) return a < b ? current : candidate
+  return current
+}
+
+/** Khử trùng URL trên Firestore — giữ bản gốc (khớp app). */
+export function dedupeCloudUrls(urls: string[]): string[] {
+  const result: string[] = []
+  const byToken = new Map<string, number>()
+  for (const raw of urls || []) {
+    const url = String(raw || '').trim()
+    if (!url.startsWith('http')) continue
+    const dupIdx = result.findIndex((e) => isSamePhotoUrl(e, url))
+    if (dupIdx >= 0) {
+      result[dupIdx] = preferOriginalCloudUrl(result[dupIdx], url)
+      continue
+    }
+    const pt = photoToken(url)
+    if (pt) {
+      const tokenIdx = byToken.get(pt)
+      if (tokenIdx != null) {
+        result[tokenIdx] = preferOriginalCloudUrl(result[tokenIdx], url)
+        continue
+      }
+    }
+    const idx = result.length
+    result.push(url)
+    if (pt) byToken.set(pt, idx)
+  }
+  return result
+}
+
+export function hasDuplicateCloudUrls(urls: string[]): boolean {
+  const http = (urls || []).map((u) => String(u || '').trim()).filter((u) => u.startsWith('http'))
+  return dedupeCloudUrls(http).length < http.length
+}
+
+/** Pool ảnh hiển thị gallery — khớp app sau khi gộp trùng. */
+export function incidentGalleryBeforeUrls(inc: IncidentRecord): string[] {
+  return webDisplayImageUrls(dedupeCloudUrls(beforeConstructionImages(inc)))
+}
+
+export function incidentGalleryAfterUrls(inc: IncidentRecord): string[] {
+  return webDisplayImageUrls(dedupeCloudUrls(afterConstructionImages(inc)))
 }
 
 export function countHiddenLocalImages(pool: string[]): number {

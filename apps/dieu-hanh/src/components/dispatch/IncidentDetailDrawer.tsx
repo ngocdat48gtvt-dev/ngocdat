@@ -13,6 +13,8 @@ import {
   computeKhoiLuong,
   countHiddenLocalImages,
   encodeReportImageOrder,
+  incidentGalleryAfterUrls,
+  incidentGalleryBeforeUrls,
   legacyRefsFromReportSlots,
   progressLabel,
   reportImageSlots,
@@ -22,10 +24,13 @@ import {
   statusFromProgress,
   toggleReportImageSlot,
   type ReportImageSlot,
-  webDisplayImageUrls,
 } from '@/lib/incidentUtils'
 import { updateReportImageSelection } from '@/services/incidentsService'
 import { removeIncidentImage } from '@/services/incidentPhotoService'
+import {
+  cleanupDuplicatePhotosOnCloud,
+  incidentNeedsPhotoCleanup,
+} from '@/services/incidentPhotoCleanupService'
 import {
   canAssignRework,
   getIncidentRework,
@@ -57,8 +62,8 @@ export function IncidentDetailDrawer({
 
   const beforeAll = localIncident ? beforeConstructionImages(localIncident) : []
   const afterAll = localIncident ? afterConstructionImages(localIncident) : []
-  const beforeUrls = webDisplayImageUrls(beforeAll)
-  const afterUrls = webDisplayImageUrls(afterAll)
+  const beforeUrls = localIncident ? incidentGalleryBeforeUrls(localIncident) : []
+  const afterUrls = localIncident ? incidentGalleryAfterUrls(localIncident) : []
   const hiddenPhotoCount =
     countHiddenLocalImages(beforeAll) + countHiddenLocalImages(afterAll)
 
@@ -68,6 +73,39 @@ export function IncidentDetailDrawer({
     setReportSlots(reportImageSlots(incident))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incident?.id, open, incident])
+
+  /** Tự dọn URL trùng trên Firestore — giữ ảnh gốc (upload sớm nhất). */
+  useEffect(() => {
+    if (!open || !incident || !user) return
+    if (!incidentNeedsPhotoCleanup(incident)) return
+    if (!isCompanyAdmin && incident.ownerUid !== user.uid) return
+
+    let cancelled = false
+    void (async () => {
+      try {
+        const result = await cleanupDuplicatePhotosOnCloud(
+          incident.ownerUid,
+          incident.id,
+          incident,
+        )
+        if (cancelled || !result) return
+        setLocalIncident({
+          ...incident,
+          beforeImages: result.beforeImages,
+          afterImages: result.afterImages,
+        })
+        if (result.removed > 0) {
+          toast.success(`Đã gọn ${result.removed} ảnh trùng (giữ bản gốc)`)
+          reload()
+        }
+      } catch {
+        /* gallery vẫn dedupe để hiển thị */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [incident, open, isCompanyAdmin, user, reload])
 
   async function persistReportSlots(nextSlots: ReportImageSlot[]) {
     if (!localIncident) return

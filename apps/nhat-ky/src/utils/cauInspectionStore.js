@@ -5,6 +5,8 @@ import { formatContentCol, formatDisplayDate } from "./nhatKyFormat";
  * Phiếu kiểm tra thường xuyên cầu — 1 cầu × 1 tháng = 1 tờ A4 dọc.
  * Số dòng = số ngày trong tháng (vd. tháng 6 → 30).
  * Key: cau-inspection-v2-{uid}__{roadId}__{bridgeId}__{yyyy-mm}
+ *
+ * Đơn vị nhận quản lý… lưu chung theo sổ (hạt/đường) — mọi cầu, mọi tháng.
  */
 
 export const CAU_INSPECTION_EVENT = "cau-inspection-changed";
@@ -12,6 +14,7 @@ export const NO_DAMAGE_TEXT = "Không phát sinh hư hỏng";
 
 const LEGACY_PREFIX = "cau-inspection-v1-";
 const PREFIX = "cau-inspection-v2-";
+const ROAD_META_PREFIX = "cau-inspection-road-meta-v1-";
 
 function sheetKey(uid, roadId, bridgeId, yearMonth) {
   return `${PREFIX}${uid}__${roadId}__${bridgeId}__${yearMonth}`;
@@ -19,6 +22,10 @@ function sheetKey(uid, roadId, bridgeId, yearMonth) {
 
 function legacyKey(uid, roadId, bridgeId, yearMonth) {
   return `${LEGACY_PREFIX}${uid}__${roadId}__${bridgeId}__${yearMonth}`;
+}
+
+function roadMetaKey(uid, roadId) {
+  return `${ROAD_META_PREFIX}${uid}__${roadId}`;
 }
 
 export function daysInMonth(yearMonth) {
@@ -105,6 +112,85 @@ export function yearMonthFromDate(isoDate) {
   return d.slice(0, 7);
 }
 
+/** Meta chung của sổ KT cầu (theo hạt) — đơn vị QL duy tu. */
+export function loadCauRoadMeta(uid, roadId) {
+  if (!uid || !roadId) return { unitName: "" };
+  try {
+    const raw = JSON.parse(localStorage.getItem(roadMetaKey(uid, roadId)) || "null");
+    return {
+      unitName: String(raw?.unitName || "").trim()
+    };
+  } catch {
+    return { unitName: "" };
+  }
+}
+
+export function saveCauRoadMeta(uid, roadId, meta, { silent = false } = {}) {
+  if (!uid || !roadId) return loadCauRoadMeta(uid, roadId);
+  const next = {
+    unitName: String(meta?.unitName ?? "").trim()
+  };
+  localStorage.setItem(roadMetaKey(uid, roadId), JSON.stringify(next));
+  if (!silent && typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(CAU_INSPECTION_EVENT, { detail: { roadMeta: true, roadId } })
+    );
+  }
+  return next;
+}
+
+/** Liệt kê mọi tờ phiếu local của 1 sổ (hạt). */
+export function listCauInspectionLocalKeys(uid, roadId) {
+  if (!uid || !roadId || typeof localStorage === "undefined") return [];
+  const needle = `${PREFIX}${uid}__${roadId}__`;
+  const out = [];
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (!key || !key.startsWith(needle)) continue;
+    const rest = key.slice(needle.length);
+    const sep = rest.lastIndexOf("__");
+    if (sep <= 0) continue;
+    const bridgeId = rest.slice(0, sep);
+    const yearMonth = rest.slice(sep + 2);
+    if (bridgeId && /^\d{4}-\d{2}$/.test(yearMonth)) {
+      out.push({ key, bridgeId, yearMonth });
+    }
+  }
+  return out;
+}
+
+/**
+ * Ghi đơn vị QL vào meta sổ + lan sang mọi cầu / mọi tháng đã có local.
+ * Firebase đồng bộ qua useCauInspectionSync.
+ */
+export function persistCauRoadUnitName(uid, roadId, unitName) {
+  if (!uid || !roadId) return "";
+  const name = String(unitName || "").trim();
+  saveCauRoadMeta(uid, roadId, { unitName: name }, { silent: true });
+
+  listCauInspectionLocalKeys(uid, roadId).forEach(({ key, bridgeId, yearMonth }) => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(key) || "null") || {};
+      const next = normalizeSheet(
+        { ...raw, unitName: name },
+        { bridgeId, yearMonth, unitName: name }
+      );
+      localStorage.setItem(key, JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
+  });
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(CAU_INSPECTION_EVENT, {
+        detail: { roadMeta: true, unitName: name, roadId }
+      })
+    );
+  }
+  return name;
+}
+
 export function loadCauInspectionSheet(uid, roadId, bridgeId, yearMonth) {
   if (!uid || !roadId || !bridgeId || !yearMonth) {
     return normalizeSheet({}, { bridgeId, yearMonth });
@@ -118,7 +204,18 @@ export function loadCauInspectionSheet(uid, roadId, bridgeId, yearMonth) {
       const v1 = localStorage.getItem(legacyKey(uid, roadId, bridgeId, yearMonth));
       if (v1) raw = JSON.parse(v1);
     }
-    return normalizeSheet(raw || {}, { bridgeId, yearMonth });
+    let roadMeta = loadCauRoadMeta(uid, roadId);
+    // Migrate: tờ cũ đã có unitName → nâng lên meta sổ
+    if (!roadMeta.unitName && raw?.unitName) {
+      roadMeta = saveCauRoadMeta(uid, roadId, { unitName: raw.unitName }, { silent: true });
+    }
+    const sheet = normalizeSheet(raw || {}, {
+      bridgeId,
+      yearMonth,
+      unitName: roadMeta.unitName || raw?.unitName
+    });
+    if (roadMeta.unitName) sheet.unitName = roadMeta.unitName;
+    return sheet;
   } catch {
     return normalizeSheet({}, { bridgeId, yearMonth });
   }
@@ -126,12 +223,17 @@ export function loadCauInspectionSheet(uid, roadId, bridgeId, yearMonth) {
 
 export function saveCauInspectionSheet(uid, roadId, bridgeId, yearMonth, sheet) {
   if (!uid || !roadId || !bridgeId || !yearMonth) return sheet;
+  const unitFromSheet = String(sheet?.unitName || "").trim();
+  if (unitFromSheet) {
+    persistCauRoadUnitName(uid, roadId, unitFromSheet);
+  }
+  const roadMeta = loadCauRoadMeta(uid, roadId);
   const next = normalizeSheet(sheet, {
     bridgeId,
     bridgeName: sheet?.bridgeName,
     km: sheet?.km,
     yearMonth,
-    unitName: sheet?.unitName,
+    unitName: roadMeta.unitName || unitFromSheet,
     tuanDuongDefault: sheet?.tuanDuongDefault,
     tuanKiemDefault: sheet?.tuanKiemDefault
   });
@@ -156,7 +258,6 @@ export function applyPassedDaysDefaults(sheet, { todayIso = todayIsoLocal() } = 
     const date = row.date;
     if (!date || date >= todayIso) return row;
     const next = { ...row };
-    // Form trái luôn đồng bộ sang cột họ tên ngày đã qua
     if (tuanDuong) next.tuanDuongName = tuanDuong;
     if (tuanKiem) next.tuanKiemName = tuanKiem;
     const hasRealDamage =

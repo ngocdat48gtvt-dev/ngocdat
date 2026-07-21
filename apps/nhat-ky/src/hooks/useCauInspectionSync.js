@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef } from "react";
 import {
-  fetchCauInspections,
+  fetchCauInspectionsModule,
   pushCauInspections,
   cauInspectionSheetId
 } from "../services/cauInspectionService";
 import {
   CAU_INSPECTION_EVENT,
   loadCauInspectionSheet,
+  loadCauRoadMeta,
+  persistCauRoadUnitName,
   saveCauInspectionSheet
 } from "../utils/cauInspectionStore";
 
@@ -47,7 +49,6 @@ function applyRemoteSheets(uid, roadId, remoteSheets) {
     const bridgeId = id.slice(0, sep);
     const yearMonth = id.slice(sep + 2);
     if (!bridgeId || !/^\d{4}-\d{2}$/.test(yearMonth)) return;
-    // Ghi local không phát event để tránh vòng push
     const key = `${PREFIX}${uid}__${roadId}__${bridgeId}__${yearMonth}`;
     try {
       localStorage.setItem(key, JSON.stringify(sheet));
@@ -60,6 +61,7 @@ function applyRemoteSheets(uid, roadId, remoteSheets) {
 /**
  * Hydrate/push phiếu KT cầu theo office_books/{roadId}/modules/cau_inspections.
  * Logic local vẫn theo hạt (roadId) + cầu + tháng (ngày trong tờ).
+ * roadMeta.unitName — chung mọi cầu / mọi tháng.
  */
 export function useCauInspectionSync({
   uid,
@@ -77,8 +79,9 @@ export function useCauInspectionSync({
   const flushPush = useCallback(async () => {
     if (!canPush || !uid || !roadId) return;
     const sheets = collectLocalSheets(uid, roadId);
-    if (!Object.keys(sheets).length) return;
-    await pushCauInspections(uid, roadId, sheets);
+    const roadMeta = loadCauRoadMeta(uid, roadId);
+    if (!Object.keys(sheets).length && !roadMeta.unitName) return;
+    await pushCauInspections(uid, roadId, sheets, roadMeta);
   }, [canPush, uid, roadId]);
 
   const schedulePush = useCallback(() => {
@@ -99,20 +102,52 @@ export function useCauInspectionSync({
     async function hydrate() {
       hydratingRef.current = true;
       try {
-        const remote = await fetchCauInspections(uid, roadId);
+        const remote = await fetchCauInspectionsModule(uid, roadId);
         if (cancelled) return;
-        const remoteCount = Object.keys(remote).length;
+        const remoteSheets = remote.sheets || {};
+        const remoteCount = Object.keys(remoteSheets).length;
         const local = collectLocalSheets(uid, roadId);
         const localCount = Object.keys(local).length;
+        const localMeta = loadCauRoadMeta(uid, roadId);
+        let remoteUnit = String(remote.roadMeta?.unitName || "").trim();
+        // Module cũ chưa có roadMeta — suy từ tờ bất kỳ
+        if (!remoteUnit) {
+          for (const s of Object.values(remoteSheets)) {
+            const u = String(s?.unitName || "").trim();
+            if (u) {
+              remoteUnit = u;
+              break;
+            }
+          }
+        }
+
+        const adoptRemoteUnit = Boolean(remoteUnit && (browseMode || !localMeta.unitName));
 
         if (remoteCount) {
-          // Browse: luôn lấy cloud của user; USER: merge giữ local mới hơn
-          const merged = browseMode ? { ...remote } : { ...remote, ...local };
+          const merged = browseMode ? { ...remoteSheets } : { ...remoteSheets, ...local };
           applyRemoteSheets(uid, roadId, merged);
-          if (canPush && !browseMode) await pushCauInspections(uid, roadId, merged);
+          if (adoptRemoteUnit) {
+            persistCauRoadUnitName(uid, roadId, remoteUnit);
+          }
+          const meta = loadCauRoadMeta(uid, roadId);
+          if (canPush && !browseMode) {
+            await pushCauInspections(uid, roadId, collectLocalSheets(uid, roadId), meta);
+          }
           onHydratedRef.current?.();
-        } else if (localCount && canPush) {
-          await pushCauInspections(uid, roadId, local);
+        } else {
+          if (adoptRemoteUnit) {
+            persistCauRoadUnitName(uid, roadId, remoteUnit);
+          }
+          if ((localCount || localMeta.unitName || adoptRemoteUnit) && canPush) {
+            await pushCauInspections(
+              uid,
+              roadId,
+              collectLocalSheets(uid, roadId),
+              loadCauRoadMeta(uid, roadId)
+            );
+          } else {
+            onHydratedRef.current?.();
+          }
         }
       } catch (err) {
         console.warn("Không hydrate được phiếu KT cầu.", err);
@@ -154,5 +189,4 @@ export function writeCauInspectionLocalSilent(uid, roadId, bridgeId, yearMonth, 
   localStorage.setItem(key, JSON.stringify(sheet));
 }
 
-// Giữ save có event cho UI — hydrate silent dùng write ở trên
 void saveCauInspectionSheet;

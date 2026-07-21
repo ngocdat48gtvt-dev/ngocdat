@@ -3,9 +3,11 @@
 import {
   formatEntryVolumeLine,
   formatPhatSinhDiaryContent,
+  formatTypeWithMeasureDiary,
   inferEntryUnit,
   isNoteQtyDiarySection,
   isPhatSinhDiarySection,
+  isMeasureDiarySection,
   normalizePhatSinhDiaryLine,
   resolveEntryQuantity
 } from "./incidentUtils";
@@ -219,8 +221,8 @@ export function formatContentCol(item, dayWeather) {
   if (isPhatSinhDiarySection(entry.section)) {
     const line = formatPhatSinhDiaryContent(entry);
     if (line) parts.push(line);
-    // ATGT / Cột mốc: ghi chú đã gộp vào dòng nội dung — không lặp lại.
-    if (isNoteQtyDiarySection(entry.section)) {
+    // Mặt/nền/lề + ATGT/mốc: đã gộp KT + KL — không nối thêm content cũ kiểu «Phát sinh».
+    if (isNoteQtyDiarySection(entry.section) || isMeasureDiarySection(entry.section)) {
       return parts.join("\n") || "";
     }
     const extra = String(item.content || "").trim();
@@ -233,8 +235,12 @@ export function formatContentCol(item, dayWeather) {
 
   const typeLabel = item.sourceIncidentType || item.type;
   if (typeLabel) {
-    const volumeLine = formatEntryVolumeLine(item);
-    parts.push(volumeLine ? `${typeLabel}\n${volumeLine}` : typeLabel);
+    if (isMeasureDiarySection(entry.section)) {
+      parts.push(formatTypeWithMeasureDiary(typeLabel, entry));
+    } else {
+      const volumeLine = formatEntryVolumeLine(item);
+      parts.push(volumeLine ? `${typeLabel}\n${volumeLine}` : typeLabel);
+    }
   }
   if (item.content) parts.push(item.content);
   return parts.join("\n") || "";

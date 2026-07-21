@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { PageHeader } from '@/components/common/PageParts'
 import { OfficeBooksCatalogCard } from '@/components/dispatch/OfficeBooksCatalogCard'
+import { UserRoadsCatalogCard } from '@/components/dispatch/UserRoadsCatalogCard'
 import { Dialog } from '@/components/ui/dialog'
 import { Badge, Button, Card, Label, Textarea } from '@/components/ui/primitives'
 import {
@@ -302,7 +303,7 @@ export function DispatchCatalogPage() {
       ) : null}
       <PageHeader
         title="Quản lý danh mục"
-        description="Tuyến đường & nhóm sự cố đồng bộ app hiện trường; danh mục sổ nội nghiệp (hạt) gán cho từng USER."
+        description="Tuyến chung công ty + gán tuyến theo USER (app); nhóm/loại đồng bộ app; sổ nội nghiệp theo hạt."
         action={
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" size="sm" disabled={loading} onClick={() => void loadCatalog()}>
@@ -361,7 +362,7 @@ export function DispatchCatalogPage() {
               </div>
               <div>
                 <h2 className="font-semibold">Tuyến đường</h2>
-                <p className="text-xs text-muted-foreground">{stats.roads} tuyến · App chỉ chọn, không tự thêm</p>
+                <p className="text-xs text-muted-foreground">{stats.roads} tuyến · Danh sách gốc — web điều hành + tick gán USER bên dưới</p>
               </div>
             </div>
             <div className="overflow-hidden rounded-lg border border-border">
@@ -555,7 +556,10 @@ export function DispatchCatalogPage() {
       )}
 
       {!loading && profile?.companyId ? (
-        <OfficeBooksCatalogCard companyId={profile.companyId} />
+        <>
+          <UserRoadsCatalogCard companyId={profile.companyId} companyRoads={bundle.roads} />
+          <OfficeBooksCatalogCard companyId={profile.companyId} />
+        </>
       ) : null}
 
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 p-3 backdrop-blur lg:hidden">

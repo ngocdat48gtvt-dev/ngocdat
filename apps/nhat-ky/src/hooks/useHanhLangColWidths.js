@@ -7,7 +7,7 @@ export const HANH_LANG_COLS = [
   { key: "hl3", label: "Vi phạm", defaultWidth: 96, min: 72, max: 150 },
   { key: "hl4", label: "Địa chỉ", defaultWidth: 96, min: 72, max: 160 },
   { key: "hl5", label: "Lý trình", defaultWidth: 68, min: 56, max: 120 },
-  { key: "hl6", label: "Ngày lập BB", defaultWidth: 68, min: 56, max: 90 },
+  { key: "hl6", label: "Ngày lập BB", defaultWidth: 78, min: 64, max: 110 },
   { key: "hl7", label: "Nội dung", defaultWidth: 175, min: 120, max: 280 },
   { key: "hl8", label: "Diện tích", defaultWidth: 78, min: 56, max: 120 },
   { key: "hl9", label: "Theo dõi xử lý", defaultWidth: 165, min: 110, max: 220 },
@@ -59,6 +59,14 @@ export function hanhLangEntryColWidths() {
 
 export function hanhLangEntryTableMinWidth() {
   return Object.values(hanhLangEntryColWidths()).reduce((sum, w) => sum + w, 0);
+}
+
+export function getHanhLangColWidths() {
+  return loadWidths();
+}
+
+export function sumHanhLangCols(widths) {
+  return HANH_LANG_COLS.reduce((s, c) => s + (widths[c.key] || 0), 0);
 }
 
 export function useHanhLangColWidths() {

@@ -129,11 +129,43 @@ function formatQtyNumber(value) {
   return n.toLocaleString("vi-VN", { maximumFractionDigits: 2 });
 }
 
+/** Số thập phân dấu chấm (0.4) — dùng khi ghi sổ cột 3. */
+function formatQtyNumberDot(value) {
+  const n = Number(String(value).replace(",", "."));
+  if (!Number.isFinite(n) || n <= 0) return "";
+  if (Math.abs(n - Math.round(n)) < 0.001) return String(Math.round(n));
+  const s = String(Math.round(n * 100) / 100);
+  return s.replace(/(\.\d*?[1-9])0+$/u, "$1").replace(/\.$/u, "");
+}
+
+/** Đơn vị ASCII trên sổ: m3 / m2 (không superscript). */
+function formatUnitDiary(unit) {
+  const u = String(unit || "").trim();
+  if (u === "m3" || u === "m³") return "m3";
+  if (u === "m2" || u === "m²") return "m2";
+  return formatUnitDisplay(unit) || u;
+}
+
 export const ATGT_SECTION = "Công trình an toàn giao thông";
 export const COT_MOC_SECTION = "Cột mốc GP mặt bằng, lộ giới";
 
 /** Form đơn giản: không Dài/Rộng/Cao, có Ghi chú, lý trình cuối tùy chọn. */
 export const NOTE_QTY_DIARY_SECTIONS = new Set([ATGT_SECTION, COT_MOC_SECTION]);
+
+/** Cống / ngầm / mốc / ATGT / mặt·nền·lề — cột 3 ghi loại + KT + khối lượng. */
+export const MEASURE_DIARY_SECTIONS = new Set([
+  "Mặt đường",
+  "Nền đường",
+  "Lề đường",
+  "Cống, rãnh thoát nước",
+  "Ngầm, tràn (lũ, ngập)",
+  COT_MOC_SECTION,
+  ATGT_SECTION
+]);
+
+export function isMeasureDiarySection(section) {
+  return MEASURE_DIARY_SECTIONS.has(String(section || "").trim());
+}
 
 export const PHAT_SINH_DIARY_SECTIONS = new Set([
   "Mặt đường",
@@ -197,34 +229,24 @@ function defaultUnitLabel(entry, unit) {
 }
 
 /**
- * Nội dung sổ tuần đường dạng «Phát sinh ...» (mặt / nền / lề đường).
- * ATGT / Cột mốc: loại sự cố (giữ nguyên tên) + ghi chú + khối lượng + đơn vị — không «Phát sinh».
+ * Cột 3 sổ tuần đường:
+ * - ATGT / Cột mốc / Mặt·Nền·Lề: «Loại KT(...)m, khối lượng: …»
+ * - Không còn dạng «Phát sinh …» cho mặt/nền/lề.
  */
 export function formatPhatSinhDiaryContent(entry) {
   const typeLabel = String(entry?.sourceIncidentType || entry?.type || "").trim();
-  const qty = resolveEntryQuantity(entry);
-  const qtyStr = formatQtyNumber(qty);
 
   if (isNoteQtyDiarySection(entry?.section)) {
     const note = String(entry?.content || entry?.note || "").trim();
-    const unit = resolveNoteQtyUnit(entry, typeLabel);
-    const unitLabel = formatUnitDisplay(unit) || unit;
-    let line = typeLabel;
-    if (note) line = line ? `${line} ${note}` : note;
-    if (qtyStr) line += `${line ? " " : ""}${qtyStr}${unitLabel ? ` ${unitLabel}` : ""}`;
-    return line.trim();
+    const typeLine = [typeLabel, note].filter(Boolean).join(" ").trim();
+    return formatTypeWithMeasureDiary(typeLine, {
+      ...entry,
+      unit: resolveNoteQtyUnit(entry, typeLabel)
+    });
   }
 
-  const unit = inferEntryUnit(entry);
-  const typeJoined = joinPhatSinhTypeLabel(typeLabel);
-  const dims = [entry?.length, entry?.width, entry?.height]
-    .filter((v) => v !== "" && v != null && Number(v) > 0)
-    .map((v) => formatQtyNumber(v) || String(v));
-  const unitLabel = defaultUnitLabel(entry, unit);
-  let line = `Phát sinh ${typeJoined}`.trim();
-  if (dims.length) line += ` kích thước (${dims.join("x")}) m`;
-  if (qtyStr) line += ` = ${qtyStr} ${unitLabel}`;
-  return line;
+  // Mặt đường / Nền đường / Lề đường — cùng kiểu hình 3
+  return formatTypeWithMeasureDiary(typeLabel, entry);
 }
 
 /** Đơn vị ATGT/Cột mốc: ưu tiên master data; sửa lệch m/m²/m³ khi catalog là đếm. */
@@ -239,20 +261,57 @@ export function resolveNoteQtyUnit(entry, typeLabel = "") {
   return catalog || raw || inferEntryUnit(entry);
 }
 
-/** Dòng khối lượng cho sổ NK: «2 m² (2×1)» giống «54.2 m³ (20×2×0.3)». */
+/**
+ * Phần KT / khối lượng cột 3:
+ * - Có ≥2 kích thước: KT(50x0.4x0.05)m, khối lượng: 1 m3
+ * - Chỉ chiều dài (1 kích thước): bỏ KT(...) — chỉ «khối lượng: …»
+ * - Không kích thước: khối lượng: 1 vị trí
+ */
 export function formatEntryVolumeLine(entry) {
-  const unit = inferEntryUnit(entry);
+  const unit = isNoteQtyDiarySection(entry?.section)
+    ? resolveNoteQtyUnit(entry)
+    : inferEntryUnit(entry);
   const qty = resolveEntryQuantity({ ...entry, unit });
+  const dimPositive = (v) => {
+    const n = Number(String(v ?? "").replace(",", "."));
+    return Number.isFinite(n) && n > 0;
+  };
+  const lengthOnly =
+    dimPositive(entry?.length) &&
+    !dimPositive(entry?.width) &&
+    !dimPositive(entry?.height);
   const dims = [entry?.length, entry?.width, entry?.height]
-    .filter((v) => v !== "" && v != null && Number(v) > 0)
-    .map(String);
-  const qtyStr = formatQtyNumber(qty);
-  if (!qtyStr) {
-    return dims.length ? `(${dims.join("×")})` : "";
+    .filter((v) => dimPositive(v))
+    .map((v) => formatQtyNumberDot(v) || String(v).replace(",", "."));
+  const qtyStr = formatQtyNumberDot(qty);
+  const unitLabel = formatUnitDiary(unit);
+  const qtyWithUnit = qtyStr
+    ? `${qtyStr}${unitLabel ? ` ${unitLabel}` : ""}`
+    : "";
+
+  // Chỉ dài → không ghi KT(1000)m (trùng khối lượng khi đơn vị m)
+  if (lengthOnly) {
+    return qtyWithUnit ? `khối lượng: ${qtyWithUnit}` : "";
   }
-  const unitLabel = formatUnitDisplay(unit);
-  if (dims.length) return `${qtyStr} ${unitLabel} (${dims.join("×")})`;
-  return `${qtyStr} ${unitLabel}`;
+
+  if (dims.length && qtyWithUnit) {
+    return `KT(${dims.join("x")})m, khối lượng: ${qtyWithUnit}`;
+  }
+  if (dims.length) return `KT(${dims.join("x")})m`;
+  if (qtyWithUnit) return `khối lượng: ${qtyWithUnit}`;
+  return "";
+}
+
+/** Ghép loại sự cố + KT/khối lượng thành 1 dòng sổ. */
+export function formatTypeWithMeasureDiary(typeLabel, entry) {
+  const type = String(typeLabel || "").trim();
+  const measure = formatEntryVolumeLine(entry);
+  if (type && measure) {
+    // Chỉ khối lượng (không KT): «Loại, khối lượng: …»
+    if (measure.startsWith("khối lượng")) return `${type}, ${measure}`;
+    return `${type} ${measure}`;
+  }
+  return type || measure || "";
 }
 
 function computeVolumeRaw(length, width, height, unit, explicitQty) {

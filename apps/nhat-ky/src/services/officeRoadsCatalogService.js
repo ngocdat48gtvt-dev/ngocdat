@@ -1,6 +1,8 @@
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase/firebase";
 import { normalizeRoad } from "../utils/roadsCatalog";
+import { EMPTY_REPORT_META } from "../utils/nhatKyFormat";
+import { fetchOfficeBookMeta, pushOfficeBookMeta } from "./officeBooksService";
 
 const DOC_ID = "office_roads_catalog";
 
@@ -10,6 +12,24 @@ function normalizeCatalog(data) {
     activeRoadId: String(data?.activeRoadId ?? "").trim(),
     roads
   };
+}
+
+/** Đồng bộ tên công ty / hạt / đường từ danh mục → meta sổ trên cloud. */
+async function syncRoadMetaToOfficeBook(ownerUid, road) {
+  if (!ownerUid || !road?.id) return;
+  try {
+    const existing = (await fetchOfficeBookMeta(ownerUid, road.id)) || {};
+    await pushOfficeBookMeta(ownerUid, road.id, {
+      ...EMPTY_REPORT_META,
+      ...existing,
+      company: road.company || existing.company || EMPTY_REPORT_META.company,
+      hat: road.hat || existing.hat || "",
+      roadName: road.roadName || road.label || existing.roadName || "",
+      kmRange: road.kmRange || existing.kmRange || ""
+    });
+  } catch (err) {
+    console.warn("Không đồng bộ meta sổ (tên công ty) lên office_books.", err);
+  }
 }
 
 /** Danh sách hạt/sổ của USER — SSOT trên cloud, ADMIN quản lý. */
@@ -48,7 +68,9 @@ export async function adminAddRoadToCatalog(ownerUid, partial) {
     ...cat,
     roads: [...cat.roads, road]
   }));
-  return next.roads.find((r) => r.id === road.id) || road;
+  const saved = next.roads.find((r) => r.id === road.id) || road;
+  await syncRoadMetaToOfficeBook(ownerUid, saved);
+  return saved;
 }
 
 /** ADMIN — sửa metadata hạt/sổ. */
@@ -59,7 +81,9 @@ export async function adminUpdateRoadInCatalog(ownerUid, roadId, patch) {
       r.id === roadId ? normalizeRoad({ ...r, ...patch, id: roadId }) : r
     )
   }));
-  return next.roads.find((r) => r.id === roadId) || null;
+  const saved = next.roads.find((r) => r.id === roadId) || null;
+  if (saved) await syncRoadMetaToOfficeBook(ownerUid, saved);
+  return saved;
 }
 
 /** ADMIN — xóa hạt/sổ khỏi danh mục (không xóa dữ liệu nhập trên máy USER). */

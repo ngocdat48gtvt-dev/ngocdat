@@ -7,6 +7,7 @@
     "dev": "vite",
     "start": "vite --host 127.0.0.1 --port 5174",
     "build": "tsc -b && vite build",
+    "deploy:website": "node scripts/deploy-website.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

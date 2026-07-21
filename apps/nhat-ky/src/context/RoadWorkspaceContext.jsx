@@ -96,6 +96,21 @@ export function RoadWorkspaceProvider({
     return getRoadStorageKey(uid, catalog.activeRoadId);
   }, [uid, catalog.activeRoadId]);
 
+  // Danh mục hạt (company/hat/đường/km) luôn ghi đè reportMeta local khi mở sổ
+  useEffect(() => {
+    if (!uid || !activeRoad) return;
+    ensureRoadStorage(uid, activeRoad);
+    syncRoadMetaToStorage(uid, activeRoad);
+  }, [
+    uid,
+    activeRoad?.id,
+    activeRoad?.company,
+    activeRoad?.hat,
+    activeRoad?.roadName,
+    activeRoad?.label,
+    activeRoad?.kmRange
+  ]);
+
   const refresh = useCallback(() => {
     if (!uid) return;
     if (browseMode) {

@@ -2,22 +2,32 @@ import { useEffect, useMemo, useState } from "react";
 import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
 import ViDateInput from "../components/ViDateInput";
 import {
-  EMPTY_REPORT_META,
-  SECTIONS,
   loadStorage,
   saveReportMeta
 } from "../utils/nhatKyFormat";
+import { resolveReportMetaFromRoad } from "../utils/roadsCatalog";
 import {
+  BAO_DUONG_GROUPS,
+  getMaintenanceWorksByGroup,
+  getUnitForMaintenanceWork,
+  resolveMaintenanceWorkLabel
+} from "../utils/baoDuongQualityStore";
+import {
+  buildAtgtDiaryVolumeStats,
   buildVolumeStats,
+  collectSelectedVolumeDetails,
   defaultDateRange,
   formatStatsNumber,
   inferSectionForWorkType,
-  newContractVolume
+  newContractVolume,
+  thisQuarterDateRange
 } from "../utils/volumeStatsFormat";
 import ContractVolumeTable from "../components/ContractVolumeTable";
 import StatsResultTable from "../components/StatsResultTable";
+import AtgtDiaryStatsTable from "../components/AtgtDiaryStatsTable";
+import VolumeDetailFormModal from "../components/VolumeDetailFormModal";
 
-const SIDEBAR_WIDTH = 690;
+const SIDEBAR_WIDTH = 560;
 
 function StatusBadge({ row }) {
   if (row.status === "ok") {
@@ -26,23 +36,30 @@ function StatusBadge({ row }) {
   if (row.status === "short") {
     return (
       <span className="stats-badge stats-badge--short">
-        Thiếu {formatStatsNumber(row.remaining)} {row.unitLabel}
+        Thiếu {formatStatsNumber(row.remaining)}
       </span>
     );
   }
   if (row.status === "pending") {
     return <span className="stats-badge stats-badge--pending">Chưa làm</span>;
   }
-  return <span className="stats-badge stats-badge--muted">Chưa kê HĐ</span>;
+  return <span className="stats-badge stats-badge--muted">Chưa HĐ</span>;
 }
 
 export default function ThongKeKhoiLuong({ storageTick = 0, readOnly = false }) {
-  const { storageKey } = useRoadWorkspace();
+  const { storageKey, activeRoad } = useRoadWorkspace();
   const defaults = defaultDateRange();
   const [dateFrom, setDateFrom] = useState(defaults.dateFrom);
   const [dateTo, setDateTo] = useState(defaults.dateTo);
   const [sectionFilter, setSectionFilter] = useState("");
+  const [atgtKindFilter, setAtgtKindFilter] = useState("");
   const [expandedKey, setExpandedKey] = useState("");
+  const [atgtExpandedKey, setAtgtExpandedKey] = useState("");
+  const [selectedKeys, setSelectedKeys] = useState([]);
+  const [atgtSelectedKeys, setAtgtSelectedKeys] = useState([]);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailSource, setDetailSource] = useState("bdtx"); // bdtx | atgt
+  const [mainTab, setMainTab] = useState("bdtx"); // bdtx | atgt
   const [saveMessage, setSaveMessage] = useState("");
 
   const stored = useMemo(
@@ -52,16 +69,23 @@ export default function ThongKeKhoiLuong({ storageTick = 0, readOnly = false }) 
 
   const [contractVolumes, setContractVolumes] = useState([]);
 
-  const reportMeta = { ...EMPTY_REPORT_META, ...(stored.reportMeta || {}) };
+  const reportMeta = useMemo(
+    () => resolveReportMetaFromRoad(stored.reportMeta, activeRoad),
+    [stored.reportMeta, activeRoad]
+  );
 
   useEffect(() => {
     const saved = loadStorage(storageKey).reportMeta?.contractVolumes;
     const rows = Array.isArray(saved) ? saved : [];
     setContractVolumes(
-      rows.map((row) => ({
-        ...row,
-        section: row.section || inferSectionForWorkType(row.workType)
-      }))
+      rows.map((row) => {
+        const workType = resolveMaintenanceWorkLabel(row.workType) || row.workType;
+        const section =
+          row.section || inferSectionForWorkType(workType) || inferSectionForWorkType(row.workType);
+        const unit =
+          row.unit || getUnitForMaintenanceWork(workType) || getUnitForMaintenanceWork(row.workType);
+        return { ...row, workType, section, unit: unit || row.unit || "m3" };
+      })
     );
   }, [storageTick, storageKey]);
 
@@ -75,6 +99,74 @@ export default function ThongKeKhoiLuong({ storageTick = 0, readOnly = false }) 
     [stored.entries, contractVolumes, dateFrom, dateTo, sectionFilter]
   );
 
+  const atgtStats = useMemo(
+    () =>
+      buildAtgtDiaryVolumeStats(stored.entries, {
+        dateFrom,
+        dateTo,
+        kindFilter: atgtKindFilter
+      }),
+    [stored.entries, dateFrom, dateTo, atgtKindFilter]
+  );
+
+  useEffect(() => {
+    setSelectedKeys([]);
+    setAtgtSelectedKeys([]);
+  }, [dateFrom, dateTo, sectionFilter, atgtKindFilter, storageTick, storageKey]);
+
+  const detailRows = useMemo(() => {
+    if (detailSource === "atgt") {
+      return collectSelectedVolumeDetails(atgtStats.rows, atgtSelectedKeys);
+    }
+    return collectSelectedVolumeDetails(stats.rows, selectedKeys);
+  }, [detailSource, stats.rows, selectedKeys, atgtStats.rows, atgtSelectedKeys]);
+
+  const bdtxDetailCount = useMemo(
+    () => collectSelectedVolumeDetails(stats.rows, selectedKeys).length,
+    [stats.rows, selectedKeys]
+  );
+  const atgtDetailCount = useMemo(
+    () => collectSelectedVolumeDetails(atgtStats.rows, atgtSelectedKeys).length,
+    [atgtStats.rows, atgtSelectedKeys]
+  );
+
+  function toggleSelect(key) {
+    setSelectedKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+  }
+
+  function toggleSelectAll(selectAll) {
+    if (!selectAll) {
+      setSelectedKeys([]);
+      return;
+    }
+    setSelectedKeys(
+      stats.rows.filter((r) => r.items?.length > 0).map((r) => r.key)
+    );
+  }
+
+  function toggleAtgtSelect(key) {
+    setAtgtSelectedKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+  }
+
+  function toggleAtgtSelectAll(selectAll) {
+    if (!selectAll) {
+      setAtgtSelectedKeys([]);
+      return;
+    }
+    setAtgtSelectedKeys(
+      atgtStats.rows.filter((r) => r.items?.length > 0).map((r) => r.key)
+    );
+  }
+
+  function openDetailExport(source) {
+    setDetailSource(source);
+    setDetailOpen(true);
+  }
+
   function setThisMonth() {
     const d = defaultDateRange();
     setDateFrom(d.dateFrom);
@@ -82,11 +174,9 @@ export default function ThongKeKhoiLuong({ storageTick = 0, readOnly = false }) 
   }
 
   function setQuarter() {
-    const now = new Date();
-    const qStartMonth = Math.floor(now.getMonth() / 3) * 3;
-    const from = new Date(now.getFullYear(), qStartMonth, 1);
-    setDateFrom(from.toISOString().split("T")[0]);
-    setDateTo(now.toISOString().split("T")[0]);
+    const d = thisQuarterDateRange();
+    setDateFrom(d.dateFrom);
+    setDateTo(d.dateTo);
   }
 
   function addContractLine(partial) {
@@ -100,9 +190,15 @@ export default function ThongKeKhoiLuong({ storageTick = 0, readOnly = false }) 
       prev.map((row) => {
         if (row.id !== id) return row;
         const next = { ...row, ...patch };
-        if (patch.workType != null && !next.section) {
-          const inferred = inferSectionForWorkType(next.workType);
-          if (inferred) next.section = inferred;
+        if (patch.workType != null) {
+          if (patch.unit == null) {
+            const unit = getUnitForMaintenanceWork(next.workType);
+            if (unit) next.unit = unit;
+          }
+          if (!next.section) {
+            const inferred = inferSectionForWorkType(next.workType);
+            if (inferred) next.section = inferred;
+          }
         }
         return next;
       })
@@ -187,15 +283,42 @@ export default function ThongKeKhoiLuong({ storageTick = 0, readOnly = false }) 
           )}
         </div>
         <datalist id="stats-work-types">
-          {SECTIONS.flatMap((s) => s.types).map((t) => (
-            <option key={t} value={t} />
-          ))}
+          {Object.values(getMaintenanceWorksByGroup())
+            .flat()
+            .map((t) => (
+              <option key={t} value={t} />
+            ))}
         </datalist>
       </aside>
 
       <main className="stats-main">
         <div className="stats-toolbar">
-          <h2 className="stats-toolbar-title">Thống kê khối lượng</h2>
+          <div className="stats-main-tabs" role="tablist" aria-label="Loại sổ thống kê">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mainTab === "bdtx"}
+              className={`stats-main-tab${mainTab === "bdtx" ? " is-active" : ""}`}
+              onClick={() => setMainTab("bdtx")}
+            >
+              Sổ bảo dưỡng
+              {stats.entryCount > 0 && (
+                <span className="stats-main-tab-count">{stats.entryCount}</span>
+              )}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mainTab === "atgt"}
+              className={`stats-main-tab${mainTab === "atgt" ? " is-active" : ""}`}
+              onClick={() => setMainTab("atgt")}
+            >
+              Sổ nhật ký · ATGT
+              {atgtStats.entryCount > 0 && (
+                <span className="stats-main-tab-count">{atgtStats.entryCount}</span>
+              )}
+            </button>
+          </div>
           <div className="stats-toolbar-filters">
             <label className="stats-toolbar-field">
               <span>Từ</span>
@@ -221,59 +344,173 @@ export default function ThongKeKhoiLuong({ storageTick = 0, readOnly = false }) 
             <button type="button" className="stats-toolbar-btn" onClick={setQuarter}>
               Quý này
             </button>
-            <label className="stats-toolbar-field stats-toolbar-field--section">
-              <span>Hạng mục</span>
-              <select
-                className="stats-toolbar-input stats-toolbar-input--select"
-                value={sectionFilter}
-                onChange={(e) => setSectionFilter(e.target.value)}
-              >
-                <option value="">Tất cả</option>
-                {SECTIONS.map((s) => (
-                  <option key={s.key} value={s.title}>
-                    {s.num}. {s.title}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {mainTab === "bdtx" ? (
+              <label className="stats-toolbar-field stats-toolbar-field--section">
+                <span>Hạng mục</span>
+                <select
+                  className="stats-toolbar-input stats-toolbar-input--select"
+                  value={sectionFilter}
+                  onChange={(e) => setSectionFilter(e.target.value)}
+                >
+                  <option value="">Tất cả</option>
+                  {BAO_DUONG_GROUPS.map((g, i) => (
+                    <option key={g} value={g}>
+                      {i + 1}. {g}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <label className="stats-toolbar-field">
+                <span>Nhóm</span>
+                <select
+                  className="stats-toolbar-input stats-toolbar-input--select"
+                  value={atgtKindFilter}
+                  onChange={(e) => setAtgtKindFilter(e.target.value)}
+                >
+                  <option value="">Tất cả</option>
+                  <option value="mat">Mất</option>
+                  <option value="hu_hong">Hư hỏng</option>
+                </select>
+              </label>
+            )}
           </div>
         </div>
 
-        <div className="stats-summary">
-          <div className="stats-summary-card">
-            <div className="stats-summary-value">{stats.entryCount}</div>
-            <div className="stats-summary-label">Dòng ghi chép có KL</div>
-          </div>
-          <div className="stats-summary-card stats-summary-card--ok">
-            <div className="stats-summary-value">{stats.okCount}</div>
-            <div className="stats-summary-label">Đủ hợp đồng</div>
-          </div>
-          <div className="stats-summary-card stats-summary-card--short">
-            <div className="stats-summary-value">{stats.shortCount}</div>
-            <div className="stats-summary-label">Còn thiếu</div>
-          </div>
-          <div className="stats-summary-card">
-            <div className="stats-summary-value">{stats.rows.length}</div>
-            <div className="stats-summary-label">Đầu việc theo dõi</div>
-          </div>
-        </div>
-
-        {stats.rows.length === 0 ? (
-          <div className="stats-empty">
-            <p>Không có dữ liệu khối lượng trong khoảng ngày đã chọn.</p>
-            <p className="stats-empty-hint">
-              Kiểm tra nhật ký đã nhập dài × rộng × cao hoặc khối lượng chưa.
+        {mainTab === "bdtx" ? (
+          <div className="stats-tab-panel" role="tabpanel">
+            <p className="stats-tab-hint">
+              Khối lượng thực hiện theo sổ bảo dưỡng (ngày dự kiến sửa).
             </p>
+            <div className="stats-summary stats-summary--compact">
+              <div className="stats-summary-card">
+                <div className="stats-summary-value">{stats.entryCount}</div>
+                <div className="stats-summary-label">Dòng có KL</div>
+              </div>
+              <div className="stats-summary-card stats-summary-card--ok">
+                <div className="stats-summary-value">{stats.okCount}</div>
+                <div className="stats-summary-label">Đủ HĐ</div>
+              </div>
+              <div className="stats-summary-card stats-summary-card--short">
+                <div className="stats-summary-value">{stats.shortCount}</div>
+                <div className="stats-summary-label">Còn thiếu</div>
+              </div>
+              <div className="stats-summary-card">
+                <div className="stats-summary-value">{stats.rows.length}</div>
+                <div className="stats-summary-label">Đầu việc</div>
+              </div>
+            </div>
+
+            {stats.rows.length === 0 ? (
+              <div className="stats-empty">
+                <p>Không có khối lượng trên sổ bảo dưỡng trong khoảng ngày đã chọn.</p>
+                <p className="stats-empty-hint">
+                  Chỉ tính dòng đã vào sổ BDTX (có ngày dự kiến sửa).
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="stats-export-bar">
+                  <span className="stats-export-bar-label">
+                    Đã chọn {selectedKeys.length} đầu việc
+                    {bdtxDetailCount > 0 ? ` · ${bdtxDetailCount} dòng` : ""}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-primary btn-primary--compact"
+                    disabled={selectedKeys.length === 0}
+                    onClick={() => openDetailExport("bdtx")}
+                  >
+                    Xuất khối lượng chi tiết
+                  </button>
+                </div>
+                <StatsResultTable
+                  rows={stats.rows}
+                  expandedKey={expandedKey}
+                  onToggleExpand={(key) =>
+                    setExpandedKey((prev) => (prev === key ? "" : key))
+                  }
+                  StatusBadge={StatusBadge}
+                  selectedKeys={selectedKeys}
+                  onToggleSelect={toggleSelect}
+                  onToggleSelectAll={toggleSelectAll}
+                />
+              </>
+            )}
           </div>
         ) : (
-          <StatsResultTable
-            rows={stats.rows}
-            expandedKey={expandedKey}
-            onToggleExpand={(key) => setExpandedKey((prev) => (prev === key ? "" : key))}
-            StatusBadge={StatusBadge}
-          />
+          <div className="stats-tab-panel" role="tabpanel">
+            <p className="stats-tab-hint">
+              Theo dõi mất / hư hỏng ATGT phát hiện trên sổ nhật ký (ngày ghi sổ).
+            </p>
+            <div className="stats-summary stats-summary--compact">
+              <div className="stats-summary-card">
+                <div className="stats-summary-value">{atgtStats.entryCount}</div>
+                <div className="stats-summary-label">Dòng ATGT</div>
+              </div>
+              <div className="stats-summary-card stats-summary-card--short">
+                <div className="stats-summary-value">{atgtStats.matCount}</div>
+                <div className="stats-summary-label">
+                  Mất ({formatStatsNumber(atgtStats.matQty)})
+                </div>
+              </div>
+              <div className="stats-summary-card stats-summary-card--pending">
+                <div className="stats-summary-value">{atgtStats.huHongCount}</div>
+                <div className="stats-summary-label">
+                  Hư hỏng ({formatStatsNumber(atgtStats.huHongQty)})
+                </div>
+              </div>
+              <div className="stats-summary-card">
+                <div className="stats-summary-value">{atgtStats.typeCount}</div>
+                <div className="stats-summary-label">Loại</div>
+              </div>
+            </div>
+
+            {atgtStats.rows.length === 0 ? (
+              <div className="stats-empty">
+                <p>Không có dòng Công trình ATGT có khối lượng trong khoảng ngày đã chọn.</p>
+                <p className="stats-empty-hint">
+                  Kiểm tra nhập liệu mục «Công trình an toàn giao thông» trên sổ nhật ký.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="stats-export-bar">
+                  <span className="stats-export-bar-label">
+                    Đã chọn {atgtSelectedKeys.length} đầu việc
+                    {atgtDetailCount > 0 ? ` · ${atgtDetailCount} dòng` : ""}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-primary btn-primary--compact"
+                    disabled={atgtSelectedKeys.length === 0}
+                    onClick={() => openDetailExport("atgt")}
+                  >
+                    Xuất khối lượng chi tiết
+                  </button>
+                </div>
+                <AtgtDiaryStatsTable
+                  rows={atgtStats.rows}
+                  expandedKey={atgtExpandedKey}
+                  onToggleExpand={(key) =>
+                    setAtgtExpandedKey((prev) => (prev === key ? "" : key))
+                  }
+                  selectedKeys={atgtSelectedKeys}
+                  onToggleSelect={toggleAtgtSelect}
+                  onToggleSelectAll={toggleAtgtSelectAll}
+                />
+              </>
+            )}
+          </div>
         )}
 
+        <VolumeDetailFormModal
+          open={detailOpen}
+          rows={detailRows}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          onClose={() => setDetailOpen(false)}
+        />
       </main>
     </div>
   );

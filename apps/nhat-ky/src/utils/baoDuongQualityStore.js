@@ -559,6 +559,69 @@ export function listTypesForGroup(group) {
     .map(([type]) => type);
 }
 
+/**
+ * Đầu việc sổ bảo dưỡng (tên công việc BDTX / maintenanceName) theo hạng mục.
+ * Không dùng tên loại tuần đường / sổ nhật ký.
+ */
+export function listMaintenanceWorksForGroup(group) {
+  const g = String(group || "").trim();
+  if (!g) return [];
+  const seen = new Set();
+  const out = [];
+  for (const [type, val] of Object.entries(loadQualityCatalog())) {
+    if (val.group !== g || val.isActive === false) continue;
+    const name = String(val.maintenanceName || type || "").trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+  }
+  return out.sort((a, b) => a.localeCompare(b, "vi"));
+}
+
+/** Tất cả đầu việc BDTX theo hạng mục — dùng combobox khi chưa chọn hạng mục. */
+export function getMaintenanceWorksByGroup() {
+  const out = {};
+  for (const g of BAO_DUONG_GROUPS) {
+    out[g] = listMaintenanceWorksForGroup(g);
+  }
+  return out;
+}
+
+/** Đơn vị theo tên đầu việc BDTX (hoặc loại tuần đường nếu trùng key). */
+export function getUnitForMaintenanceWork(workName) {
+  const name = String(workName || "").trim();
+  if (!name) return "";
+  const catalog = loadQualityCatalog();
+  if (catalog[name]?.unit) return catalog[name].unit;
+  for (const val of Object.values(catalog)) {
+    if (String(val.maintenanceName || "").trim() === name && val.unit) {
+      return val.unit;
+    }
+  }
+  return DEFAULT_TYPE_UNIT[name] || "";
+}
+
+/** Hạng mục (nhóm) theo tên đầu việc BDTX. */
+export function getGroupForMaintenanceWork(workName) {
+  const name = String(workName || "").trim();
+  if (!name) return "";
+  const catalog = loadQualityCatalog();
+  if (catalog[name]?.group) return catalog[name].group;
+  for (const val of Object.values(catalog)) {
+    if (String(val.maintenanceName || "").trim() === name && val.group) {
+      return val.group;
+    }
+  }
+  return DEFAULT_TYPE_GROUP[name] || "";
+}
+
+/** Nhãn đầu việc thống kê: ưu tiên tên công việc BDTX trên master data. */
+export function resolveMaintenanceWorkLabel(inspectionOrWork) {
+  const key = String(inspectionOrWork || "").trim();
+  if (!key) return "";
+  return getMaintenanceNameForType(key) || key;
+}
+
 /** Loại công việc đã có nhận xét chuẩn (mặc định hoặc tự khai báo) hay chưa. */
 export function hasQualityForType(type) {
   const key = String(type || "").trim();

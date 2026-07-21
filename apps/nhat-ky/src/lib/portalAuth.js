@@ -3,6 +3,7 @@ import { auth } from "../firebase/firebase";
 
 const PORTAL_FAMILY = {
   "dieu-hanh": "admin",
+  "bao-cao": "admin",
   "web-user": "field",
   "nhat-ky": "field"
 };
@@ -12,6 +13,7 @@ const SESSION_PORTAL_KEY = "qlsc_active_portal";
 const EMAIL_PREFIX = "qlsc_portal_email_";
 
 export const NHAT_KY_PORTAL = "nhat-ky";
+export const BAO_CAO_PORTAL = "bao-cao";
 
 let initPromise = null;
 

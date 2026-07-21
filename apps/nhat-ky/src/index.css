@@ -159,23 +159,31 @@ h1, h2 {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-shrink: 1;
   min-width: 0;
-  padding-right: 6px;
+  padding: 0 10px 0 8px;
+}
+
+.nhat-ky-nav-right .road-workspace-nav {
+  gap: 8px;
+  padding: 0 10px 0 0;
+  margin: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.22);
+  max-width: min(520px, 48vw);
 }
 
 .road-workspace-subrow,
 .nhat-ky-header-subrow {
   display: flex;
   align-items: stretch;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 0 0 0 0;
+  justify-content: flex-start;
+  gap: 0;
+  padding: 0;
   border-top: 1px solid rgba(255, 255, 255, 0.14);
   background: #005a9e;
   overflow-x: auto;
-  min-height: 44px;
+  min-height: 40px;
 }
 
 .nhat-ky-nav--sub-inline {
@@ -187,66 +195,71 @@ h1, h2 {
 }
 
 .nhat-ky-header-subrow .road-workspace-nav {
-  flex-shrink: 0;
-  align-self: center;
-  padding: 6px 14px 6px 12px;
-  margin-left: auto;
-  border-left: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(0, 0, 0, 0.1);
+  display: none;
 }
 
 .road-workspace-nav {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 4px;
-  flex-shrink: 0;
+  gap: 8px;
+  padding: 0;
+  flex-shrink: 1;
   min-width: 0;
   max-width: 100%;
 }
 
+.road-workspace-nav-browse-user {
+  font-size: 11px;
+  font-weight: 600;
+  color: #fde68a;
+  white-space: nowrap;
+}
+
 .road-workspace-nav-road {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: #fff;
   white-space: nowrap;
 }
 
 .road-workspace-nav-hat {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: #7dd3fc;
   white-space: nowrap;
 }
 
 .road-workspace-nav-km {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: rgba(255, 255, 255, 0.88);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: min(420px, 50vw);
+  max-width: min(280px, 28vw);
 }
 
-.road-workspace-nav-switch {
+.nhat-ky-nav-right .road-workspace-nav-switch {
   flex-shrink: 0;
-  padding: 5px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.45);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.12);
+  padding: 4px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
   color: #fff;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s ease;
+  box-shadow: none;
+  transform: none;
 }
 
-.road-workspace-nav-switch:hover {
+.nhat-ky-nav-right .road-workspace-nav-switch:hover {
   background: rgba(255, 255, 255, 0.22);
+  transform: none;
+  box-shadow: none;
 }
 
 .nhat-ky-nav--sub {
@@ -259,41 +272,46 @@ h1, h2 {
 
 .nhat-ky-nav--sub button {
   font-size: 12px;
-  padding: 10px 14px;
+  padding: 9px 12px;
 }
 
 .nhat-ky-user-chip {
   align-self: center;
   margin-right: 0;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: #fff;
-  padding: 7px 12px;
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
   white-space: nowrap;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.nhat-ky-logout-btn {
+.nhat-ky-nav-right .nhat-ky-logout-btn {
   align-self: center;
-  margin-right: 6px;
-  padding: 8px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.45);
-  background: transparent;
+  padding: 4px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
   border-radius: 4px;
-  font-size: 13px;
-  font-weight: 600;
+  background: transparent;
   color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
   cursor: pointer;
-  transition: background 0.18s ease, transform 0.18s ease;
+  white-space: nowrap;
+  box-shadow: none;
+  transform: none;
 }
 
-.nhat-ky-logout-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: #fff;
-  color: #fff;
-  transform: translateY(-2px);
+.nhat-ky-nav-right .nhat-ky-logout-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  transform: none;
+  box-shadow: none;
 }
 
 .nhatky-login {
@@ -2970,8 +2988,8 @@ body.is-dragging-panel {
   padding: 12px 8px 20px;
   font-size: 14px;
   box-sizing: border-box;
-  --nhatky-line: 1px solid #1e40af;
-  --nhatky-frame: 1px solid #1e40af;
+  --nhatky-line: 0.5pt solid #000;
+  --nhatky-frame: 0.5pt solid #94a3b8;
   --nhatky-pad: 6px 8px;
   --nhatky-page-pad-outer: 12mm;
   --nhatky-page-pad-gutter: 8mm;
@@ -3099,34 +3117,35 @@ body.is-dragging-panel {
 }
 
 .nhatky-head-grid > .nhatky-head-cell .nhatky-head-row-table th {
-  border-top: var(--nhatky-line);
-  border-bottom: var(--nhatky-line);
+  border-top: var(--so-line, 0.5pt solid #000) !important;
+  border-bottom: var(--so-line, 0.5pt solid #000) !important;
 }
 
-/* Viền dọc ngoài biên bảng — 2 mép mỗi trang */
+/* Viền dọc ngoài biên bảng — mép trái ô đầu; mép phải = border bảng */
 .nhatky-head-cell--left .nhatky-official-table th:first-child,
 .nhatky-body-cell--left .nhatky-official-table td:first-child {
-  border-left: var(--nhatky-line);
+  border-left: var(--so-line, 0.5pt solid #000) !important;
 }
 
 .nhatky-head-cell--left .nhatky-official-table th:last-child,
 .nhatky-body-cell--left .nhatky-official-table td:last-child {
-  border-right: var(--nhatky-line);
+  border-right: none !important;
 }
 
 .nhatky-head-cell--right .nhatky-official-table th:first-child,
 .nhatky-body-cell--right .nhatky-official-table td:first-child {
-  border-left: var(--nhatky-line);
+  border-left: var(--so-line, 0.5pt solid #000) !important;
 }
 
 .nhatky-head-cell--right .nhatky-official-table th:last-child,
 .nhatky-body-cell--right .nhatky-official-table td:last-child {
-  border-right: var(--nhatky-line);
+  border-right: none !important;
 }
 
-/* Mỗi hàng là bảng riêng — chỉ kẻ ngang dưới, tránh chồng 2px */
+/* Mỗi hàng = 1 bảng riêng: chỉ kẻ đáy — tránh đúp với border-top toàn cục */
 .nhatky-body-cell .nhatky-row-table td {
-  border-top: none;
+  border-top: none !important;
+  border-bottom: var(--so-line, 0.5pt solid #000) !important;
 }
 
 .nhatky-page-panel--head {
@@ -3151,6 +3170,19 @@ body.is-dragging-panel {
   display: flex;
   min-height: 100%;
   background: #fff;
+}
+
+.nhatky-body-cell--clickable {
+  cursor: pointer;
+}
+
+.nhatky-body-cell--clickable:hover .nhatky-row-table tr {
+  background: #eef6ff;
+}
+
+.nhatky-body-cell--clickable:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
 }
 
 .nhatky-body-cell--left {
@@ -3205,15 +3237,17 @@ body.is-dragging-panel {
 
 .nhatky-sheet-title {
   text-align: center;
-  font-size: 24px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   font-weight: 700;
-  color: #b91c1c;
+  color: #111827;
   margin-bottom: 8px;
 }
 
 .nhatky-sheet-meta {
   text-align: center;
-  font-size: 16px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   margin-bottom: 0;
 }
 
@@ -3247,29 +3281,27 @@ body.is-dragging-panel {
 }
 
 .weather-picker-trigger {
-    display: block;
+  display: block;
   width: 100%;
-  padding: 4px 6px;
-  border: 1px dashed #cbd5e1;
-  border-radius: 4px;
-  background: #fff;
-  font: inherit;
-  font-size: 13px;
-    text-align: left;
-  color: #6b7280;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
+  line-height: 1.4;
+  text-align: left;
+  color: #111827;
   cursor: pointer;
 }
 
 .weather-picker-trigger.has-value {
   color: #111827;
-  border-style: solid;
-  border-color: #cbd5e1;
   font-weight: 700;
 }
 
 .weather-picker-trigger:hover {
-  border-color: #94a3b8;
-  background: #fff;
+  background: #f8fafc;
 }
 
 .weather-picker-panel {
@@ -3331,8 +3363,8 @@ body.is-dragging-panel {
   padding: 8px 10px;
   border: 1px solid #d1d5db;
   border-radius: 6px;
-  font-size: 13px;
-  font-family: inherit;
+  font-size: 12pt;
+  font-family: "Times New Roman", Times, serif;
 }
 
 .nhatky-official-table {
@@ -3541,9 +3573,12 @@ body.is-resizing-col .col-resize-handle::after {
 .nhatky-no-issue {
   display: block;
   text-align: left;
-  color: #6b7280;
-  font-size: 13px;
-  font-style: italic;
+  color: #111827;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.4;
 }
 
 .nhatky-col-date {
@@ -3937,7 +3972,10 @@ body.is-resizing-col .col-resize-handle::after {
 
 .nhatky-print-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: none;
+  border-right: 0.5pt solid #000;
   table-layout: fixed;
   font-size: 11.5px;
   line-height: 1.35;
@@ -3958,15 +3996,28 @@ body.is-resizing-col .col-resize-handle::after {
 
 .nhatky-print-table th,
 .nhatky-print-table td {
-  border: 1px solid #1e40af;
+  border-top: 0.5pt solid #000;
+  border-left: 0.5pt solid #000;
+  border-right: none;
+  border-bottom: none;
   vertical-align: top;
   padding: 4px 5px;
   word-wrap: break-word;
   overflow-wrap: anywhere;
+  background: #fff;
 }
 
-.nhatky-print-table td {
-  box-sizing: border-box;
+.nhatky-print-table th:last-child,
+.nhatky-print-table td:last-child {
+  border-right: none;
+}
+
+.nhatky-print-table thead th {
+  border-bottom: none;
+}
+
+.nhatky-print-table tbody tr:last-child td {
+  border-bottom: 0.5pt solid #000;
 }
 
 .nhatky-print-head-main th {
@@ -3993,8 +4044,10 @@ body.is-resizing-col .col-resize-handle::after {
 }
 
 .nhatky-print-empty {
-  color: #64748b;
-  font-style: italic;
+  color: #111827;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
+  font-style: normal;
 }
 
 .nhatky-print-row--part .nhatky-print-td--3 {
@@ -4182,7 +4235,8 @@ body.is-resizing-col .col-resize-handle::after {
 .matduong-head-right {
   text-align: center;
   font-weight: 700;
-  font-size: 13px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   line-height: 1.55;
 }
 
@@ -4197,7 +4251,8 @@ body.is-resizing-col .col-resize-handle::after {
 
 .matduong-title {
   text-align: center;
-  font-size: 18px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   font-weight: 700;
   margin: 8px 0 4px;
   color: #111827;
@@ -4207,7 +4262,8 @@ body.is-resizing-col .col-resize-handle::after {
 .matduong-km-range {
   text-align: center;
   margin: 0 0 4px;
-  font-size: 14px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
 }
 
 .matduong-table {
@@ -4220,7 +4276,7 @@ body.is-resizing-col .col-resize-handle::after {
 
 .matduong-table th,
 .matduong-table td {
-  border: 1px solid #1e40af;
+  border: 0.5px solid #000;
   padding: 5px 6px;
   vertical-align: middle;
   text-align: center;
@@ -4404,7 +4460,8 @@ body.is-resizing-col .col-resize-handle::after {
 .tngt-head-right {
   text-align: center;
   font-weight: 700;
-  font-size: 13px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   line-height: 1.55;
 }
 
@@ -4419,7 +4476,8 @@ body.is-resizing-col .col-resize-handle::after {
 
 .tngt-title {
   text-align: center;
-  font-size: 16px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   font-weight: 700;
   margin: 8px 0 4px;
   color: #111827;
@@ -4429,7 +4487,8 @@ body.is-resizing-col .col-resize-handle::after {
 .tngt-km-range {
   text-align: center;
   margin: 0 0 8px;
-  font-size: 14px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   font-weight: 600;
 }
 
@@ -4443,11 +4502,12 @@ body.is-resizing-col .col-resize-handle::after {
 
 .tngt-table th,
 .tngt-table td {
-  border: 1px solid #1e40af;
+  border: 0.5px solid #000;
   padding: 4px 5px;
   vertical-align: middle;
   text-align: center;
   word-wrap: break-word;
+  background: #fff;
 }
 
 .tngt-table th {
@@ -4524,7 +4584,7 @@ body.is-resizing-col .col-resize-handle::after {
 
 .tngt-diary-table-wrap {
   overflow-x: auto;
-  border: 2px solid #1e40af;
+  border: 0.5pt solid #000;
   background: #fff;
   -webkit-overflow-scrolling: touch;
 }
@@ -4533,7 +4593,7 @@ body.is-resizing-col .col-resize-handle::after {
   width: 100%;
   min-width: 640px;
   table-layout: fixed;
-  --nhatky-line: 1px solid #1e40af;
+  --nhatky-line: 0.5pt solid #000;
   margin: 0;
   font-size: 14px;
 }
@@ -4860,7 +4920,8 @@ body.is-resizing-col .col-resize-handle::after {
 .hanh-lang-head-right {
   text-align: center;
   font-weight: 700;
-  font-size: 13px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   line-height: 1.55;
 }
 
@@ -4870,12 +4931,13 @@ body.is-resizing-col .col-resize-handle::after {
 
 .hanh-lang-motto {
   text-decoration: underline;
-  text-underline-offset: 2px;
+  text-underline-offset: 5px;
 }
 
 .hanh-lang-title {
   text-align: center;
-  font-size: 16px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   font-weight: 700;
   margin: 8px 0 4px;
   color: #111827;
@@ -4886,7 +4948,8 @@ body.is-resizing-col .col-resize-handle::after {
 .hanh-lang-km-range {
   text-align: center;
   margin: 0 0 8px;
-  font-size: 14px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   font-weight: 600;
 }
 
@@ -4894,23 +4957,25 @@ body.is-resizing-col .col-resize-handle::after {
   width: 100%;
   border-collapse: collapse;
   margin-top: 6px;
-  font-size: 11px;
+  font-size: 9.9px; /* ~90% của 11px — chỉ bảng, tiêu đề sheet giữ nguyên */
   table-layout: fixed;
 }
 
 .hanh-lang-table th,
 .hanh-lang-table td {
-  border: 1px solid #1e40af;
+  border: 0.5px solid #000;
   padding: 4px 5px;
   vertical-align: middle;
   text-align: center;
   word-wrap: break-word;
+  overflow-wrap: break-word;
+  background: #fff;
 }
 
 .hanh-lang-table th {
   font-weight: 700;
   background: #fff;
-  font-size: 10px;
+  font-size: 9px; /* ~90% của 10px */
   line-height: 1.25;
   position: relative;
   overflow: visible;
@@ -4922,7 +4987,7 @@ body.is-resizing-col .col-resize-handle::after {
 }
 
 .hanh-lang-header-num th {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   padding: 2px 4px;
 }
@@ -4933,9 +4998,10 @@ body.is-resizing-col .col-resize-handle::after {
 
 .hanh-lang-data-row td {
   min-height: 7mm;
-  font-size: 11px;
+  font-size: 9.9px;
   vertical-align: top;
   text-align: left;
+  overflow: hidden;
 }
 
 .hanh-lang-data-row--empty td {
@@ -4951,10 +5017,22 @@ body.is-resizing-col .col-resize-handle::after {
   vertical-align: middle;
 }
 
-.hanh-lang-col-tt,
-.hanh-lang-col-date {
+.hanh-lang-data-row td.hanh-lang-col-tt {
   text-align: center;
+  vertical-align: middle;
   white-space: nowrap;
+}
+
+/* Ngày: không nowrap — tránh tràn sang cột Nội dung */
+.hanh-lang-data-row td.hanh-lang-col-date {
+  text-align: center;
+  white-space: normal;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.25;
+  padding-left: 2px;
+  padding-right: 2px;
 }
 
 .hanh-lang-col-content,
@@ -4965,7 +5043,7 @@ body.is-resizing-col .col-resize-handle::after {
 
 .hanh-lang-footer-label {
   text-align: center;
-  font-size: 12px;
+  font-size: 10.8px; /* ~90% của 12px */
 }
 
 @media print {
@@ -5226,13 +5304,15 @@ body.is-resizing-col .col-resize-handle::after {
 }
 
 .tngt-title--report {
-  font-size: 15px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   text-transform: uppercase;
 }
 
 .tngt-report-to {
   margin: 0 0 8px;
-  font-size: 13px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
 }
 
 .tngt-table--c1 th,
@@ -5398,7 +5478,7 @@ body.is-resizing-col .col-resize-handle::after {
 .baoduong-sheet-wrap {
   width: fit-content;
   margin: 0 auto;
-  padding: 12px 16px 20px;
+  padding: 12px 16px 28px;
   zoom: 1.5;
 }
 
@@ -5413,6 +5493,8 @@ body.is-resizing-col .col-resize-handle::after {
 .baoduong-sheet--a4-portrait {
   width: 210mm;
   min-height: 297mm;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Kéo lề xanh trên tờ preview (sổ NK / BDTX / mặt đường) */
@@ -5552,6 +5634,37 @@ body.is-resizing-col .col-resize-handle::after {
   overflow: hidden;
 }
 
+/* Preview sổ tuần đường / sổ BDTX — cho phép cuộn khi tờ cao hơn màn hình */
+.sonhatky-screen-preview {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sonhatky-screen-preview .nhatky-review {
+  flex: 1;
+  min-height: 0;
+}
+
+.sonhatky-screen-preview .nhatky-review-canvas {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.baoduong-print-preview-pane {
+  flex: 1;
+  min-height: 0;
+}
+
+.baoduong-print-stack--preview {
+  -webkit-overflow-scrolling: touch;
+}
+
 .matduong-print-stack--preview {
   display: flex;
   flex-direction: column;
@@ -5562,6 +5675,177 @@ body.is-resizing-col .col-resize-handle::after {
   overflow: auto;
   padding: 20px 24px 32px;
   -webkit-overflow-scrolling: touch;
+}
+
+/* Preview in A4 ngang — TNGT / hành lang / trực ĐBGT (cùng kiểu mặt đường) */
+.landscape-print-preview-pane {
+  flex: 1;
+  min-height: 0;
+}
+
+.landscape-print-stack--preview,
+.tngt-print-stack--preview,
+.hanh-lang-print-stack--preview,
+.traffic-duty-print-stack--preview,
+.phieu-cau-print-stack--preview,
+.gptc-print-stack--preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 24px 32px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.landscape-print-page,
+.tngt-print-page,
+.hanh-lang-print-page,
+.traffic-duty-print-page,
+.phieu-cau-print-page,
+.gptc-print-page {
+  position: relative;
+  width: 297mm;
+  height: 210mm;
+  min-height: 210mm;
+  max-height: 210mm;
+  margin: 0 auto;
+  background: #fff;
+  border: 1px solid #94a3b8;
+  border-radius: 2px;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.14);
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.tngt-print-inner,
+.hanh-lang-print-inner,
+.traffic-duty-print-inner,
+.phieu-cau-print-inner,
+.gptc-print-inner {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Xem trước in phiếu KT cầu — 1 nét mảnh Excel (không kẻ dưới thead → tránh đôi với tbody) */
+.phieu-cau-print-page .phieu-cau-unit-value {
+  border-bottom: none !important;
+  text-decoration: none !important;
+}
+.phieu-cau-print-page .phieu-cau-header {
+  margin-bottom: 2px;
+}
+.phieu-cau-print-page .phieu-cau-org,
+.phieu-cau-print-page .phieu-cau-title {
+  font-size: 12pt;
+  line-height: 1.2;
+}
+.phieu-cau-print-page .phieu-cau-title {
+  margin: 1px 0 2px;
+}
+.phieu-cau-print-page .phieu-cau-meta {
+  margin: 0;
+  font-size: 11pt;
+  line-height: 1.25;
+}
+.phieu-cau-print-page .phieu-cau-table-wrap {
+  overflow: visible;
+}
+.phieu-cau-print-page .phieu-cau-table {
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  border: none !important;
+  border-right: 0.5pt solid #000 !important;
+  font-size: 11pt !important;
+}
+.phieu-cau-print-page .phieu-cau-table th,
+.phieu-cau-print-page .phieu-cau-table td {
+  border-top: 0.5pt solid #000 !important;
+  border-left: 0.5pt solid #000 !important;
+  border-right: none !important;
+  border-bottom: none !important;
+  background: #fff !important;
+  font-size: 11pt !important;
+  padding: 0 2px;
+}
+.phieu-cau-print-page .phieu-cau-table th:last-child,
+.phieu-cau-print-page .phieu-cau-table td:last-child {
+  border-right: none !important;
+}
+.phieu-cau-print-page .phieu-cau-table thead th {
+  border-bottom: none !important;
+}
+.phieu-cau-print-page .phieu-cau-table tbody tr:last-child td {
+  border-bottom: 0.5pt solid #000 !important;
+}
+.phieu-cau-print-page .phieu-cau-table th {
+  background: #fff !important;
+  font-weight: 700;
+}
+
+.landscape-print-page-num {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  margin: 0;
+  font-size: 0.75rem;
+  color: #64748b;
+  z-index: 2;
+}
+
+.tngt-print-page .tngt-table,
+.hanh-lang-print-page .hanh-lang-table,
+.traffic-duty-print-page .traffic-duty-table {
+  margin-top: 2px;
+}
+
+.tngt-print-page .tngt-table th,
+.tngt-print-page .tngt-table td,
+.hanh-lang-print-page .hanh-lang-table th,
+.hanh-lang-print-page .hanh-lang-table td,
+.traffic-duty-print-page .traffic-duty-table th,
+.traffic-duty-print-page .traffic-duty-table td {
+  padding: 2px 3px;
+  border-top: 0.5pt solid #000 !important;
+  border-left: 0.5pt solid #000 !important;
+  border-right: none !important;
+  border-bottom: none !important;
+  background: #fff !important;
+}
+
+.tngt-print-page .tngt-table,
+.hanh-lang-print-page .hanh-lang-table,
+.traffic-duty-print-page .traffic-duty-table {
+  border-right: 0.5pt solid #000 !important;
+}
+
+.tngt-print-page .tngt-table th:last-child,
+.tngt-print-page .tngt-table td:last-child,
+.hanh-lang-print-page .hanh-lang-table th:last-child,
+.hanh-lang-print-page .hanh-lang-table td:last-child,
+.traffic-duty-print-page .traffic-duty-table th:last-child,
+.traffic-duty-print-page .traffic-duty-table td:last-child {
+  border-right: none !important;
+}
+
+.tngt-print-page .tngt-table tbody tr:last-child td,
+.hanh-lang-print-page .hanh-lang-table tbody tr:last-child td,
+.traffic-duty-print-page .traffic-duty-table tbody tr:last-child td {
+  border-bottom: 0.5pt solid #000 !important;
+}
+
+.tngt-print-page .tngt-table,
+.hanh-lang-print-page .hanh-lang-table,
+.traffic-duty-print-page .traffic-duty-table {
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  border: none !important;
 }
 
 .matduong-print-page {
@@ -5602,12 +5886,25 @@ body.is-resizing-col .col-resize-handle::after {
 .matduong-print-page .matduong-table {
   margin-top: 2px;
   font-size: 11.5px;
+  border-right: 0.5pt solid #000 !important;
 }
 
 .matduong-print-page .matduong-table th,
 .matduong-print-page .matduong-table td {
   padding: 3px 4px;
-  border-color: #334155;
+  border-top: 0.5pt solid #000 !important;
+  border-left: 0.5pt solid #000 !important;
+  border-right: none !important;
+  border-bottom: none !important;
+}
+
+.matduong-print-page .matduong-table th:last-child,
+.matduong-print-page .matduong-table td:last-child {
+  border-right: none !important;
+}
+
+.matduong-print-page .matduong-table tbody tr:last-child td {
+  border-bottom: 0.5pt solid #000 !important;
 }
 
 .matduong-print-page .matduong-table th {
@@ -5616,13 +5913,15 @@ body.is-resizing-col .col-resize-handle::after {
 }
 
 .matduong-print-page .matduong-title {
-  font-size: 16px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   margin: 4px 0 2px;
 }
 
 .matduong-print-page .matduong-km-range {
   margin: 0 0 2px;
-  font-size: 13px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
 }
 
 .matduong-print-page .matduong-sheet-head {
@@ -5631,7 +5930,8 @@ body.is-resizing-col .col-resize-handle::after {
 
 .matduong-print-page .matduong-head-left,
 .matduong-print-page .matduong-head-right {
-  font-size: 12px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   line-height: 1.4;
 }
 
@@ -5677,6 +5977,31 @@ body.is-resizing-col .col-resize-handle::after {
   width: 100%;
 }
 
+.baoduong-print-page .baoduong-table {
+  border: none !important;
+  border-right: 0.5pt solid #000 !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+}
+
+.baoduong-print-page .baoduong-table th,
+.baoduong-print-page .baoduong-table td {
+  border-top: 0.5pt solid #000 !important;
+  border-left: 0.5pt solid #000 !important;
+  border-right: none !important;
+  border-bottom: none !important;
+  background: #fff !important;
+}
+
+.baoduong-print-page .baoduong-table th:last-child,
+.baoduong-print-page .baoduong-table td:last-child {
+  border-right: none !important;
+}
+
+.baoduong-print-page .baoduong-table tbody tr:last-child td {
+  border-bottom: 0.5pt solid #000 !important;
+}
+
 @media print {
   body.baoduong-printing .nhat-ky-header,
   body.baoduong-printing .nhat-ky-nav,
@@ -5711,20 +6036,69 @@ body.is-resizing-col .col-resize-handle::after {
     gap: 0 !important;
   }
 
+  body.baoduong-printing .baoduong-table {
+    border: none !important;
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+  }
+
+  body.baoduong-printing .baoduong-table th,
+  body.baoduong-printing .baoduong-table td {
+    border-top: 0.5pt solid #000 !important;
+    border-left: 0.5pt solid #000 !important;
+    border-right: none !important;
+    border-bottom: none !important;
+    background: #fff !important;
+    position: static !important;
+  }
+
+  body.baoduong-printing .baoduong-table {
+    border-right: 0.5pt solid #000 !important;
+  }
+
+  body.baoduong-printing .baoduong-table th:last-child,
+  body.baoduong-printing .baoduong-table td:last-child {
+    border-right: none !important;
+  }
+
+  body.baoduong-printing .baoduong-table tbody tr:last-child td {
+    border-bottom: 0.5pt solid #000 !important;
+  }
+
+  body.baoduong-printing .baoduong-data-row--empty td {
+    border-top: 0.5pt solid #000 !important;
+    border-left: 0.5pt solid #000 !important;
+    border-right: none !important;
+    border-bottom: none !important;
+  }
+
+  body.baoduong-printing .baoduong-data-row--empty td:last-child {
+    border-right: none !important;
+  }
+
+  body.baoduong-printing .baoduong-data-row--empty:last-child td {
+    border-bottom: 0.5pt solid #000 !important;
+  }
+
   body.baoduong-printing .baoduong-print-page {
     page: baoduongPrintPage;
     width: 210mm;
     min-height: 297mm;
+    height: 297mm;
+    max-height: 297mm;
     margin: 0 !important;
     border: none !important;
     box-shadow: none !important;
-    page-break-after: always;
-    break-after: page;
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    overflow: hidden !important;
   }
 
   body.baoduong-printing .baoduong-print-page:last-child {
-    page-break-after: auto;
-    break-after: auto;
+    page-break-after: auto !important;
+    break-after: auto !important;
   }
 
   @page baoduongPrintPage {
@@ -5735,7 +6109,8 @@ body.is-resizing-col .col-resize-handle::after {
 
 .baoduong-title {
   text-align: center;
-  font-size: 16px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   font-weight: 700;
   margin: 10px 0 8px;
   color: #111827;
@@ -5744,31 +6119,69 @@ body.is-resizing-col .col-resize-handle::after {
 
 .baoduong-period {
   margin: 8px 0 2px;
-  font-size: 14px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   line-height: 1.6;
 }
 
 .baoduong-intro {
   margin: 2px 0 10px;
-  font-size: 14px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   font-style: italic;
 }
 
 .baoduong-table {
   width: 100%;
-  border-collapse: collapse;
+  /* separate: tránh bug Chrome mất viền khi th position:relative */
+  border-collapse: separate;
+  border-spacing: 0;
+  border: none;
   margin-top: 6px;
   font-size: 12px;
   table-layout: fixed;
+  box-sizing: border-box;
 }
 
 .baoduong-table th,
 .baoduong-table td {
-  border: 1px solid #1e40af;
+  border-top: 0.5pt solid #000;
+  border-left: 0.5pt solid #000;
+  border-right: none;
+  border-bottom: none;
   padding: 6px 7px;
   vertical-align: middle;
   text-align: center;
   word-wrap: break-word;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+/* Kẻ cạnh phải / dưới — mép phải trên bảng (tránh đúp rowspan) */
+.baoduong-table {
+  border-right: 0.5pt solid #000;
+}
+.baoduong-table th:last-child,
+.baoduong-table td:last-child {
+  border-right: none;
+}
+
+.baoduong-table tbody tr:last-child td {
+  border-bottom: 0.5pt solid #000;
+}
+
+/* Hàng tiêu đề + hàng (1)(2)(3)(4)(5) — nét mảnh kiểu Excel */
+.baoduong-table thead th {
+  border-top: 0.5pt solid #000 !important;
+  border-left: 0.5pt solid #000 !important;
+  border-right: none !important;
+  border-bottom: none !important;
+  background: #fff !important;
+  overflow: visible;
+}
+
+.baoduong-table thead th:last-child {
+  border-right: none !important;
 }
 
 .baoduong-table th {
@@ -5776,14 +6189,14 @@ body.is-resizing-col .col-resize-handle::after {
   background: #fff;
   font-size: 11px;
   line-height: 1.3;
-  position: relative;
-  overflow: visible;
   text-align: center;
   vertical-align: middle;
 }
 
+/* Handle kéo cột chỉ trên sổ màn hình; separate + relative vẫn giữ viền */
 .baoduong-header-row th {
   padding: 8px 10px 8px 6px;
+  position: relative;
 }
 
 .baoduong-header-num th {
@@ -5794,7 +6207,9 @@ body.is-resizing-col .col-resize-handle::after {
 }
 
 .baoduong-table .col-resize-handle {
-  right: -3px;
+  right: 0;
+  width: 5px;
+  z-index: 2;
 }
 
 .baoduong-col-stt {
@@ -5819,6 +6234,26 @@ body.is-resizing-col .col-resize-handle::after {
 .baoduong-table td.baoduong-col-result {
   text-align: left;
   vertical-align: top;
+}
+
+/* Hàng trống — nét mảnh kiểu Excel */
+.baoduong-data-row--empty td {
+  height: 11mm;
+  min-height: 11mm;
+  border-top: 0.5px solid #808080 !important;
+  border-left: 0.5px solid #808080 !important;
+  border-right: none !important;
+  border-bottom: none !important;
+  background: #fff;
+  padding: 0 !important;
+}
+
+.baoduong-data-row--empty td:last-child {
+  border-right: 0.5px solid #808080 !important;
+}
+
+.baoduong-data-row--empty:last-child td {
+  border-bottom: 0.5px solid #808080 !important;
 }
 
 .baoduong-sign {
@@ -6088,8 +6523,13 @@ textarea.danhmuc-bd-input {
   min-height: 36px;
 }
 
-.baoduong-data-row--empty td {
-  height: 40px;
+.baoduong-sheet--a4-portrait .baoduong-table {
+  flex: 1 1 auto;
+}
+
+.baoduong-sheet--a4-portrait .baoduong-sign {
+  margin-top: auto;
+  padding-top: 8px;
 }
 
 @media print {
@@ -6256,7 +6696,8 @@ textarea.danhmuc-bd-input {
 
 .traffic-duty-title {
   text-align: center;
-  font-size: 13px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   font-weight: 700;
   margin: 0 0 4px;
   color: #111827;
@@ -6266,7 +6707,8 @@ textarea.danhmuc-bd-input {
 
 .traffic-duty-km-range {
   text-align: center;
-  font-size: 11px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   font-weight: 700;
   margin: 0 0 8px;
   color: #111827;
@@ -6275,26 +6717,42 @@ textarea.danhmuc-bd-input {
 
 .traffic-duty-table {
   width: 100%;
-  border-collapse: collapse;
-  font-size: 9px;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: none;
+  font-size: 11pt;
   table-layout: fixed;
 }
 
 .traffic-duty-table th,
 .traffic-duty-table td {
-  border: 1px solid #1e40af;
+  border-top: 0.5pt solid #000;
+  border-left: 0.5pt solid #000;
+  border-right: none;
+  border-bottom: none;
   padding: 3px 4px;
   vertical-align: middle;
   text-align: center;
   word-wrap: break-word;
   overflow-wrap: anywhere;
   line-height: 1.25;
+  background: #fff;
+}
+
+.traffic-duty-table th:last-child,
+.traffic-duty-table td:last-child {
+  border-right: none;
+}
+
+/* Chỉ đóng cạnh dưới bảng — không kẻ bottom thead (tránh đè nét với top của tbody) */
+.traffic-duty-table tbody tr:last-child td {
+  border-bottom: 0.5pt solid #000;
 }
 
 .traffic-duty-table th {
   font-weight: 700;
   background: #fff;
-  font-size: 8px;
+  font-size: 11pt;
   line-height: 1.2;
   position: relative;
   overflow: visible;
@@ -6566,8 +7024,9 @@ textarea.danhmuc-bd-input {
 }
 
 .traffic-duty-col-editable {
-  padding: 2px !important;
+  padding: 0 !important;
   vertical-align: top;
+  height: 100%;
 }
 
 .traffic-duty-col-readonly {
@@ -6575,40 +7034,42 @@ textarea.danhmuc-bd-input {
 }
 
 .traffic-duty-cell-input {
+  display: block;
   width: 100%;
+  height: 100%;
   min-width: 0;
+  min-height: 100%;
   margin: 0;
-  padding: 3px 4px;
-  border: 1px solid transparent;
-  border-radius: 3px;
-  background: #f8fafc;
-  font-family: inherit;
-  font-size: inherit;
-  line-height: 1.3;
+  padding: 2px 3px;
+  border: none !important;
+  border-radius: 0;
+  background: transparent;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 11pt;
+  line-height: 1.25;
   resize: none;
   overflow: hidden;
   box-sizing: border-box;
   text-align: left;
   white-space: pre-wrap;
   word-break: break-word;
+  outline: none;
 }
 
 .traffic-duty-cell-textarea {
   display: block;
-  min-height: 20px;
+  min-height: 1.4em;
   field-sizing: content;
 }
 
 .traffic-duty-cell-input:hover {
-  border-color: #cbd5e1;
-  background: #fff;
+  background: #f8fafc;
 }
 
 .traffic-duty-cell-input:focus {
   outline: none;
-  border-color: #2563eb;
-  background: #fff;
-  box-shadow: 0 0 0 1px #2563eb;
+  background: #fffde7;
+  box-shadow: inset 0 0 0 1px #94a3b8;
 }
 
 @media print {
@@ -6749,6 +7210,64 @@ textarea.danhmuc-bd-input {
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
+}
+
+.stats-main-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  background: #e2e8f0;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.stats-main-tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.stats-main-tab:hover {
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.stats-main-tab.is-active {
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.stats-main-tab-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.stats-tab-panel {
+  min-width: 0;
+}
+
+.stats-tab-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #64748b;
 }
 
 .stats-toolbar-title {
@@ -7161,6 +7680,403 @@ body.stats-col-resizing {
   color: #15803d;
 }
 
+/* —— Thống kê KL chung (ADMIN) —— */
+.stats-page--company {
+  flex-direction: column;
+  overflow: auto;
+  padding: 14px 18px 20px;
+  gap: 12px;
+  background: #f4f6f8;
+}
+
+.stats-company-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 2px 0;
+}
+
+.stats-company-bar-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.stats-company-title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #0f172a;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  letter-spacing: -0.01em;
+}
+
+.stats-company-sub {
+  margin: 3px 0 0;
+  font-size: 0.75rem;
+  color: #64748b;
+  line-height: 1.4;
+  max-width: 42rem;
+}
+
+.stats-company-bar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.stats-toolbar--company {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid #d8dee6;
+  padding: 10px 12px;
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.stats-company-field--nolabel {
+  justify-content: flex-end;
+}
+
+.stats-company-control--date,
+.stats-company-field .vi-date-wrap .stats-company-control--date,
+.stats-company-field .vi-date-wrap input {
+  text-align: center;
+}
+
+.stats-check-filter--nolabel {
+  justify-content: flex-end;
+}
+
+.stats-toolbar-filters--company {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 12px;
+}
+
+.stats-company-meta {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.stats-company-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.stats-company-field-label,
+.stats-check-filter-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  line-height: 1;
+}
+
+.stats-company-control,
+.stats-check-filter-btn,
+.stats-company-control--btn {
+  box-sizing: border-box;
+  height: 34px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 13px;
+  color: #0f172a;
+  line-height: 32px;
+}
+
+.stats-company-field .vi-date-wrap,
+.stats-company-field .vi-date-wrap .stats-company-control,
+.stats-company-field .vi-date-wrap input {
+  height: 34px;
+  min-height: 34px;
+}
+
+.stats-company-quick {
+  display: flex;
+  gap: 6px;
+}
+
+.stats-company-control--btn {
+  cursor: pointer;
+  background: #f8fafc;
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+  padding: 0 12px;
+}
+
+.stats-company-control--btn:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.stats-check-filter {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 132px;
+  max-width: 180px;
+}
+
+.stats-check-filter-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  line-height: 1.2;
+  padding: 0 8px 0 10px;
+}
+
+.stats-check-filter-btn.is-open,
+.stats-check-filter-btn.has-value {
+  border-color: #3b82f6;
+  background: #f8fbff;
+}
+
+.stats-check-filter-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.stats-check-filter-caret {
+  color: #94a3b8;
+  font-size: 0.65rem;
+  flex-shrink: 0;
+}
+
+.stats-check-filter-panel {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 40;
+  min-width: 100%;
+  width: max-content;
+  max-width: 260px;
+  max-height: 260px;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
+}
+
+.stats-check-filter-list {
+  overflow-y: auto;
+  max-height: 200px;
+}
+
+.stats-check-filter-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  margin: 0;
+  user-select: none;
+}
+
+.stats-check-filter-item:hover {
+  background: #f1f5f9;
+}
+
+.stats-check-filter-item--all {
+  border-bottom: 1px solid #e2e8f0;
+  font-weight: 600;
+  background: #f8fafc;
+}
+
+.stats-check-filter-item input {
+  margin-top: 2px;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  accent-color: #2563eb;
+}
+
+.stats-check-filter-empty {
+  margin: 0;
+  padding: 10px;
+  color: #94a3b8;
+  font-size: 0.8125rem;
+}
+
+.stats-check-filter-clear {
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  color: #2563eb;
+  cursor: pointer;
+  text-align: left;
+}
+
+.stats-check-filter-clear:hover {
+  background: #eff6ff;
+}
+
+.stats-company-table--excel tr.is-picked td {
+  background: #eff6ff !important;
+}
+
+.stats-page--company .stats-export-bar {
+  margin: 0;
+}
+
+.stats-company-table-wrap {
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  flex: 0 1 auto;
+  align-self: flex-start;
+  max-width: 100%;
+  width: fit-content;
+  min-height: 0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.stats-company-table,
+.stats-company-table--excel {
+  width: auto;
+  max-width: none;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 12.5px;
+  background: #fff;
+}
+
+.stats-company-table--excel th,
+.stats-company-table--excel td {
+  border: 1px solid #94a3b8 !important;
+  padding: 4px 6px;
+  text-align: left;
+  vertical-align: middle;
+  word-break: break-word;
+  line-height: 1.3;
+  background: #fff;
+  color: #0f172a;
+  font-weight: 400;
+}
+
+.stats-company-table--excel th {
+  background: #e8eef5 !important;
+  font-weight: 650;
+  font-size: 11.5px;
+  text-align: center;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  overflow: visible;
+  user-select: none;
+  color: #1e293b;
+  white-space: nowrap;
+}
+
+.stats-company-td-contract {
+  padding: 1px 2px !important;
+}
+
+.stats-company-hd-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  background: #fffbeb;
+  font: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  text-align: right;
+  padding: 2px 4px;
+  margin: 0;
+  border-radius: 2px;
+}
+
+.stats-company-hd-input:hover,
+.stats-company-hd-input:focus {
+  border-color: #2563eb;
+  outline: none;
+  background: #fff;
+}
+
+.stats-company-table--excel tr.is-hd-report td {
+  background: #f8fbff;
+}
+
+.stats-company-table--excel tbody tr.is-hd-report:nth-child(even) td {
+  background: #f1f6fc;
+}
+
+.stats-company-table--excel td.num,
+.stats-company-table--excel th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-company-table--excel td.center,
+.stats-company-table--excel th.center {
+  text-align: center;
+}
+
+.stats-company-table--excel tbody tr:nth-child(even) td {
+  background: #fafbfc;
+}
+
+.stats-company-table--excel tbody tr:hover td {
+  background: #f0f7ff;
+}
+
+.stats-company-table--excel td:first-child,
+.stats-company-table--excel th:first-child {
+  text-align: center;
+  padding-left: 2px;
+  padding-right: 2px;
+}
+
+.office-browse-company-stats {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+}
+
+.office-browse-company-stats--inline {
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.office-browse-company-stats .road-select-sub {
+  margin: 8px 0 0;
+}
+
 .stats-main {
   flex: 1;
   min-width: 0;
@@ -7170,14 +8086,19 @@ body.stats-col-resizing {
 
 .stats-summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(140px, 1fr));
-  gap: 14px;
-  margin-bottom: 18px;
+  grid-template-columns: repeat(4, minmax(100px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.stats-summary--compact {
+  grid-template-columns: repeat(4, minmax(88px, 140px));
+  justify-content: start;
 }
 
 .stats-summary-card {
-  padding: 16px 18px;
-  border-radius: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
   background: #fff;
   border: 1px solid #e2e8f0;
 }
@@ -7192,16 +8113,164 @@ body.stats-col-resizing {
   background: #fef2f2;
 }
 
+.stats-summary-card--pending {
+  border-color: #fcd34d;
+  background: #fffbeb;
+}
+
+.stats-atgt-block {
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.stats-toolbar--atgt {
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.stats-atgt-hint {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #64748b;
+  max-width: 52rem;
+}
+
+.stats-atgt-note {
+  max-width: 280px;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.stats-export-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.stats-export-bar-label {
+  font-size: 12px;
+  color: #475569;
+}
+
+.stats-pick-check {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: #2563eb;
+}
+
+.stats-row.is-picked {
+  background: #eff6ff;
+}
+
+.stats-detail-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.stats-detail-modal {
+  width: min(1100px, 100%);
+  max-height: min(90vh, 900px);
+  background: #fff;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.2);
+}
+
+.stats-detail-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.stats-detail-modal-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.stats-detail-modal-sub {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.stats-detail-modal-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.stats-detail-modal-body {
+  overflow: auto;
+  padding: 12px 16px 16px;
+}
+
+.stats-kl-detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
+}
+
+.stats-kl-detail-table th,
+.stats-kl-detail-table td {
+  border: 0.5pt solid #000;
+  padding: 4px 6px;
+  vertical-align: middle;
+}
+
+.stats-kl-detail-table th {
+  background: #f8fafc;
+  font-weight: 700;
+  text-align: center;
+}
+
+.stats-kl-sec-row td {
+  background: #e2e8f0;
+  font-weight: 700;
+}
+
+.stats-kl-sum-row td {
+  background: #f8fafc;
+}
+
+.stats-kl-sum-label {
+  text-align: right;
+  font-style: italic;
+}
+
 .stats-summary-value {
-  font-size: 34px;
+  font-size: 22px;
   font-weight: 700;
   color: #0f172a;
   line-height: 1.1;
 }
 
+.stats-summary--compact .stats-summary-value {
+  font-size: 20px;
+}
+
 .stats-summary-label {
-  margin-top: 6px;
-  font-size: 14px;
+  margin-top: 4px;
+  font-size: 12px;
   color: #64748b;
 }
 
@@ -7226,34 +8295,46 @@ body.stats-col-resizing {
   border: 1px solid #a6a6a6;
   border-radius: 2px;
   overflow: auto;
+  max-width: 100%;
 }
 
 .stats-table-wrap--excel {
   border-color: #808080;
 }
 
+.stats-table-wrap--compact {
+  width: fit-content;
+  max-width: 100%;
+}
+
 .stats-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 16px;
+  font-size: 13px;
   table-layout: fixed;
 }
 
+.stats-table--compact {
+  width: auto;
+  min-width: 0;
+}
+
 .stats-table--excel {
-  min-width: 100%;
+  min-width: 0;
 }
 
 .stats-table th,
 .stats-table td {
-  padding: 11px 12px;
+  padding: 6px 7px;
   border: 1px solid #c0c0c0;
   text-align: left;
   vertical-align: middle;
+  word-break: break-word;
 }
 
 .stats-table-th {
   background: #d9e1f2;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.02em;
@@ -7264,7 +8345,7 @@ body.stats-col-resizing {
   z-index: 1;
   white-space: nowrap;
   user-select: none;
-  padding: 11px 10px;
+  padding: 6px 6px;
 }
 
 .stats-table-resize-handle {
@@ -7292,9 +8373,9 @@ body.stats-col-resizing {
 }
 
 .stats-sub {
-  font-size: 14px;
+  font-size: 11px;
   color: #94a3b8;
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .stats-row--short {
@@ -7307,9 +8388,9 @@ body.stats-col-resizing {
 
 .stats-badge {
   display: inline-block;
-  padding: 5px 11px;
+  padding: 2px 7px;
   border-radius: 999px;
-  font-size: 14px;
+  font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -7343,12 +8424,13 @@ body.stats-col-resizing {
   color: #15803d;
 }
 
-.stats-detail-btn {
-  padding: 6px 12px;
+.stats-detail-btn,
+.stats-expand-btn {
+  padding: 3px 8px;
   border: 1px solid #cbd5e1;
-  border-radius: 6px;
+  border-radius: 5px;
   background: #fff;
-  font-size: 14px;
+  font-size: 11px;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -8696,7 +9778,8 @@ body.stats-col-resizing {
 
 .demxe-summary-title {
   text-align: center;
-  font-size: 15px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   font-weight: 700;
   margin: 0 0 4px;
   letter-spacing: 0.02em;
@@ -8705,7 +9788,8 @@ body.stats-col-resizing {
 
 .demxe-summary-subtitle {
   text-align: center;
-  font-size: 13px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   margin: 0 0 10px;
 }
 
@@ -8781,10 +9865,11 @@ body.stats-col-resizing {
 
 .demxe-summary-official-table th,
 .demxe-summary-official-table td {
-  border: 1px solid #0f172a;
+  border: 0.5px solid #000;
   padding: 3px 4px;
   vertical-align: middle;
   height: 22px;
+  background: #fff;
 }
 
 .demxe-summary-official-table th {
@@ -8876,7 +9961,8 @@ body.stats-col-resizing {
 
 .demxe-form-title {
   text-align: center;
-  font-size: 16px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   font-weight: 700;
   margin: 8px 0 6px;
   letter-spacing: 0.02em;
@@ -8884,7 +9970,8 @@ body.stats-col-resizing {
 
 .demxe-form-subline {
   margin: 0 0 4px;
-  font-size: 13px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
 }
 
 .demxe-form-subline--center {
@@ -8930,9 +10017,11 @@ body.stats-col-resizing {
 
 .demxe-count-data-table th,
 .demxe-count-data-table td {
-  border: 1px solid #0f172a;
+  border: 0.5px solid #000;
   padding: 4px 8px;
   vertical-align: middle;
+  text-align: center;
+  background: #fff;
 }
 
 .demxe-count-data-table th {
@@ -9118,7 +10207,8 @@ body.stats-col-resizing {
 
 .demxe-form-title {
   text-align: center;
-  font-size: 15px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   font-weight: bold;
   margin: 8px 0 10px;
   letter-spacing: 0.02em;
@@ -9277,13 +10367,15 @@ body.stats-col-resizing {
 
 .demxe-form-title {
   text-align: center;
-  font-size: 16px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   margin: 0 0 8px;
 }
 
 .demxe-form-meta {
   text-align: center;
-  font-size: 13px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   color: #475569;
   margin: 0 0 12px;
 }
@@ -9520,6 +10612,84 @@ body.stats-col-resizing {
   display: none !important;
 }
 
+/* Xem trước in sổ đếm xe theo quý */
+.demxe-quarter-print-preview-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.demxe-quarter-print-stack--preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 20px 28px;
+  -webkit-overflow-scrolling: touch;
+  background:
+    radial-gradient(ellipse at top, rgba(0, 102, 179, 0.06), transparent 55%),
+    #e8eef4;
+}
+
+.demxe-quarter-print-page {
+  position: relative;
+  width: 210mm;
+  height: 297mm;
+  min-height: 297mm;
+  max-height: 297mm;
+  margin: 0 auto;
+  background: #fff;
+  border: 1px solid #94a3b8;
+  border-radius: 2px;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.14);
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.demxe-quarter-print-inner {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.demxe-quarter-print-kicker {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  margin: 0;
+  font-size: 0.75rem;
+  color: #64748b;
+  z-index: 2;
+}
+
+.demxe-quarter-print-stack--preview .demxe-summary-page,
+.demxe-quarter-print-stack--preview .demxe-count-sheet--a4 {
+  width: 100%;
+  max-width: none;
+  min-height: 0;
+  margin: 0;
+  padding: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  page-break-after: auto;
+}
+
+.demxe-quarter-print-stack--preview .demxe-summary-stack {
+  display: contents;
+}
+
+.demxe-quarter-print-stack--preview .demxe-summary-note {
+  display: none;
+}
+
 @media print {
   .no-print,
   .demxe-sidebar,
@@ -9601,6 +10771,18 @@ body.stats-col-resizing {
   flex: 1;
   min-height: 0;
   background: #f4f6f8;
+}
+.phieu-cau-page--print .phieu-cau-main {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.phieu-cau-page--print .landscape-print-preview-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .hosocong-sidebar,
 .phieu-cau-sidebar {
@@ -9688,7 +10870,7 @@ body.stats-col-resizing {
 .phieu-cau-sheet {
   background: #fff;
   border: 1px solid #90caf9;
-  padding: 6mm 7mm;
+  padding: 5mm 6mm;
   width: 297mm;
   height: 210mm;
   max-width: 297mm;
@@ -9703,10 +10885,27 @@ body.stats-col-resizing {
   max-width: 297mm;
   height: 210mm;
 }
-.phieu-cau-header { flex-shrink: 0; text-align: center; margin-bottom: 4px; }
-.phieu-cau-org { font-size: 0.78rem; font-weight: 600; line-height: 1.25; }
-.phieu-cau-title { margin: 3px 0 4px; font-size: 0.95rem; line-height: 1.25; }
-.phieu-cau-meta { margin: 2px 0; font-size: 0.8rem; text-align: left; }
+.phieu-cau-header { flex-shrink: 0; text-align: center; margin-bottom: 2px; }
+.phieu-cau-org {
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.phieu-cau-title {
+  margin: 1px 0 2px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.phieu-cau-meta {
+  margin: 0;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 11pt;
+  text-align: left;
+  line-height: 1.25;
+}
 .phieu-cau-meta--unit {
   display: flex;
   align-items: baseline;
@@ -9718,19 +10917,24 @@ body.stats-col-resizing {
   flex: 1 1 auto;
   min-width: 0;
   font-weight: 700;
-  border-bottom: 1px solid #90a4ae;
+  border-bottom: none;
 }
 .phieu-cau-inline-input {
   min-width: 200px;
   font: inherit;
   border: none;
-  border-bottom: 1px solid #90a4ae;
+  border-bottom: none;
   padding: 1px 4px;
 }
 .phieu-cau-inline-input--full {
   flex: 1 1 auto;
   min-width: 0;
   width: 100%;
+}
+/* Ô nhập đơn vị trên phiếu — không gạch chân (giống bản in giấy) */
+.phieu-cau-sheet .phieu-cau-inline-input {
+  border-bottom: none;
+  outline: none;
 }
 .phieu-cau-table-wrap {
   flex: 1 1 auto;
@@ -9741,28 +10945,47 @@ body.stats-col-resizing {
 .phieu-cau-table {
   width: 100%;
   height: 100%;
-  border-collapse: collapse;
-  font-size: 0.74rem;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: none;
+  border-right: 0.5pt solid #000;
+  font-size: 11pt;
   table-layout: fixed;
 }
+/* Màn hình nhập liệu: 1 nét mảnh (top+left); mép phải = border bảng */
 .phieu-cau-table th,
 .phieu-cau-table td {
-  border: 1px solid #1565c0;
+  border-top: 0.5pt solid #000;
+  border-left: 0.5pt solid #000;
+  border-right: none;
+  border-bottom: none;
   padding: 0;
   vertical-align: middle;
+  font-size: 11pt;
+}
+.phieu-cau-table th:last-child,
+.phieu-cau-table td:last-child {
+  border-right: none;
+}
+.phieu-cau-table thead th {
+  border-bottom: none;
+}
+.phieu-cau-table tbody tr:last-child td {
+  border-bottom: 0.5pt solid #000;
 }
 .phieu-cau-table th {
   position: relative;
   background: #e3f2fd;
   font-weight: 600;
   text-align: center;
-  padding: 2px 4px;
+  padding: 1px 2px;
   height: auto;
-  font-size: 0.72rem;
-  line-height: 1.2;
+  font-size: 11pt;
+  line-height: 1.15;
 }
 .phieu-cau-table tbody td {
-  height: var(--phieu-row-h, 9mm);
+  height: var(--phieu-row-h, 8mm);
+  max-height: var(--phieu-row-h, 8mm);
 }
 .phieu-cau-table--excel .phieu-cau-cell-input,
 .phieu-cau-table--excel .phieu-cau-textarea {
@@ -9821,6 +11044,7 @@ body.stats-col-resizing {
     padding: 5mm 6mm;
     page: phieuCauLandscape;
     page-break-after: always;
+    overflow: hidden;
   }
   body.phieu-cau-printing .phieu-cau-sheet--page2 {
     page-break-before: always;
@@ -9835,13 +11059,22 @@ body.stats-col-resizing {
   }
 }
 
-/* ===== So cap phep TC (gptc) — an ban in, tranh chong len man hinh ===== */
-.gptc-print-stack {
-  display: none !important;
-}
-
+/* ===== So cap phep TC (gptc) ===== */
 .gptc-workspace .demxe-main {
   position: relative;
+}
+
+.gptc-workspace--print .demxe-main {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.gptc-workspace--print .landscape-print-preview-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .gptc-pane {
@@ -9850,10 +11083,11 @@ body.stats-col-resizing {
 
 .gptc-sheet {
   background: #fff;
-  border: 1px solid #90caf9;
+  border: 1px solid #94a3b8;
   padding: 12px 14px 18px;
   margin: 0 auto 16px;
   box-sizing: border-box;
+  font-family: "Times New Roman", Times, serif;
 }
 
 /* Tờ A4 ngang — bảng tổng hợp / sổ chi tiết cấp phép TC */
@@ -9862,8 +11096,8 @@ body.stats-col-resizing {
   max-width: 297mm;
   min-height: 210mm;
   padding: 8mm 10mm 10mm;
-  border: 1px solid #1565c0;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+  border: 1px solid #94a3b8;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
 }
 
 .gptc-sheet--summary {
@@ -9874,7 +11108,8 @@ body.stats-col-resizing {
 .gptc-sheet-title {
   margin: 0 0 8px;
   text-align: center;
-  font-size: 14px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.01em;
@@ -9882,13 +11117,14 @@ body.stats-col-resizing {
 }
 
 .gptc-sheet-title--bm01 {
-  font-size: 13px;
+  font-size: 13pt;
 }
 
 .gptc-paste-hint {
   margin: 0 0 8px;
   font-size: 0.82rem;
   color: #546e7a;
+  font-family: "Segoe UI", system-ui, sans-serif;
 }
 
 .gptc-table-scroll {
@@ -9904,45 +11140,140 @@ body.stats-col-resizing {
 
 .gptc-official-table {
   width: 100%;
-  border-collapse: collapse;
-  font-size: 0.78rem;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  border: none !important;
+  border-right: 0.5pt solid #000 !important;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
   table-layout: fixed;
 }
 
 .gptc-official-table th,
 .gptc-official-table td {
-  border: 1px solid #1565c0;
-  padding: 4px 5px;
+  border-top: 0.5pt solid #000 !important;
+  border-left: 0.5pt solid #000 !important;
+  border-right: none !important;
+  border-bottom: none !important;
+  padding: 0;
   vertical-align: top;
   word-break: break-word;
+  background: #fff;
+}
+
+.gptc-official-table th:last-child,
+.gptc-official-table td:last-child {
+  border-right: none !important;
+}
+
+.gptc-official-table thead tr:last-child th,
+.gptc-official-table thead th[rowspan] {
+  border-bottom: none !important;
+}
+
+.gptc-official-table tbody tr:last-child td {
+  border-bottom: 0.5pt solid #000 !important;
 }
 
 .gptc-official-table th {
-  background: #e3f2fd;
-  font-weight: 600;
+  background: #fff;
+  font-weight: 700;
   text-align: center;
+  vertical-align: middle;
+  padding: 3px 4px;
+  font-size: 12pt;
+  line-height: 1.25;
+}
+
+/* Hàng trống / pad: giữ chiều cao như hàng có ô nhập (admin xem chỉ đọc cũng không co) */
+.gptc-summary-table:not(.gptc-summary-table--print) tbody .gptc-summary-row--empty td,
+.gptc-summary-table:not(.gptc-summary-table--print) tbody .gptc-summary-row--pad td {
+  background: #fff;
+  height: 2.4em;
+  vertical-align: top;
+}
+
+.gptc-summary-table:not(.gptc-summary-table--print) tbody .gptc-summary-row--empty .gptc-cell-text,
+.gptc-summary-table:not(.gptc-summary-table--print) tbody .gptc-summary-row--pad .gptc-cell-text {
+  min-height: 1.6em;
+}
+
+.gptc-summary-table:not(.gptc-summary-table--print) tbody .gptc-summary-row--empty .gptc-cell-text:empty::before,
+.gptc-summary-table:not(.gptc-summary-table--print) tbody .gptc-summary-row--pad .gptc-cell-text:empty::before {
+  content: "\00a0";
+}
+
+.gptc-summary-table--print {
+  height: auto;
+}
+
+.gptc-summary-table--print tbody tr {
+  height: var(--gptc-summary-row-h, 14mm);
+}
+
+.gptc-summary-table--print tbody td {
+  height: var(--gptc-summary-row-h, 14mm);
+  min-height: var(--gptc-summary-row-h, 14mm);
+  vertical-align: top;
+  overflow: hidden;
+}
+
+.gptc-summary-table--print tbody tr:not(.gptc-summary-row--pad) td {
+  height: auto;
+  min-height: var(--gptc-summary-row-h, 14mm);
+}
+
+.gptc-data-cell {
+  padding: 0 !important;
+  height: 100%;
 }
 
 .gptc-cell-input,
-.gptc-official-table textarea {
+.gptc-official-table textarea,
+.gptc-cell-input--area {
+  display: block;
   width: 100%;
+  height: 100%;
+  min-height: 1.6em;
   box-sizing: border-box;
-  border: none;
+  border: none !important;
+  outline: none;
   background: transparent;
   font: inherit;
-  padding: 2px;
-  resize: vertical;
-  min-height: 1.4em;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
+  padding: 2px 4px;
+  margin: 0;
+  resize: none;
+  overflow: hidden;
+  line-height: 1.3;
 }
 
 .gptc-cell-text {
   display: block;
+  box-sizing: border-box;
   white-space: pre-wrap;
+  padding: 2px 4px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
+  line-height: 1.3;
+  min-height: 1.6em;
+}
+
+.gptc-cell-text:empty::before {
+  content: "\00a0";
+}
+
+.gptc-td-center {
+  text-align: center;
+  vertical-align: middle !important;
+  padding: 2px 4px !important;
 }
 
 .gptc-summary-table tr.gptc-row--active td,
+.gptc-summary-row--active td,
 .gptc-detail-row--active td {
-  background: #fff8e1;
+  background: #fffde7;
 }
 
 .gptc-th-resizable {
@@ -9956,6 +11287,7 @@ body.stats-col-resizing {
   width: 6px;
   height: 100%;
   cursor: col-resize;
+  z-index: 2;
 }
 
 body.gptc-col-resizing {
@@ -9966,9 +11298,22 @@ body.gptc-col-resizing {
 .gptc-action-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
   align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
   margin-bottom: 10px;
+  background: #475569;
+  color: #f8fafc;
+  border-radius: 4px;
+}
+
+.gptc-action-bar .btn-secondary {
+  background: #fff;
+  color: #1e293b;
+}
+
+.gptc-action-bar .gptc-action-hint {
+  color: #e2e8f0;
 }
 
 .gptc-action-bar__save {
@@ -9980,7 +11325,7 @@ body.gptc-col-resizing {
 
 .gptc-action-hint {
   font-size: 0.8rem;
-  color: #64748b;
+  opacity: 0.9;
 }
 
 .gptc-sidebar-meta {
@@ -9996,59 +11341,426 @@ body.gptc-col-resizing {
   line-height: 1.4;
 }
 
-.gptc-print-hidden {
-  display: none !important;
+.gptc-detail-project-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
 }
 
-@media print {
-  .gptc-print-stack {
-    display: block !important;
-  }
-
-  body.gptc-print-summary .gptc-pane,
-  body.gptc-print-detail .gptc-pane,
-  body.gptc-print-all .gptc-pane,
-  body.gptc-print-summary .gptc-action-bar,
-  body.gptc-print-detail .gptc-action-bar,
-  body.gptc-print-all .gptc-action-bar {
-    display: none !important;
-  }
-
-  body.gptc-print-summary .gptc-print-stack > *:not([data-print-section="gptc-summary"]) {
-    display: none !important;
-  }
-
-  body.gptc-print-detail .gptc-print-stack > [data-print-section="gptc-summary"],
-  body.gptc-print-detail .gptc-print-stack .gptc-print-hidden {
-    display: none !important;
-  }
-
-  body.gptc-print-all .gptc-print-stack > * {
-    display: block !important;
-    page-break-after: always;
-  }
-
-  .gptc-sheet {
-    border: none;
-    box-shadow: none;
-    margin: 0;
-    page: gptcLandscape;
-  }
-
-  .gptc-sheet--landscape {
-    width: 297mm;
-    max-width: 297mm;
-    min-height: 210mm;
-    padding: 8mm 10mm 10mm;
-  }
-
-  .gptc-table-scroll {
-    overflow: visible;
-  }
-
-  @page gptcLandscape {
-    size: A4 landscape;
-    margin: 0;
-  }
+.gptc-detail-project-label {
+  font-weight: 700;
+  flex-shrink: 0;
+  padding-top: 2px;
 }
 
+.gptc-detail-project-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.gptc-project-name-input {
+  width: 100%;
+  border-bottom: 0.5pt solid #000;
+  min-height: 1.4em;
+}
+
+.gptc-empty-row {
+  text-align: center;
+  padding: 10px !important;
+  color: #64748b;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 0.85rem;
+}
+
+/* Xem trước in — nhúng sheet vào khung A4 */
+.gptc-print-stack--preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 24px 32px;
+}
+
+.gptc-print-page .gptc-sheet {
+  width: 100%;
+  max-width: none;
+  min-height: 0;
+  height: 100%;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.gptc-print-page .gptc-table-scroll {
+  overflow: visible;
+  flex: 1;
+}
+
+.gptc-print-page .gptc-paste-hint {
+  display: none;
+}
+
+.gptc-print-inner {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.gptc-detail-pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding-bottom: 24px;
+}
+
+.gptc-detail-page-label {
+  margin: 0 0 4px;
+  font-size: 0.75rem;
+  color: #64748b;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+.gptc-table-scroll--fill {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.gptc-detail-table--excel tbody td {
+  height: var(--gptc-row-h, 9mm);
+  min-height: var(--gptc-row-h, 9mm);
+  max-height: var(--gptc-row-h, 9mm);
+  padding: 0 !important;
+  vertical-align: top;
+}
+
+.gptc-cell-input--excel {
+  display: block;
+  width: 100%;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: 100%;
+  box-sizing: border-box;
+  border: none !important;
+  outline: none;
+  resize: none !important;
+  overflow: auto;
+  padding: 2px 4px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
+  line-height: 1.25;
+  background: transparent;
+}
+
+.gptc-detail-row--empty td {
+  background: #fff;
+}
+
+.gptc-sheet--print-embed {
+  width: 100%;
+  height: 100%;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  font-family: "Times New Roman", Times, serif;
+}
+
+.gptc-sheet--print-embed .gptc-detail-table {
+  width: 100%;
+}
+
+.gptc-print-page .gptc-sheet--detail {
+  width: 100%;
+  max-width: none;
+  min-height: 0;
+  height: 100%;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+}
+
+
+/* ===== Bang bieu cac so — Times New Roman 12pt ===== */
+.nhatky-official-table,
+.nhatky-print-table,
+.matduong-table,
+.tngt-table,
+.hanh-lang-table,
+.traffic-duty-table,
+.baoduong-table,
+.phieu-cau-table,
+.gptc-official-table,
+.demxe-official-table,
+.demxe-summary-table,
+.demxe-summary-official-table {
+  font-family: "Times New Roman", Times, serif !important;
+  font-size: 12pt !important;
+}
+
+.nhatky-official-table th,
+.nhatky-official-table td,
+.nhatky-print-table th,
+.nhatky-print-table td,
+.matduong-table th,
+.matduong-table td,
+.tngt-table th,
+.tngt-table td,
+.hanh-lang-table th,
+.hanh-lang-table td,
+.traffic-duty-table th,
+.traffic-duty-table td,
+.baoduong-table th,
+.baoduong-table td,
+.phieu-cau-table th,
+.phieu-cau-table td,
+.gptc-official-table th,
+.gptc-official-table td,
+.demxe-official-table th,
+.demxe-official-table td,
+.demxe-summary-table th,
+.demxe-summary-table td,
+.demxe-summary-official-table th,
+.demxe-summary-official-table td {
+  font-family: "Times New Roman", Times, serif !important;
+  font-size: 12pt !important;
+}
+
+.nhatky-official-table input,
+.nhatky-official-table textarea,
+.nhatky-official-table .nhatky-pre,
+.nhatky-official-table .nhatky-no-issue,
+.nhatky-official-table .weather-picker-trigger,
+.matduong-table input,
+.matduong-table textarea,
+.tngt-table input,
+.tngt-table textarea,
+.hanh-lang-table input,
+.hanh-lang-table textarea,
+.traffic-duty-table input,
+.traffic-duty-table textarea,
+.traffic-duty-table .traffic-duty-pre,
+.baoduong-table input,
+.baoduong-table textarea,
+.baoduong-table .baoduong-pre,
+.phieu-cau-table input,
+.phieu-cau-table textarea,
+.phieu-cau-cell-input,
+.gptc-official-table input,
+.gptc-official-table textarea,
+.gptc-cell-input,
+.gptc-cell-text,
+.demxe-official-table input,
+.demxe-official-table textarea,
+.demxe-count-input,
+.demxe-info-cell {
+  font-family: "Times New Roman", Times, serif !important;
+  font-size: 12pt !important;
+}
+
+/* Phiếu KT cầu — bảng 11pt (khít trang A4 ngang) */
+.phieu-cau-table,
+.phieu-cau-table th,
+.phieu-cau-table td,
+.phieu-cau-table input,
+.phieu-cau-table textarea,
+.phieu-cau-cell-input,
+.phieu-cau-print-page .phieu-cau-table,
+.phieu-cau-print-page .phieu-cau-table th,
+.phieu-cau-print-page .phieu-cau-table td {
+  font-size: 11pt !important;
+}
+
+/* Sổ trực bão lũ — chữ trong bảng 11pt; tiêu đề giữ 13pt */
+.traffic-duty-table,
+.traffic-duty-table th,
+.traffic-duty-table td,
+.traffic-duty-table input,
+.traffic-duty-table textarea,
+.traffic-duty-table .traffic-duty-pre,
+.traffic-duty-print-page .traffic-duty-table,
+.traffic-duty-print-page .traffic-duty-table th,
+.traffic-duty-print-page .traffic-duty-table td {
+  font-size: 11pt !important;
+}
+
+.traffic-duty-title,
+.traffic-duty-km-range {
+  font-size: 13pt !important;
+}
+
+/* ===== Kẻ khung sổ — 1 nét mảnh thống nhất (tránh nét đôi thead+tbody) ===== */
+:root {
+  --so-line: 0.5pt solid #000;
+}
+
+.nhatky-official-table,
+.nhatky-print-table,
+.matduong-table:not(.matduong-table--quick):not(.matduong-table--entry),
+.tngt-table:not(.tngt-table--entry),
+.hanh-lang-table:not(.hanh-lang-table--entry),
+.traffic-duty-table,
+.baoduong-table,
+.phieu-cau-table,
+.gptc-official-table,
+.demxe-official-table,
+.demxe-summary-table,
+.demxe-summary-official-table,
+.matduong-print-page .matduong-table,
+.tngt-print-page .tngt-table,
+.hanh-lang-print-page .hanh-lang-table,
+.traffic-duty-print-page .traffic-duty-table,
+.baoduong-print-page .baoduong-table,
+.phieu-cau-print-page .phieu-cau-table {
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  border: none !important;
+  /* Mép phải bảng — tránh đúp nét khi thead có rowspan cột cuối (Ghi chú) */
+  border-right: var(--so-line) !important;
+}
+
+.nhatky-official-table th,
+.nhatky-official-table td,
+.nhatky-print-table th,
+.nhatky-print-table td,
+.matduong-table:not(.matduong-table--quick):not(.matduong-table--entry) th,
+.matduong-table:not(.matduong-table--quick):not(.matduong-table--entry) td,
+.tngt-table:not(.tngt-table--entry) th,
+.tngt-table:not(.tngt-table--entry) td,
+.hanh-lang-table:not(.hanh-lang-table--entry) th,
+.hanh-lang-table:not(.hanh-lang-table--entry) td,
+.traffic-duty-table th,
+.traffic-duty-table td,
+.baoduong-table th,
+.baoduong-table td,
+.phieu-cau-table th,
+.phieu-cau-table td,
+.gptc-official-table th,
+.gptc-official-table td,
+.demxe-official-table th,
+.demxe-official-table td,
+.demxe-summary-table th,
+.demxe-summary-table td,
+.demxe-summary-official-table th,
+.demxe-summary-official-table td {
+  border-top: var(--so-line) !important;
+  border-left: var(--so-line) !important;
+  border-right: none !important;
+  border-bottom: none !important;
+}
+
+.nhatky-official-table th:last-child,
+.nhatky-official-table td:last-child,
+.nhatky-print-table th:last-child,
+.nhatky-print-table td:last-child,
+.matduong-table:not(.matduong-table--quick):not(.matduong-table--entry) th:last-child,
+.matduong-table:not(.matduong-table--quick):not(.matduong-table--entry) td:last-child,
+.tngt-table:not(.tngt-table--entry) th:last-child,
+.tngt-table:not(.tngt-table--entry) td:last-child,
+.hanh-lang-table:not(.hanh-lang-table--entry) th:last-child,
+.hanh-lang-table:not(.hanh-lang-table--entry) td:last-child,
+.traffic-duty-table th:last-child,
+.traffic-duty-table td:last-child,
+.baoduong-table th:last-child,
+.baoduong-table td:last-child,
+.phieu-cau-table th:last-child,
+.phieu-cau-table td:last-child,
+.gptc-official-table th:last-child,
+.gptc-official-table td:last-child,
+.demxe-official-table th:last-child,
+.demxe-official-table td:last-child,
+.demxe-summary-table th:last-child,
+.demxe-summary-table td:last-child,
+.demxe-summary-official-table th:last-child,
+.demxe-summary-official-table td:last-child {
+  /* Không kẻ phải ô :last-child — tránh đúp với ô rowspan Ghi chú / mép bảng */
+  border-right: none !important;
+}
+
+.nhatky-official-table thead th,
+.nhatky-print-table thead th,
+.matduong-table:not(.matduong-table--quick):not(.matduong-table--entry) thead th,
+.tngt-table:not(.tngt-table--entry) thead th,
+.hanh-lang-table:not(.hanh-lang-table--entry) thead th,
+.traffic-duty-table thead th,
+.baoduong-table thead th,
+.phieu-cau-table thead th,
+.gptc-official-table thead th,
+.demxe-official-table thead th,
+.demxe-summary-table thead th,
+.demxe-summary-official-table thead th {
+  border-bottom: none !important;
+}
+
+.nhatky-official-table tbody tr:last-child td,
+.nhatky-print-table tbody tr:last-child td,
+.matduong-table:not(.matduong-table--quick):not(.matduong-table--entry) tbody tr:last-child td,
+.tngt-table:not(.tngt-table--entry) tbody tr:last-child td,
+.hanh-lang-table:not(.hanh-lang-table--entry) tbody tr:last-child td,
+.traffic-duty-table tbody tr:last-child td,
+.baoduong-table tbody tr:last-child td,
+.phieu-cau-table tbody tr:last-child td,
+.gptc-official-table tbody tr:last-child td,
+.demxe-official-table tbody tr:last-child td,
+.demxe-summary-table tbody tr:last-child td,
+.demxe-summary-official-table tbody tr:last-child td {
+  border-bottom: var(--so-line) !important;
+}
+
+/* Nhật ký tuần đường: mỗi hàng là 1 bảng — bỏ top, chỉ giữ đáy (tránh nét ngang đậm) */
+.nhatky-head-cell .nhatky-head-row-table {
+  border-right: var(--so-line) !important;
+}
+.nhatky-head-cell .nhatky-head-row-table th {
+  border-top: var(--so-line) !important;
+  border-bottom: var(--so-line) !important;
+  border-right: none !important;
+}
+.nhatky-body-cell .nhatky-row-table {
+  border-right: var(--so-line) !important;
+}
+.nhatky-body-cell .nhatky-row-table td {
+  border-top: none !important;
+  border-bottom: var(--so-line) !important;
+  border-right: none !important;
+}
+.nhatky-body-cell .nhatky-row-table td:first-child {
+  border-left: var(--so-line) !important;
+}
+.tngt-diary-table {
+  border-right: var(--so-line) !important;
+}
+.tngt-diary-table th,
+.tngt-diary-table td {
+  border-top: var(--so-line) !important;
+  border-left: var(--so-line) !important;
+  border-right: none !important;
+  border-bottom: none !important;
+}
+.tngt-diary-table th:last-child,
+.tngt-diary-table td:last-child {
+  border-right: none !important;
+}
+.tngt-diary-table thead th {
+  border-bottom: none !important;
+}
+.tngt-diary-table tbody tr:last-child td {
+  border-bottom: var(--so-line) !important;
+}

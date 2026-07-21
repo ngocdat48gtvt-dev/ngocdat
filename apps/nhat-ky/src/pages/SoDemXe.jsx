@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect, useRef } from "react";
 import DemXeEntryForm from "../components/DemXeEntryForm";
 import DemXeCountSheet from "../components/DemXeCountSheet";
 import DemXeSummarySheet from "../components/DemXeSummarySheet";
+import DemXeQuarterPrintPages from "../components/DemXeQuarterPrintPages";
 import { useAuth } from "../context/AuthContext";
 import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
 import { useOfficePermissions } from "../hooks/useOfficePermissions";
@@ -16,13 +17,38 @@ import {
   findQuarterByKey,
   ledgerYear
 } from "../utils/demXeQuarters";
+import { quarterPrintPageCount } from "../utils/demXeQuarterPrint";
+import { printDemXeQuarterPages } from "../utils/demXePrint";
 import { formatDisplayDate } from "../utils/nhatKyFormat";
 
 const SIDEBAR_WIDTH = 300;
+const MARGIN_KEY = "demxe-print-margins-v1";
+const DEFAULT_MARGINS = { top: 12, right: 12, bottom: 12, left: 14 };
 const TABS = [
   { key: "entry", label: "Nhập liệu" },
   { key: "summary", label: "Tổng hợp" }
 ];
+
+function clampMm(v, fallback) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(40, Math.max(0, Math.round(n * 10) / 10));
+}
+
+function loadMargins() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(MARGIN_KEY));
+    if (!raw || typeof raw !== "object") return { ...DEFAULT_MARGINS };
+    return {
+      top: clampMm(raw.top, DEFAULT_MARGINS.top),
+      right: clampMm(raw.right, DEFAULT_MARGINS.right),
+      bottom: clampMm(raw.bottom, DEFAULT_MARGINS.bottom),
+      left: clampMm(raw.left, DEFAULT_MARGINS.left)
+    };
+  } catch {
+    return { ...DEFAULT_MARGINS };
+  }
+}
 
 function todayIso() {
   return new Date().toISOString().split("T")[0];
@@ -51,6 +77,8 @@ export default function SoDemXe({ readOnly = false }) {
   const [selectedDate, setSelectedDate] = useState(todayIso());
   const [selectedDirId, setSelectedDirId] = useState("");
   const [selectedQuarterKey, setSelectedQuarterKey] = useState("");
+  const [printOpen, setPrintOpen] = useState(false);
+  const [margins, setMargins] = useState(loadMargins);
   const [message, setMessage] = useState("");
   const [entryDraft, setEntryDraft] = useState(null);
   const [entryDirty, setEntryDirty] = useState(false);
@@ -59,10 +87,15 @@ export default function SoDemXe({ readOnly = false }) {
   const entryNavRef = useRef({ date: "", dirId: "" });
 
   const trafficView = useMemo(() => DocumentViewService.buildTrafficCount(ledger), [ledger]);
-  const bookYear = useMemo(() => trafficView.year || ledgerYear(ledger?.cover), [trafficView.year, ledger?.cover]);
+  const bookYear = useMemo(
+    () => trafficView.year || ledgerYear(ledger?.cover),
+    [trafficView.year, ledger?.cover]
+  );
   const quarters = useMemo(() => buildYearQuarters(bookYear), [bookYear]);
   const selectedQuarter = useMemo(
-    () => findQuarterByKey(quarters, selectedQuarterKey) || findQuarterByDate(quarters, selectedDate),
+    () =>
+      findQuarterByKey(quarters, selectedQuarterKey) ||
+      findQuarterByDate(quarters, selectedDate),
     [quarters, selectedQuarterKey, selectedDate]
   );
 
@@ -70,11 +103,31 @@ export default function SoDemXe({ readOnly = false }) {
   const selectedDir =
     directions.find((d) => d.id === selectedDirId) || directions[0] || null;
 
+  const printCover = useMemo(
+    () => ({
+      ...(ledger?.cover || {}),
+      tenDuong: String(ledger?.cover?.tenDuong || "").trim() || roadName,
+      tenHat:
+        String(ledger?.cover?.tenHat || "").trim() ||
+        String(activeRoad?.hat || "").trim()
+    }),
+    [ledger?.cover, roadName, activeRoad?.hat]
+  );
+
+  const printPageCount = useMemo(
+    () => quarterPrintPageCount(selectedQuarter),
+    [selectedQuarter]
+  );
+
   useEffect(() => {
     if (!ready || !ledger || quartersInitRef.current) return;
     setLedger((prev) => ensureYearQuartersInLedger(prev, bookYear));
     quartersInitRef.current = true;
   }, [ready, bookYear, setLedger]);
+
+  useEffect(() => {
+    localStorage.setItem(MARGIN_KEY, JSON.stringify(margins));
+  }, [margins]);
 
   useEffect(() => {
     if (!ready || !ledger || !activeRoad) return;
@@ -131,7 +184,8 @@ export default function SoDemXe({ readOnly = false }) {
       return;
     }
     const navChanged =
-      entryNavRef.current.date !== selectedDate || entryNavRef.current.dirId !== selectedDirId;
+      entryNavRef.current.date !== selectedDate ||
+      entryNavRef.current.dirId !== selectedDirId;
     if (navChanged) {
       entryNavRef.current = { date: selectedDate, dirId: selectedDirId };
       setEntryDraft({
@@ -223,7 +277,7 @@ export default function SoDemXe({ readOnly = false }) {
     setSelectedQuarterKey(quarter.key);
     setSelectedDate(quarter.startDate);
     setSelectedDirId("");
-    if (goEntry) setTab("entry");
+    if (goEntry && !printOpen) setTab("entry");
   }
 
   function syncYearQuarters() {
@@ -249,7 +303,9 @@ export default function SoDemXe({ readOnly = false }) {
         counts: { ...d.counts }
       })
     );
-    updateDay(selectedDate, (day) => ensureDayDirections({ directions: copied }, directionSeed()));
+    updateDay(selectedDate, (day) =>
+      ensureDayDirections({ directions: copied }, directionSeed())
+    );
     setSelectedDirId(copied[0]?.id || "");
     flash(`Đã sao chép từ ${formatDisplayDate(prev)}`);
   }
@@ -289,10 +345,18 @@ export default function SoDemXe({ readOnly = false }) {
   }
 
   return (
-    <div className="nhaplieu-workspace sonhatky-workspace demxe-workspace">
+    <div
+      className={`nhaplieu-workspace sonhatky-workspace demxe-workspace${
+        printOpen ? " demxe-workspace--print" : ""
+      }`}
+    >
       <aside
-        className="nhaplieu-sidebar sonhatky-sidebar demxe-sidebar"
-        style={{ width: SIDEBAR_WIDTH, minWidth: SIDEBAR_WIDTH, maxWidth: SIDEBAR_WIDTH }}
+        className="nhaplieu-sidebar sonhatky-sidebar demxe-sidebar no-print"
+        style={{
+          width: SIDEBAR_WIDTH,
+          minWidth: SIDEBAR_WIDTH,
+          maxWidth: SIDEBAR_WIDTH
+        }}
       >
         <div className="sidebar-sticky-head demxe-sidebar-head">
           <h2 className="sidebar-title">Sổ đếm xe</h2>
@@ -305,72 +369,73 @@ export default function SoDemXe({ readOnly = false }) {
         </div>
 
         <div className="sidebar-scroll demxe-sidebar-scroll">
-          {(tab === "entry" || tab === "summary") && (
-            <div className="demxe-nav-card">
-              <div className="demxe-nav-step">
-                <span className="demxe-nav-step__n">1</span>
-                <span className="demxe-nav-label">Chọn quý</span>
-              </div>
-              <div className="demxe-quarter-seg" role="tablist" aria-label="Chọn quý">
-                {quarters.map((q) => {
-                  const active = selectedQuarter?.key === q.key;
-                  return (
-                    <button
-                      key={q.key}
-                      type="button"
-                      role="tab"
-                      aria-selected={active}
-                      title={`${q.label} · tháng ${q.month}/${q.year}`}
-                      className={`demxe-quarter-seg__btn${active ? " is-active" : ""}`}
-                      onClick={() => selectQuarter(q, tab === "entry")}
-                    >
-                      <span className="demxe-quarter-seg__roman">Quý {q.roman}</span>
-                      <span className="demxe-quarter-seg__month">Tháng {q.month}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {tab === "entry" && selectedQuarter ? (
-                <>
-                  <div className="demxe-nav-step demxe-nav-step--spaced">
-                    <span className="demxe-nav-step__n">2</span>
-                    <span className="demxe-nav-label">Ngày đếm</span>
-                  </div>
-                  <div className="demxe-day-list demxe-day-list--card">
-                    {selectedQuarter.schedule.map(({ date, hoursLabel }) => {
-                      const active = date === selectedDate;
-                      return (
-                        <button
-                          key={date}
-                          type="button"
-                          className={`demxe-day-item${active ? " demxe-day-item--active" : ""}`}
-                          onClick={() => switchEntryDay(date)}
-                        >
-                          <span className="demxe-day-item__main">
-                            <span className="demxe-day-item__date">{formatDisplayDate(date)}</span>
-                            {hoursLabel ? (
-                              <span className="demxe-day-item__hours">{hoursLabel}</span>
-                            ) : null}
-                          </span>
-                          <span className="demxe-day-badge">2 chiều</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </>
-              ) : null}
-
-              {tab === "summary" && selectedQuarter ? (
-                <p className="demxe-nav-hint">
-                  Tổng hợp {selectedQuarter.label}: {formatDisplayDate(selectedQuarter.startDate)} →{" "}
-                  {formatDisplayDate(selectedQuarter.endDate)}
-                </p>
-              ) : null}
+          <div className="demxe-nav-card">
+            <div className="demxe-nav-step">
+              <span className="demxe-nav-step__n">1</span>
+              <span className="demxe-nav-label">Chọn quý</span>
             </div>
-          )}
+            <div className="demxe-quarter-seg" role="tablist" aria-label="Chọn quý">
+              {quarters.map((q) => {
+                const active = selectedQuarter?.key === q.key;
+                return (
+                  <button
+                    key={q.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    title={`${q.label} · tháng ${q.month}/${q.year}`}
+                    className={`demxe-quarter-seg__btn${active ? " is-active" : ""}`}
+                    onClick={() => selectQuarter(q, tab === "entry")}
+                  >
+                    <span className="demxe-quarter-seg__roman">Quý {q.roman}</span>
+                    <span className="demxe-quarter-seg__month">Tháng {q.month}</span>
+                  </button>
+                );
+              })}
+            </div>
 
-          {tab === "entry" && directions.length > 0 ? (
+            {!printOpen && tab === "entry" && selectedQuarter ? (
+              <>
+                <div className="demxe-nav-step demxe-nav-step--spaced">
+                  <span className="demxe-nav-step__n">2</span>
+                  <span className="demxe-nav-label">Ngày đếm</span>
+                </div>
+                <div className="demxe-day-list demxe-day-list--card">
+                  {selectedQuarter.schedule.map(({ date, hoursLabel }) => {
+                    const active = date === selectedDate;
+                    return (
+                      <button
+                        key={date}
+                        type="button"
+                        className={`demxe-day-item${active ? " demxe-day-item--active" : ""}`}
+                        onClick={() => switchEntryDay(date)}
+                      >
+                        <span className="demxe-day-item__main">
+                          <span className="demxe-day-item__date">
+                            {formatDisplayDate(date)}
+                          </span>
+                          {hoursLabel ? (
+                            <span className="demxe-day-item__hours">{hoursLabel}</span>
+                          ) : null}
+                        </span>
+                        <span className="demxe-day-badge">2 chiều</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            ) : null}
+
+            {(printOpen || tab === "summary") && selectedQuarter ? (
+              <p className="demxe-nav-hint">
+                {selectedQuarter.label}: {formatDisplayDate(selectedQuarter.startDate)} →{" "}
+                {formatDisplayDate(selectedQuarter.endDate)}
+                {printOpen ? ` · ${printPageCount} tờ in` : ""}
+              </p>
+            ) : null}
+          </div>
+
+          {!printOpen && tab === "entry" && directions.length > 0 ? (
             <div className="demxe-nav-card">
               <div className="demxe-nav-step">
                 <span className="demxe-nav-step__n">3</span>
@@ -406,80 +471,132 @@ export default function SoDemXe({ readOnly = false }) {
           <div className="demxe-sync-block">
             <button
               type="button"
-              className="demxe-sync-btn"
-              onClick={syncYearQuarters}
-              disabled={readOnly}
+              className={`btn-secondary sonhatky-edit-btn sonhatky-edit-btn--sub${
+                printOpen ? " active" : ""
+              }`}
+              onClick={() => setPrintOpen((v) => !v)}
+              disabled={!selectedQuarter}
             >
-              Cập nhật lịch 4 quý {bookYear}
+              {printOpen ? "Đóng xem trước in" : "In sổ quý này"}
             </button>
-            <p className="demxe-sync-hint">Tạo / làm mới ngày đếm theo năm hiện tại</p>
+            {printOpen ? (
+              <ul className="print-form-tips" style={{ marginTop: 10 }}>
+                <li>Khổ A4 dọc</li>
+                <li>Kéo lề xanh trên tờ đầu</li>
+                <li>1 tờ tổng hợp + 6 phiếu đếm</li>
+              </ul>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="demxe-sync-btn"
+                  onClick={syncYearQuarters}
+                  disabled={readOnly}
+                >
+                  Cập nhật lịch 4 quý {bookYear}
+                </button>
+                <p className="demxe-sync-hint">Tạo / làm mới ngày đếm theo năm hiện tại</p>
+              </>
+            )}
           </div>
         </div>
       </aside>
 
       <main className="nhaplieu-review-pane demxe-main">
-        <div className="demxe-toolbar no-print">
-          <div className="demxe-tabs">
-            {TABS.map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                className={tab === t.key ? "demxe-tab demxe-tab--active" : "demxe-tab"}
-                onClick={() => setTab(t.key)}
-              >
-                {t.label}
-              </button>
-            ))}
-            {tab === "entry" && !readOnly && (
-              <div className="demxe-tabs-save">
-                {entryDirty && <span className="demxe-entry-unsaved">Chưa lưu</span>}
-                <button
-                  type="button"
-                  className="btn-secondary btn-primary--compact"
-                  onClick={copyPreviousDay}
-                >
-                  Sao chép ngày trước
-                </button>
-                <button
-                  type="button"
-                  className="btn-primary btn-primary--compact"
-                  disabled={saving || !entryDraft}
-                  onClick={() => void saveEntry()}
-                >
-                  {saving ? "Đang lưu..." : "Lưu dữ liệu"}
-                </button>
+        {!printOpen ? (
+          <>
+            <div className="demxe-toolbar no-print">
+              <div className="demxe-tabs">
+                {TABS.map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    className={tab === t.key ? "demxe-tab demxe-tab--active" : "demxe-tab"}
+                    onClick={() => setTab(t.key)}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+                {tab === "entry" && !readOnly && (
+                  <div className="demxe-tabs-save">
+                    {entryDirty && <span className="demxe-entry-unsaved">Chưa lưu</span>}
+                    <button
+                      type="button"
+                      className="btn-secondary btn-primary--compact"
+                      onClick={copyPreviousDay}
+                    >
+                      Sao chép ngày trước
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-primary btn-primary--compact"
+                      disabled={saving || !entryDraft}
+                      onClick={() => void saveEntry()}
+                    >
+                      {saving ? "Đang lưu..." : "Lưu dữ liệu"}
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        </div>
+            </div>
 
-        <div className="demxe-pane">
-          {tab === "entry" &&
-            (selectedDir && entryDraft ? (
-              <DemXeCountSheet
-                date={selectedDate}
-                direction={entryDraft}
-                cover={{
-                  ...ledger.cover,
-                  tenDuong: String(ledger.cover?.tenDuong || "").trim() || roadName,
-                  tenHat:
-                    String(ledger.cover?.tenHat || "").trim() ||
-                    String(activeRoad?.hat || "").trim()
-                }}
-                editable={!readOnly}
-                onChange={readOnly ? undefined : handleEntryChange}
-              />
-            ) : (
-              <DemXeEntryForm date={selectedDate} />
-            ))}
-          {tab === "summary" && (
-            <DemXeSummarySheet
+            <div className="demxe-pane">
+              {tab === "entry" &&
+                (selectedDir && entryDraft ? (
+                  <DemXeCountSheet
+                    date={selectedDate}
+                    direction={entryDraft}
+                    cover={printCover}
+                    editable={!readOnly}
+                    onChange={readOnly ? undefined : handleEntryChange}
+                  />
+                ) : (
+                  <DemXeEntryForm date={selectedDate} />
+                ))}
+              {tab === "summary" && (
+                <DemXeSummarySheet
+                  days={ledger.days}
+                  cover={ledger.cover}
+                  batchStarts={summaryBatchStarts}
+                />
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="sonhatky-print-preview-pane demxe-quarter-print-preview-pane">
+            <div className="sonhatky-print-toolbar print-toolbar no-print">
+              <div className="print-toolbar-main">
+                <div className="print-toolbar-kicker">Xem trước in · A4 dọc · theo quý</div>
+                <div className="print-toolbar-chips">
+                  <span className="print-chip">{selectedQuarter?.label}</span>
+                  <span className="print-chip">
+                    {selectedQuarter
+                      ? `${formatDisplayDate(selectedQuarter.startDate)} → ${formatDisplayDate(selectedQuarter.endDate)}`
+                      : ""}
+                  </span>
+                  <span className="print-chip">{printPageCount} tờ</span>
+                  <span className="print-chip print-chip--muted">
+                    Lề {margins.top}/{margins.right}/{margins.bottom}/{margins.left} mm
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn-primary btn-primary--compact print-toolbar-action"
+                onClick={() => printDemXeQuarterPages(margins)}
+              >
+                In quý này
+              </button>
+            </div>
+            <DemXeQuarterPrintPages
+              quarter={selectedQuarter}
               days={ledger.days}
-              cover={ledger.cover}
-              batchStarts={summaryBatchStarts}
+              cover={printCover}
+              margins={margins}
+              onMarginsChange={setMargins}
             />
-          )}
-        </div>
+          </div>
+        )}
       </main>
     </div>
   );

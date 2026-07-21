@@ -16,6 +16,7 @@ import SoDemXe from "./pages/SoDemXe";
 import SoCapPhepThiCong from "./pages/SoCapPhepThiCong";
 import HienTruongPage from "./pages/HienTruongPage";
 import ThongKeKhoiLuong from "./pages/ThongKeKhoiLuong";
+import ThongKeKhoiLuongChung from "./pages/ThongKeKhoiLuongChung";
 import DanhMucBaoDuong from "./pages/DanhMucBaoDuong";
 import HoSoCong from "./pages/HoSoCong";
 import DanhSachCau from "./pages/DanhSachCau";
@@ -174,10 +175,20 @@ function NhatKyWorkspace({
   onStorageChange,
   matDuongQuickBoot,
   onMatDuongQuickBootConsumed,
+  nhapLieuBootSection = "",
+  onNhapLieuBootSection,
+  onNhapLieuBootSectionConsumed,
   officeReadOnly,
   canEditOfficeData
 }) {
-  const goEdit = canEditOfficeData ? () => setPage("nhaplieu") : undefined;
+  const goEdit = canEditOfficeData
+    ? (sectionTitle) => {
+        if (typeof sectionTitle === "string" && sectionTitle.trim()) {
+          onNhapLieuBootSection?.(sectionTitle.trim());
+        }
+        setPage("nhaplieu");
+      }
+    : undefined;
 
   return (
     <div className="nhat-ky-workspace">
@@ -189,6 +200,8 @@ function NhatKyWorkspace({
           onStorageChange={onStorageChange}
           matDuongQuickBoot={matDuongQuickBoot}
           onMatDuongQuickBootConsumed={onMatDuongQuickBootConsumed}
+          bootSection={nhapLieuBootSection}
+          onBootSectionConsumed={onNhapLieuBootSectionConsumed}
           readOnly={officeReadOnly}
         />
       )}
@@ -198,6 +211,7 @@ function NhatKyWorkspace({
           onDateChange={setWorkspaceDate}
           onGoEdit={goEdit}
           storageTick={storageTick}
+          readOnly={officeReadOnly}
         />
       )}
       {page === "somatduong" && (
@@ -206,6 +220,7 @@ function NhatKyWorkspace({
           onWorkspaceDateChange={setWorkspaceDate}
           onStorageChange={onStorageChange}
           storageTick={storageTick}
+          readOnly={officeReadOnly}
         />
       )}
       {page === "sobaoduong" && (
@@ -214,16 +229,21 @@ function NhatKyWorkspace({
           onDateChange={setWorkspaceDate}
           onGoEdit={goEdit}
           storageTick={storageTick}
+          readOnly={officeReadOnly}
         />
       )}
       {page === "sotructraffic" && (
-        <SoTrafficDuty onGoEdit={goEdit} storageTick={storageTick} />
+        <SoTrafficDuty
+          onGoEdit={goEdit}
+          storageTick={storageTick}
+          readOnly={officeReadOnly}
+        />
       )}
       {page === "sotngt" && (
-        <SoTngt onGoEdit={goEdit} storageTick={storageTick} />
+        <SoTngt onGoEdit={goEdit} storageTick={storageTick} readOnly={officeReadOnly} />
       )}
       {page === "sohanhlang" && (
-        <SoHanhLang onGoEdit={goEdit} storageTick={storageTick} />
+        <SoHanhLang onGoEdit={goEdit} storageTick={storageTick} readOnly={officeReadOnly} />
       )}
       {page === "sodemxe" && <SoDemXe readOnly={officeReadOnly} />}
       {page === "sogptc" && <SoCapPhepThiCong readOnly={officeReadOnly} />}
@@ -254,6 +274,7 @@ function AppContent() {
     () => new Date().toISOString().split("T")[0]
   );
   const [matDuongQuickBoot, setMatDuongQuickBoot] = useState(false);
+  const [nhapLieuBootSection, setNhapLieuBootSection] = useState("");
 
   useEffect(() => {
     if (needsBrowsePicker && page === "nhaplieu") {
@@ -288,6 +309,7 @@ function AppContent() {
     enabled: canAccess && !!ownerUid && !!activeRoadId && !!storageKey && workspaceOpen,
     canPush: canEditOfficeData && !browseMode,
     browseMode,
+    catalogRoad: activeRoad,
     onHydrated: () => setStorageTick((t) => t + 1)
   });
 
@@ -360,28 +382,28 @@ function AppContent() {
           </button>
 
           <div className="nhat-ky-nav-right">
-            <span className="nhat-ky-user-chip">
+            {workspaceOpen && (
+              <RoadWorkspaceNav
+                road={activeRoad}
+                onChangeRoad={handleChangeRoad}
+                browseUserName={needsBrowsePicker ? browse.selectedUser?.displayName : ""}
+              />
+            )}
+            <span className="nhat-ky-user-chip" title={profile?.email || ""}>
               {profile?.displayName || profile?.email}
             </span>
             <button type="button" className="nhat-ky-logout-btn" onClick={() => void logout()}>
-              Đăng xuất
+              Thoát
             </button>
           </div>
         </div>
 
-        {workspaceOpen && (
+        {workspaceOpen && portal === "nhatky" && (
           <div className="nhat-ky-header-subrow">
-            {portal === "nhatky" && (
-              <NhatKySubNav
-                page={page}
-                setPage={setPage}
-                canEditOfficeData={canEditOfficeData}
-              />
-            )}
-            <RoadWorkspaceNav
-              road={activeRoad}
-              onChangeRoad={handleChangeRoad}
-              browseUserName={needsBrowsePicker ? browse.selectedUser?.displayName : ""}
+            <NhatKySubNav
+              page={page}
+              setPage={setPage}
+              canEditOfficeData={canEditOfficeData}
             />
           </div>
         )}
@@ -413,6 +435,9 @@ function AppContent() {
           onStorageChange={() => setStorageTick((t) => t + 1)}
           matDuongQuickBoot={matDuongQuickBoot}
           onMatDuongQuickBootConsumed={() => setMatDuongQuickBoot(false)}
+          nhapLieuBootSection={nhapLieuBootSection}
+          onNhapLieuBootSection={setNhapLieuBootSection}
+          onNhapLieuBootSectionConsumed={() => setNhapLieuBootSection("")}
           officeReadOnly={isOfficeReadOnly}
           canEditOfficeData={canEditOfficeData}
         />
@@ -422,9 +447,47 @@ function AppContent() {
   );
 }
 
+function BaoCaoApp() {
+  const { profile, logout } = useAuth();
+
+  useEffect(() => {
+    document.title = "Báo cáo khối lượng";
+  }, []);
+
+  return (
+    <div className="nhat-ky-app nhat-ky-app--bao-cao">
+      <header className="nhat-ky-header">
+        <div className="nhat-ky-nav nhat-ky-nav--portal">
+          <a href={HOME_URL} className="nhat-ky-home-link" title="Trang chủ" aria-label="Trang chủ">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 10.5 12 3l9 7.5" />
+              <path d="M5 9.5V20h14V9.5" />
+              <path d="M10 20v-6h4v6" />
+            </svg>
+          </a>
+          <span className="nav-active" style={{ pointerEvents: "none" }}>
+            BÁO CÁO
+          </span>
+          <div className="nhat-ky-nav-right">
+            <span className="nhat-ky-user-chip" title={profile?.email || ""}>
+              {profile?.displayName || profile?.email}
+            </span>
+            <button type="button" className="nhat-ky-logout-btn" onClick={() => void logout()}>
+              Thoát
+            </button>
+          </div>
+        </div>
+      </header>
+      <div className="nhat-ky-body">
+        <ThongKeKhoiLuongChung />
+      </div>
+    </div>
+  );
+}
+
 function AppShell() {
-  const { loading, canAccess, profile } = useAuth();
-  const { needsBrowsePicker } = useOfficePermissions();
+  const { loading, canAccess, profile, baoCaoMode } = useAuth();
+  const { needsBrowsePicker, isAdmin } = useOfficePermissions();
 
   if (loading) {
     return (
@@ -436,6 +499,23 @@ function AppShell() {
 
   if (!canAccess) {
     return <LoginPage />;
+  }
+
+  if (baoCaoMode) {
+    if (!isAdmin) {
+      return (
+        <div className="nhatky-login">
+          <div className="nhatky-login-card">
+            <h1>Báo cáo khối lượng</h1>
+            <p className="nhatky-login-error">Cổng này chỉ dành cho ADMIN.</p>
+            <a href="/san-pham" className="nhatky-login-home">
+              ← Về trang chủ
+            </a>
+          </div>
+        </div>
+      );
+    }
+    return <BaoCaoApp />;
   }
 
   return (

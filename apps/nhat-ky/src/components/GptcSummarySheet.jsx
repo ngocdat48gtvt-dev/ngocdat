@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import GptcAutoTextarea from "./GptcAutoTextarea";
 import {
   SUMMARY_FIELD_KEYS,
+  isPermitRowFilled,
   parseExcelGrid,
   resolvePasteOrigin
 } from "../utils/gptcSummaryGrid";
@@ -54,7 +55,11 @@ export default function GptcSummarySheet({
   onOpenDetail,
   onChangePermit,
   onColWidthsChange,
-  onPasteGrid
+  onPasteGrid,
+  /** Chế độ in: dùng pageRows (đã pad), chiều cao dòng cố định */
+  printMode = false,
+  pageRows = null,
+  rowHMm = 14
 }) {
   const focusRef = useRef({ row: 0, col: 1 });
   const resizeRef = useRef(null);
@@ -122,8 +127,9 @@ export default function GptcSummarySheet({
 
   return (
     <div
-      className="gptc-sheet gptc-sheet--landscape gptc-sheet--a4-landscape gptc-sheet--summary gptc-print-section"
+      className={`gptc-sheet gptc-sheet--landscape gptc-sheet--a4-landscape gptc-sheet--summary gptc-print-section${printMode ? " gptc-sheet--print-embed" : ""}`}
       data-print-section="gptc-summary"
+      style={printMode ? { "--gptc-summary-row-h": `${rowHMm}mm` } : undefined}
     >
       <h2 className="gptc-sheet-title gptc-sheet-title--bm01">
         BẢNG TỔNG HỢP CÔNG TRÌNH ĐƯỢC CẤP PHÉP TUYẾN {titleRoad} NĂM {year}
@@ -135,8 +141,10 @@ export default function GptcSummarySheet({
         </p>
       )}
 
-      <div className="gptc-table-scroll">
-        <table className="gptc-official-table gptc-summary-table">
+      <div className={`gptc-table-scroll${printMode ? " gptc-table-scroll--fill" : ""}`}>
+        <table
+          className={`gptc-official-table gptc-summary-table${printMode ? " gptc-summary-table--print" : ""}`}
+        >
           <colgroup>
             {widths.map((w, i) => (
               <col key={i} style={{ width: `${w}px` }} />
@@ -196,8 +204,21 @@ export default function GptcSummarySheet({
             </tr>
           </thead>
           <tbody>
-            {(ledger.permits || []).map((p, rowIndex) => {
+            {(printMode ? pageRows || [] : ledger.permits || []).map((p, rowIndex) => {
+              if (!p) {
+                return (
+                  <tr key={`pad-${rowIndex}`} className="gptc-summary-row gptc-summary-row--pad">
+                    {Array.from({ length: 9 }, (_, i) => (
+                      <td key={i} className="gptc-data-cell">
+                        <span className="gptc-cell-text">{"\u00A0"}</span>
+                      </td>
+                    ))}
+                  </tr>
+                );
+              }
+
               const active = selectedId === p.id;
+              const filled = isPermitRowFilled(p);
               const fields = SUMMARY_FIELD_KEYS;
 
               function cell(colIndex) {
@@ -206,7 +227,7 @@ export default function GptcSummarySheet({
                 return (
                   <td key={colIndex} className="gptc-data-cell">
                     <SummaryCell
-                      editable={editable}
+                      editable={editable && !printMode}
                       multiline={multiline}
                       value={p[field]}
                       onChange={(v) => onChangePermit?.(p.id, field, v)}
@@ -220,18 +241,24 @@ export default function GptcSummarySheet({
               return (
                 <tr
                   key={p.id}
-                  className={`gptc-summary-row${active ? " gptc-summary-row--active" : ""}`}
+                  className={`gptc-summary-row${active ? " gptc-summary-row--active" : ""}${filled ? "" : " gptc-summary-row--empty"}`}
                   onMouseDown={(e) => {
-                    if (e.target.closest("input, textarea")) return;
+                    if (printMode || e.target.closest("input, textarea")) return;
                     onRowSelect?.(p.id);
                   }}
                   onDoubleClick={(e) => {
-                    if (e.target.closest("input, textarea")) return;
+                    if (printMode || e.target.closest("input, textarea")) return;
                     onOpenDetail?.(p.id);
                   }}
-                  title={editable ? "Double-click dòng (không bấm ô) để mở BM02" : undefined}
+                  title={
+                    editable && !printMode
+                      ? "Double-click dòng (không bấm ô) để mở BM02"
+                      : undefined
+                  }
                 >
-                  <td className="gptc-data-cell gptc-td-center gptc-col-stt">{p.stt}</td>
+                  <td className="gptc-data-cell gptc-td-center gptc-col-stt">
+                    {filled ? p.stt : "\u00A0"}
+                  </td>
                   {cell(1)}
                   {cell(2)}
                   {cell(3)}
@@ -243,7 +270,7 @@ export default function GptcSummarySheet({
                 </tr>
               );
             })}
-            {!ledger.permits?.length && (
+            {!printMode && !ledger.permits?.length && (
               <tr>
                 <td colSpan={9} className="gptc-empty-row">
                   Chưa có công trình. Bấm &quot;Thêm công trình&quot; hoặc dán từ Excel (Ctrl+V).

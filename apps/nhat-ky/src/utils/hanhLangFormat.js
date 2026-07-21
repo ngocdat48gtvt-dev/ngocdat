@@ -56,49 +56,98 @@ function formatViolationContent(entry) {
 function formatAreaCell(entry) {
   const l = entry?.length;
   const w = entry?.width;
-  if (l && w) return `${l}*${w}${entry.unit === "m2" || entry.unit === "m²" ? " m²" : ""}`;
+  if (l && w) return `${l}*${w}`;
   const q = entry?.quantity;
-  if (q && entry?.unit) return `${q} ${entry.unit}`;
+  if (q && entry?.unit) {
+    const unit = String(entry.unit).replace(/m²|m2/gi, "").trim();
+    return unit ? `${q} ${unit}` : String(q);
+  }
+  if (q) return String(q);
   return "";
 }
 
-/** Hằng số bố cục trang A4 ngang — căn dòng TỔNG CỘNG sát đáy. */
+/** Hằng số bố cục trang A4 ngang — dùng chung preview + in. */
 export const HANH_LANG_SHEET_LAYOUT = {
+  sheetWidthMm: 297,
   sheetHeightMm: 210,
   paddingVerticalMm: 22,
   topBlockMm: 48,
-  theadMm: 13,
+  theadMm: 18,
   footerMm: 8,
+  dataRowMinMm: 7,
   emptyRowMm: 7,
-  minEmptyRows: 6
+  minEmptyRows: 4,
+  safetyMm: 10
 };
 
-function estimateHanhLangDataRowMm(entry) {
+export function hanhLangBodyBudgetMm(margins) {
+  const L = HANH_LANG_SHEET_LAYOUT;
+  const padV =
+    margins != null
+      ? (Number(margins.top) || 0) + (Number(margins.bottom) || 0)
+      : L.paddingVerticalMm;
+  return Math.max(
+    40,
+    L.sheetHeightMm - padV - L.topBlockMm - L.theadMm - L.footerMm - L.safetyMm
+  );
+}
+
+export function estimateHanhLangDataRowMm(entry) {
+  const L = HANH_LANG_SHEET_LAYOUT;
   const content = entry?.content?.trim() || entry?.type?.trim() || "";
   const contentLines = content ? content.split("\n").length : 1;
   const process = (entry?.hlProcessNote || entry?.resolved || "").trim();
   const processLines = process ? process.split("\n").length : 1;
   const maxLines = Math.max(contentLines, processLines);
-  return Math.max(7, 4 + maxLines * 4.5);
+  return Math.max(L.dataRowMinMm, 4 + maxLines * 4.5) + 0.4;
 }
 
 /** Số dòng trống và chiều cao mỗi dòng để lấp đầy phần thân bảng. */
-export function computeHanhLangPadRows(entries) {
+export function computeHanhLangPadRows(entries, margins) {
   const L = HANH_LANG_SHEET_LAYOUT;
-  const budgetMm =
-    L.sheetHeightMm - L.paddingVerticalMm - L.topBlockMm - L.theadMm - L.footerMm;
+  const budgetMm = hanhLangBodyBudgetMm(margins);
   const dataMm = (entries || []).reduce((sum, e) => sum + estimateHanhLangDataRowMm(e), 0);
   const remainMm = Math.max(0, budgetMm - dataMm);
 
-  if (remainMm <= 0) {
-    return { count: L.minEmptyRows, rowHeightMm: L.emptyRowMm };
+  if (remainMm < 3) {
+    return { count: 0, rowHeightMm: L.emptyRowMm };
   }
 
-  const count = Math.max(L.minEmptyRows, Math.round(remainMm / L.emptyRowMm));
+  const count = Math.max(
+    entries?.length ? 1 : L.minEmptyRows,
+    Math.floor(remainMm / L.emptyRowMm)
+  );
   return {
     count,
-    rowHeightMm: Math.max(L.emptyRowMm * 0.9, remainMm / count)
+    rowHeightMm: remainMm / count
   };
+}
+
+/** Chia dòng dữ liệu thành nhiều tờ A4 ngang. */
+export function packHanhLangPages(entries, margins) {
+  const budgetMm = hanhLangBodyBudgetMm(margins);
+  const list = entries || [];
+  if (!list.length) return [[]];
+
+  const pages = [];
+  let bucket = [];
+  let used = 0;
+  list.forEach((entry) => {
+    const h = estimateHanhLangDataRowMm(entry);
+    if (bucket.length > 0 && used + h > budgetMm) {
+      pages.push(bucket);
+      bucket = [];
+      used = 0;
+    }
+    if (bucket.length === 0 && h > budgetMm) {
+      pages.push([entry]);
+      return;
+    }
+    bucket.push(entry);
+    used += h;
+  });
+  if (bucket.length) pages.push(bucket);
+  return pages.length ? pages : [[]];
 }
 
 /** Một dòng sổ hành lang — 10 cột Phụ lục 05 QL37. */

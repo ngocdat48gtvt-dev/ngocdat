@@ -20,6 +20,8 @@ html, body {
   color: #0f172a;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
 }
 .sheet {
   width: 210mm;
@@ -44,24 +46,41 @@ html, body {
 }
 .nhatky-print-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: none;
+  border-right: 0.5pt solid #000;
   table-layout: fixed;
-  font-size: 11.5px;
+  font-size: 12pt;
   line-height: 1.35;
-  font-family: "Segoe UI", system-ui, sans-serif;
+  font-family: "Times New Roman", Times, serif;
 }
 .nhatky-print-table th,
 .nhatky-print-table td {
-  border: 1px solid #1e40af;
+  border-top: 0.5pt solid #000;
+  border-left: 0.5pt solid #000;
+  border-right: none;
+  border-bottom: none;
   vertical-align: top;
   padding: 4px 5px;
   word-wrap: break-word;
   overflow-wrap: anywhere;
+  background: #fff;
+}
+.nhatky-print-table th:last-child,
+.nhatky-print-table td:last-child {
+  border-right: none;
+}
+.nhatky-print-table thead th {
+  border-bottom: none;
+}
+.nhatky-print-table tbody tr:last-child td {
+  border-bottom: 0.5pt solid #000;
 }
 .nhatky-print-head-main th {
   background: #e8eefc;
   font-weight: 700;
-  font-size: 10px;
+  font-size: 12pt;
   text-align: center;
   line-height: 1.25;
 }
@@ -69,7 +88,7 @@ html, body {
   background: #f1f5f9;
   font-weight: 700;
   text-align: center;
-  font-size: 11px;
+  font-size: 12pt;
   padding: 2px 4px;
 }
 .nhatky-print-pre {
@@ -79,8 +98,10 @@ html, body {
   font-size: inherit;
 }
 .nhatky-print-empty {
-  color: #64748b;
-  font-style: italic;
+  color: #111827;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
+  font-style: normal;
 }
 .nhatky-print-row--part .nhatky-print-td--3 {
   font-weight: 800;

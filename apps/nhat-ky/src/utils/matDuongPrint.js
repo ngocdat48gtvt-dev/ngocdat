@@ -32,7 +32,8 @@ html, body {
   color: #111827;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
-  font-family: "Times New Roman", "Segoe UI", serif;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
 }
 .sheet {
   page: matDuongPrintPage;
@@ -69,7 +70,8 @@ html, body {
 .matduong-head-right {
   text-align: center;
   font-weight: 700;
-  font-size: 14px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   line-height: 1.45;
 }
 .matduong-head-line { margin: 0 0 1px; }
@@ -79,7 +81,8 @@ html, body {
 }
 .matduong-title {
   text-align: center;
-  font-size: 18px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   font-weight: 700;
   margin: 4px 0 2px;
   letter-spacing: 0.02em;
@@ -87,43 +90,59 @@ html, body {
 .matduong-km-range {
   text-align: center;
   margin: 0 0 4px;
-  font-size: 14px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
 }
 .matduong-table-area {
   flex: 0 0 auto;
 }
 .matduong-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: none;
   table-layout: fixed;
-  font-size: 13.5px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
   line-height: 1.35;
   margin-top: 2px;
 }
 ${colRules}
 .matduong-table th,
 .matduong-table td {
-  border: 0.5pt solid #222;
+  border-top: 0.5pt solid #808080;
+  border-left: 0.5pt solid #808080;
+  border-right: none;
+  border-bottom: none;
   padding: 3px 5px;
   vertical-align: middle;
   text-align: center;
   word-wrap: break-word;
   overflow-wrap: anywhere;
+  background: #fff;
+}
+.matduong-table th:last-child,
+.matduong-table td:last-child {
+  border-right: 0.5pt solid #808080;
+}
+.matduong-table thead tr:last-child th,
+.matduong-table tbody tr:last-child td {
+  border-bottom: 0.5pt solid #808080;
 }
 .matduong-table th {
   font-weight: 700;
   background: #fff;
-  font-size: 12.5px;
+  font-size: 12pt;
   line-height: 1.3;
 }
 .matduong-header-num th {
-  font-size: 12px;
+  font-size: 12pt;
   padding: 2px 3px;
 }
 .matduong-header-side {
   display: block;
   font-weight: 600;
-  font-size: 11.5px;
+  font-size: 12pt;
 }
 .matduong-col-damage,
 .matduong-col-note {

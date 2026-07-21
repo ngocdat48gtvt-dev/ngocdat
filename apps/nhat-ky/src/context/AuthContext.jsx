@@ -1,11 +1,8 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth } from "../firebase/firebase";
-import {
-  clearPortalSession,
-  initPortalAuth,
-  NHAT_KY_PORTAL
-} from "../lib/portalAuth";
+import { clearBaoCaoMode, isBaoCaoMode, resolvePortalId } from "../lib/baoCaoMode";
+import { clearPortalSession, initPortalAuth } from "../lib/portalAuth";
 import { loadUserProfile } from "../services/authService";
 
 const AuthContext = createContext(null);
@@ -16,10 +13,12 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState("");
   const [portalReady, setPortalReady] = useState(false);
+  const portalId = resolvePortalId();
+  const baoCaoMode = isBaoCaoMode();
 
   useEffect(() => {
-    initPortalAuth(NHAT_KY_PORTAL).then(() => setPortalReady(true));
-  }, []);
+    initPortalAuth(portalId).then(() => setPortalReady(true));
+  }, [portalId]);
 
   useEffect(() => {
     if (!portalReady) return;
@@ -38,8 +37,15 @@ export function AuthProvider({ children }) {
           setUser(null);
           setProfile(null);
           setAuthError(
-            "Tài khoản chưa kích hoạt, hết hạn license hoặc chưa được cấp quyền Sổ nội nghiệp."
+            baoCaoMode
+              ? "Tài khoản chưa kích hoạt hoặc hết hạn license."
+              : "Tài khoản chưa kích hoạt, hết hạn license hoặc chưa được cấp quyền Sổ nội nghiệp."
           );
+        } else if (baoCaoMode && p.role !== "ADMIN") {
+          await signOut(auth);
+          setUser(null);
+          setProfile(null);
+          setAuthError("Cổng Báo cáo chỉ dành cho tài khoản ADMIN.");
         } else {
           setUser(u);
           setProfile(p);
@@ -52,18 +58,19 @@ export function AuthProvider({ children }) {
         setLoading(false);
       }
     });
-  }, [portalReady]);
+  }, [portalReady, baoCaoMode]);
 
   useEffect(() => {
-    if (!profile?.uid) return;
+    if (!profile?.uid || baoCaoMode) return;
     const key = `nhatky_${profile.uid}`;
     if (!localStorage.getItem(key) && localStorage.getItem("nhatky")) {
       localStorage.setItem(key, localStorage.getItem("nhatky"));
     }
-  }, [profile?.uid]);
+  }, [profile?.uid, baoCaoMode]);
 
   async function logout() {
-    clearPortalSession(NHAT_KY_PORTAL);
+    clearPortalSession(portalId);
+    if (baoCaoMode) clearBaoCaoMode();
     await signOut(auth);
   }
 
@@ -73,6 +80,7 @@ export function AuthProvider({ children }) {
     loading,
     authError,
     canAccess: Boolean(user && profile),
+    baoCaoMode,
     logout
   };
 

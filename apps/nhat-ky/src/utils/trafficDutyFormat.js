@@ -129,9 +129,60 @@ function formatDirectives(entry, dayMeta) {
 
 function formatRestoredAt(entry) {
   const e = migrateEntry(entry);
+  // Chỉ hiện giá trị người dùng nhập tay — không lấy từ app / ngày hoàn thành sự cố
+  if (isLegacyAutoRestoredAt(e)) return "";
   if (e.trafficRestoredAt?.trim()) return e.trafficRestoredAt.trim();
-  if (e.sourceIncidentCompletedDate?.trim()) return e.sourceIncidentCompletedDate.trim();
   return "";
+}
+
+/** Email login từng bị đổ vào cột Người trực — không coi là tên người. */
+export function looksLikeEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+function normalizeDateToken(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) {
+    return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  }
+  return raw;
+}
+
+/** Thời gian thông xe từng tự lấy completedDate từ app hiện trường. */
+export function isLegacyAutoRestoredAt(entry) {
+  const restored = String(entry?.trafficRestoredAt || "").trim();
+  if (!restored) return false;
+  const completed = String(entry?.sourceIncidentCompletedDate || "").trim();
+  if (completed) {
+    if (restored === completed) return true;
+    const a = normalizeDateToken(restored);
+    const b = normalizeDateToken(completed);
+    if (a && b && a === b) return true;
+  }
+  // Import cũ: chỉ ghi thuần ngày hoàn thành (không có giờ / chữ) — coi là tự điền
+  if (
+    entry?.sourceIncidentId &&
+    /^(\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{4})$/.test(restored)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Xóa người trực (email) / TG thông xe tự điền cũ — người dùng tự nhập lại. */
+export function scrubLegacyTrafficDutyAutoFill(entry) {
+  const e = migrateEntry(entry);
+  let next = e;
+  if (looksLikeEmail(e.dutyPerson)) {
+    next = { ...next, dutyPerson: "" };
+  }
+  if (isLegacyAutoRestoredAt(next)) {
+    next = { ...next, trafficRestoredAt: "" };
+  }
+  return next;
 }
 
 function formatTrafficNote(entry, dayMeta) {
@@ -164,11 +215,8 @@ export function entryToTrafficDutyRow(entry, dayMetaMap, reportMeta) {
     height: formatNum(e.height),
     quantity: formatNum(e.quantity),
     cause: inferTrafficCause(e, dayMeta),
-    dutyPerson:
-      reportMeta?.trafficDutyPerson?.trim() ||
-      dayMeta?.dutyPerson?.trim() ||
-      e.dutyPerson ||
-      "",
+    // Người trực / thời gian thông xe: chỉ lấy giá trị nhập tay trên sổ
+    dutyPerson: looksLikeEmail(e.dutyPerson) ? "" : e.dutyPerson?.trim() || "",
     reportRecipient: formatReportRecipient(e, dayMeta, reportMeta),
     directives: formatDirectives(e, dayMeta),
     restoredAt: formatRestoredAt(e),
@@ -213,7 +261,7 @@ export function getTrafficDutyCellValue(entry, field, dayMetaMap, reportMeta, ap
   switch (field) {
     case "dutyPerson":
       if (all.dutyPerson) return reportMeta?.trafficDutyPerson || "";
-      return e.dutyPerson || reportMeta?.trafficDutyPerson || dayMeta?.dutyPerson || "";
+      return looksLikeEmail(e.dutyPerson) ? "" : e.dutyPerson || "";
     case "reportRecipient":
       if (all.reportRecipient) return reportMeta?.trafficDutyLeaderSign || "";
       return dayMeta?.leaderSign?.trim() || reportMeta?.trafficDutyLeaderSign || "";
@@ -222,6 +270,7 @@ export function getTrafficDutyCellValue(entry, field, dayMetaMap, reportMeta, ap
     case "directives":
       return e.leaderNote || "";
     case "restoredAt":
+      if (isLegacyAutoRestoredAt(e)) return "";
       return e.trafficRestoredAt || "";
     case "note":
       return e.trafficNote || "";
@@ -233,4 +282,93 @@ export function getTrafficDutyCellValue(entry, field, dayMetaMap, reportMeta, ap
 export function trafficDutyEntryField(field) {
   if (field === "reportRecipient") return null;
   return CELL_FIELD_MAP[field] || field;
+}
+
+/** Hằng số bố cục trang A4 ngang — preview + in. */
+export const TRAFFIC_DUTY_SHEET_LAYOUT = {
+  sheetWidthMm: 297,
+  sheetHeightMm: 210,
+  paddingVerticalMm: 20,
+  topBlockMm: 26,
+  theadMm: 22,
+  dataRowMinMm: 8.2,
+  emptyRowMm: 7,
+  minEmptyRows: 4,
+  safetyMm: 10
+};
+
+export function trafficDutyBodyBudgetMm(margins) {
+  const L = TRAFFIC_DUTY_SHEET_LAYOUT;
+  const padV =
+    margins != null
+      ? (Number(margins.top) || 0) + (Number(margins.bottom) || 0)
+      : L.paddingVerticalMm;
+  return Math.max(
+    40,
+    L.sheetHeightMm - padV - L.topBlockMm - L.theadMm - L.safetyMm
+  );
+}
+
+export function estimateTrafficDutyDataRowMm(entry, dayMetaMap, reportMeta) {
+  const L = TRAFFIC_DUTY_SHEET_LAYOUT;
+  const r = entryToTrafficDutyRow(entry, dayMetaMap, reportMeta);
+  function countLines(text, charsPerLine) {
+    if (!text) return 0;
+    let n = 0;
+    String(text)
+      .split("\n")
+      .forEach((line) => {
+        n += Math.max(1, Math.ceil(line.length / charsPerLine));
+      });
+    return n;
+  }
+  const lines = Math.max(
+    1,
+    countLines(r.damageContent, 16),
+    countLines(r.directives, 14),
+    countLines(r.note, 12),
+    countLines(r.cause, 12)
+  );
+  return Math.max(L.dataRowMinMm, 5.5 + (lines - 1) * 3.5) + 0.4;
+}
+
+export function computeTrafficDutyPadRows(entries, margins, dayMetaMap, reportMeta) {
+  const L = TRAFFIC_DUTY_SHEET_LAYOUT;
+  const budgetMm = trafficDutyBodyBudgetMm(margins);
+  const dataMm = (entries || []).reduce(
+    (sum, e) => sum + estimateTrafficDutyDataRowMm(e, dayMetaMap, reportMeta),
+    0
+  );
+  const remainMm = Math.max(0, budgetMm - dataMm);
+  if (remainMm < 3) return { count: 0, rowHeightMm: L.emptyRowMm };
+  const count = Math.max(
+    entries?.length ? 1 : L.minEmptyRows,
+    Math.floor(remainMm / L.emptyRowMm)
+  );
+  return { count, rowHeightMm: remainMm / count };
+}
+
+export function packTrafficDutyPages(entries, margins, dayMetaMap, reportMeta) {
+  const budgetMm = trafficDutyBodyBudgetMm(margins);
+  const list = entries || [];
+  if (!list.length) return [[]];
+  const pages = [];
+  let bucket = [];
+  let used = 0;
+  list.forEach((entry) => {
+    const h = estimateTrafficDutyDataRowMm(entry, dayMetaMap, reportMeta);
+    if (bucket.length > 0 && used + h > budgetMm) {
+      pages.push(bucket);
+      bucket = [];
+      used = 0;
+    }
+    if (bucket.length === 0 && h > budgetMm) {
+      pages.push([entry]);
+      return;
+    }
+    bucket.push(entry);
+    used += h;
+  });
+  if (bucket.length) pages.push(bucket);
+  return pages.length ? pages : [[]];
 }

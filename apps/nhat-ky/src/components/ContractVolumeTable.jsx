@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { SECTIONS } from "../utils/nhatKyFormat";
 import {
+  BAO_DUONG_GROUPS,
   BAO_DUONG_QUALITY_EVENT,
-  getTypesByGroup,
-  listTypesForGroup
+  BAO_DUONG_UNITS,
+  getGroupForMaintenanceWork,
+  getMaintenanceWorksByGroup,
+  getUnitForMaintenanceWork,
+  listMaintenanceWorksForGroup
 } from "../utils/baoDuongQualityStore";
 import { normalizeWorkType } from "../utils/volumeStatsFormat";
 
@@ -47,9 +50,8 @@ function useCatalogVersion() {
 }
 
 /**
- * Ô "Đầu việc" lấy theo danh mục loại công việc BDTX, lọc theo hạng mục đã chọn.
- * Combobox có ô gõ để tìm kiếm (không phân biệt dấu); panel dùng position: fixed
- * để không bị cắt bởi vùng cuộn của bảng.
+ * Ô "Đầu việc" lấy theo tên công việc BDTX (sổ bảo dưỡng) trong master data,
+ * lọc theo hạng mục đã chọn. Chọn xong → parent tự load ĐVT.
  */
 function WorkTypeSelect({ section, value, onChange, catalogVersion, readOnly = false }) {
   const current = String(value || "").trim();
@@ -65,11 +67,11 @@ function WorkTypeSelect({ section, value, onChange, catalogVersion, readOnly = f
   }
 
   const flatTypes = useMemo(
-    () => (section ? listTypesForGroup(section) : null),
+    () => (section ? listMaintenanceWorksForGroup(section) : null),
     [section, catalogVersion]
   );
   const grouped = useMemo(
-    () => (section ? null : getTypesByGroup()),
+    () => (section ? null : getMaintenanceWorksByGroup()),
     [section, catalogVersion]
   );
 
@@ -143,7 +145,7 @@ function WorkTypeSelect({ section, value, onChange, catalogVersion, readOnly = f
         type="button"
         ref={controlRef}
         className="stats-contract-cell-input stats-contract-combo-control"
-        title={current || "Chọn đầu việc theo danh mục"}
+        title={current || "Chọn đầu việc theo danh mục sổ bảo dưỡng"}
         onClick={() => setOpen((o) => !o)}
       >
         <span className={current ? "" : "stats-contract-combo-placeholder"}>
@@ -253,8 +255,33 @@ export default function ContractVolumeTable({ rows, onUpdate, onRemove, readOnly
     window.addEventListener("mouseup", onUp);
   }
 
+  function handleWorkChange(row, value) {
+    const workType = String(value || "").trim();
+    const patch = { workType };
+    const unit = getUnitForMaintenanceWork(workType);
+    if (unit) patch.unit = unit;
+    if (!row.section) {
+      const group = getGroupForMaintenanceWork(workType);
+      if (group) patch.section = group;
+    }
+    onUpdate(row.id, patch);
+  }
+
   const tableWidth =
     colWidths.section + colWidths.work + colWidths.qty + colWidths.unit + colWidths.del;
+
+  const unitOptions = useMemo(() => {
+    const known = new Set(BAO_DUONG_UNITS.map((u) => u.value));
+    const extra = [];
+    for (const row of rows) {
+      const u = String(row.unit || "").trim();
+      if (u && !known.has(u)) {
+        known.add(u);
+        extra.push({ value: u, label: u });
+      }
+    }
+    return [...BAO_DUONG_UNITS, ...extra];
+  }, [rows, catalogVersion]);
 
   return (
     <div className="stats-contract-table-wrap stats-contract-table-wrap--excel">
@@ -296,14 +323,14 @@ export default function ContractVolumeTable({ rows, onUpdate, onRemove, readOnly
                 <select
                   className="stats-contract-cell-input stats-contract-cell-input--select"
                   value={row.section}
-                  title={row.section || "Chọn hạng mục"}
+                  title={row.section || "Chọn hạng mục sổ bảo dưỡng"}
                   disabled={readOnly}
                   onChange={(e) => onUpdate(row.id, { section: e.target.value })}
                 >
                   <option value="">—</option>
-                  {SECTIONS.map((s) => (
-                    <option key={s.key} value={s.title} title={s.title}>
-                      {s.num}. {s.title}
+                  {BAO_DUONG_GROUPS.map((g, i) => (
+                    <option key={g} value={g} title={g}>
+                      {i + 1}. {g}
                     </option>
                   ))}
                 </select>
@@ -313,7 +340,7 @@ export default function ContractVolumeTable({ rows, onUpdate, onRemove, readOnly
                   section={row.section}
                   value={row.workType}
                   catalogVersion={catalogVersion}
-                  onChange={(value) => onUpdate(row.id, { workType: value })}
+                  onChange={(value) => handleWorkChange(row, value)}
                   readOnly={readOnly}
                 />
               </td>
@@ -336,9 +363,11 @@ export default function ContractVolumeTable({ rows, onUpdate, onRemove, readOnly
                   disabled={readOnly}
                   onChange={(e) => onUpdate(row.id, { unit: e.target.value })}
                 >
-                  <option value="m3">m³</option>
-                  <option value="m2">m²</option>
-                  <option value="m">m</option>
+                  {unitOptions.map((u) => (
+                    <option key={u.value} value={u.value}>
+                      {u.label}
+                    </option>
+                  ))}
                 </select>
               </td>
               <td className="stats-contract-td-del">

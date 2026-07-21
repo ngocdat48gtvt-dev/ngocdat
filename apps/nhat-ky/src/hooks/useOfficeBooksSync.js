@@ -7,6 +7,7 @@ import {
 import { loadStorage } from "../utils/nhatKyFormat";
 import { mergeRemoteIntoLocalStorage, splitStorageByDay } from "../utils/officeBooksLocal";
 import { subscribeOfficeBooksLocalChange } from "../utils/officeBooksSyncBus";
+import { syncRoadMetaToStorage } from "../utils/roadsCatalog";
 
 const PUSH_DEBOUNCE_MS = 2000;
 
@@ -28,6 +29,7 @@ export function useOfficeBooksSync({
   enabled = true,
   canPush = false,
   browseMode = false,
+  catalogRoad = null,
   onHydrated
 }) {
   const hydratingRef = useRef(false);
@@ -36,9 +38,18 @@ export function useOfficeBooksSync({
   const metaFpRef = useRef("");
   const onHydratedRef = useRef(onHydrated);
   onHydratedRef.current = onHydrated;
+  const catalogRoadRef = useRef(catalogRoad);
+  catalogRoadRef.current = catalogRoad;
+
+  const applyCatalogMeta = useCallback(() => {
+    const road = catalogRoadRef.current;
+    if (!uid || !road?.id) return;
+    syncRoadMetaToStorage(uid, road);
+  }, [uid]);
 
   const flushPush = useCallback(async () => {
     if (!canPush || !uid || !roadId || !storageKey) return;
+    applyCatalogMeta();
     const stored = loadStorage(storageKey);
     const days = splitStorageByDay(stored);
     const dirtyDays = days.filter((d) => {
@@ -61,7 +72,7 @@ export function useOfficeBooksSync({
     } catch (err) {
       console.warn("Đồng bộ office_books lên cloud thất bại.", err);
     }
-  }, [canPush, uid, roadId, storageKey]);
+  }, [canPush, uid, roadId, storageKey, applyCatalogMeta]);
 
   const schedulePush = useCallback(() => {
     if (!canPush || hydratingRef.current) return;
@@ -90,6 +101,8 @@ export function useOfficeBooksSync({
           mergeRemoteIntoLocalStorage(storageKey, remote, {
             replace: browseMode || !hasLocal
           });
+          // Catalog hạt thắng tên công ty sau khi hydrate (tránh meta cloud cũ đè)
+          applyCatalogMeta();
           splitStorageByDay(loadStorage(storageKey)).forEach((d) => {
             pushedFpRef.current.set(d.date, dayFingerprint(d));
           });
@@ -98,17 +111,20 @@ export function useOfficeBooksSync({
           );
           onHydratedRef.current?.();
         } else if (hasLocal && canPush) {
-          // Migration one-shot: local → cloud
-          const days = splitStorageByDay(local);
+          applyCatalogMeta();
+          const fresh = loadStorage(storageKey);
+          const days = splitStorageByDay(fresh);
           if (days.length) {
             await pushOfficeBookDays(uid, roadId, days);
             days.forEach((d) => pushedFpRef.current.set(d.date, dayFingerprint(d)));
           }
-          await pushOfficeBookMeta(uid, roadId, local.reportMeta || {});
-          metaFpRef.current = JSON.stringify(local.reportMeta || {});
+          await pushOfficeBookMeta(uid, roadId, fresh.reportMeta || {});
+          metaFpRef.current = JSON.stringify(fresh.reportMeta || {});
         } else {
+          applyCatalogMeta();
           pushedFpRef.current = new Map();
           metaFpRef.current = "";
+          onHydratedRef.current?.();
         }
       } catch (err) {
         console.warn("Không hydrate được office_books.", err);
@@ -125,7 +141,24 @@ export function useOfficeBooksSync({
       cancelled = true;
       hydratingRef.current = false;
     };
-  }, [enabled, uid, roadId, storageKey, canPush, browseMode]);
+  }, [enabled, uid, roadId, storageKey, canPush, browseMode, applyCatalogMeta]);
+
+  // Đổi tên công ty trên danh mục → ghi lại local + báo UI
+  useEffect(() => {
+    if (!enabled || !uid || !catalogRoad?.id || !storageKey) return;
+    applyCatalogMeta();
+    onHydratedRef.current?.();
+  }, [
+    enabled,
+    uid,
+    storageKey,
+    catalogRoad?.id,
+    catalogRoad?.company,
+    catalogRoad?.hat,
+    catalogRoad?.roadName,
+    catalogRoad?.kmRange,
+    applyCatalogMeta
+  ]);
 
   useEffect(() => {
     if (!enabled || !storageKey) return undefined;
@@ -141,6 +174,4 @@ export function useOfficeBooksSync({
     },
     []
   );
-
-  return { flushPush };
 }

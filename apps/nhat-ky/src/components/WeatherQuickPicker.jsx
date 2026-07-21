@@ -40,6 +40,19 @@ export default function WeatherQuickPicker({ value, onChange }) {
     setOpen(false);
   }
 
+  function selectWeather(w) {
+    const next = draftWeather === w ? "" : w;
+    setDraftWeather(next);
+    // Chỉ ghi vào ô + tắt form khi đã chọn đủ cả hai
+    if (next && draftTemp) apply(next, draftTemp);
+  }
+
+  function selectTemp(t) {
+    const next = draftTemp === t ? "" : t;
+    setDraftTemp(next);
+    if (draftWeather && next) apply(draftWeather, next);
+  }
+
   const display = value ? displayDayWeather(value) : "Chọn thời tiết, nhiệt độ…";
 
   return (
@@ -61,11 +74,7 @@ export default function WeatherQuickPicker({ value, onChange }) {
                   key={w}
                   type="button"
                   className={`weather-chip${draftWeather === w ? " active" : ""}`}
-                  onClick={() => {
-                    const next = draftWeather === w ? "" : w;
-                    setDraftWeather(next);
-                    apply(next, draftTemp);
-                  }}
+                  onClick={() => selectWeather(w)}
                 >
                   {w}
                 </button>
@@ -80,11 +89,7 @@ export default function WeatherQuickPicker({ value, onChange }) {
                   key={t}
                   type="button"
                   className={`weather-chip${draftTemp === t ? " active" : ""}`}
-                  onClick={() => {
-                    const next = draftTemp === t ? "" : t;
-                    setDraftTemp(next);
-                    apply(draftWeather, next);
-                  }}
+                  onClick={() => selectTemp(t)}
                 >
                   {t}
                 </button>
@@ -94,9 +99,22 @@ export default function WeatherQuickPicker({ value, onChange }) {
           <input
             type="text"
             className="weather-picker-custom"
-            placeholder="Hoặc gõ tùy chỉnh…"
-            value={value || ""}
-            onChange={(e) => onChange(e.target.value)}
+            placeholder="Chọn đủ thời tiết + nhiệt độ…"
+            value={
+              draftWeather || draftTemp
+                ? applyWeatherValue(draftWeather, draftTemp)
+                : value || ""
+            }
+            onChange={(e) => {
+              const text = e.target.value;
+              onChange(text);
+              const parsed = parseDayWeather(text);
+              setDraftWeather(parsed.weather);
+              setDraftTemp(parsed.temp);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") setOpen(false);
+            }}
           />
         </div>
       )}

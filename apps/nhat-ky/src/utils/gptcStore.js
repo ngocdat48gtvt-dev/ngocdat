@@ -1,5 +1,9 @@
 import { EMPTY_GPTC_LEDGER, EMPTY_PERMIT, EMPTY_PERMIT_ENTRY } from "./gptcConstants";
-import { normalizeDetailColWidths, normalizeSummaryColWidths } from "./gptcSummaryGrid";
+import {
+  isPermitRowFilled,
+  normalizeDetailColWidths,
+  normalizeSummaryColWidths
+} from "./gptcSummaryGrid";
 
 export const GPTC_CHANGED_EVENT = "gptc-changed";
 
@@ -40,7 +44,7 @@ export function normalizePermit(permit, index = 0) {
   const entries = Array.isArray(permit?.entries) ? permit.entries.map(normalizeEntry) : [];
   return {
     id: permit?.id || nextId("gptc_p"),
-    stt: permit?.stt ?? index + 1,
+    stt: permit?.stt ?? "",
     tenCongTrinh: strField(permit?.tenCongTrinh),
     soNgayCapPhep: strField(permit?.soNgayCapPhep),
     ngayBanGiao: strField(permit?.ngayBanGiao),
@@ -55,10 +59,7 @@ export function normalizePermit(permit, index = 0) {
 
 export function normalizeLedger(raw) {
   const base = { ...EMPTY_GPTC_LEDGER, ...(raw || {}) };
-  const permits = (base.permits || []).map((p, i) => normalizePermit(p, i));
-  permits.forEach((p, i) => {
-    p.stt = i + 1;
-  });
+  const permits = reindexPermits((base.permits || []).map((p, i) => normalizePermit(p, i)));
   return {
     year: String(base.year || new Date().getFullYear()),
     tenTuyen: String(base.tenTuyen || "").trim(),
@@ -104,6 +105,12 @@ export function makeEmptyEntry() {
   return normalizeEntry({ ...EMPTY_PERMIT_ENTRY });
 }
 
+/** STT chỉ đánh cho dòng đã nhập liệu; dòng trống để trống. */
 export function reindexPermits(permits) {
-  return (permits || []).map((p, i) => ({ ...p, stt: i + 1 }));
+  let n = 0;
+  return (permits || []).map((p) => {
+    if (!isPermitRowFilled(p)) return { ...p, stt: "" };
+    n += 1;
+    return { ...p, stt: n };
+  });
 }

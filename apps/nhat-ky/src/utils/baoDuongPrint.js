@@ -31,7 +31,8 @@ html, body {
   color: #111827;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
-  font-family: "Times New Roman", "Segoe UI", serif;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
 }
 .sheet {
   width: 210mm;
@@ -52,37 +53,62 @@ html, body {
 }
 .baoduong-title {
   text-align: center;
-  font-size: 15px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
   font-weight: 700;
   margin: 0 0 8px;
   line-height: 1.35;
   text-transform: uppercase;
 }
-.baoduong-period { margin: 0 0 4px; font-size: 13px; }
-.baoduong-intro { margin: 0 0 8px; font-size: 13px; }
+.baoduong-period {
+  margin: 0 0 4px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
+}
+.baoduong-intro {
+  margin: 0 0 8px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13pt;
+}
 .baoduong-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  border: none !important;
   table-layout: fixed;
-  font-size: 12.5px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
   line-height: 1.35;
 }
 ${colRules}
 .baoduong-table th,
 .baoduong-table td {
-  border: 0.5pt solid #222;
+  border-top: 0.5pt solid #808080 !important;
+  border-left: 0.5pt solid #808080 !important;
+  border-right: none !important;
+  border-bottom: none !important;
   padding: 4px 5px;
   vertical-align: top;
   word-wrap: break-word;
   overflow-wrap: anywhere;
+  background: #fff !important;
+  position: static !important;
+}
+.baoduong-table th:last-child,
+.baoduong-table td:last-child {
+  border-right: 0.5pt solid #808080 !important;
+}
+.baoduong-table thead tr:last-child th,
+.baoduong-table tbody tr:last-child td {
+  border-bottom: 0.5pt solid #808080 !important;
 }
 .baoduong-table th {
   font-weight: 700;
   text-align: center;
-  font-size: 11.5px;
+  font-size: 12pt;
   vertical-align: middle;
 }
-.baoduong-header-num th { font-size: 11px; padding: 2px 3px; }
+.baoduong-header-num th { font-size: 12pt; padding: 2px 3px; }
 .baoduong-col-stt { text-align: center; vertical-align: middle; }
 .baoduong-pre {
   margin: 0;

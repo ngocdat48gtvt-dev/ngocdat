@@ -124,7 +124,14 @@ export default function OfficeBrowseSelectPage() {
       return;
     }
 
-    const payload = { ...form, roadName, hat, kmFrom, kmTo };
+    const payload = {
+      ...form,
+      roadName,
+      hat,
+      kmFrom,
+      kmTo,
+      company: String(form.company || "").trim()
+    };
     setSaving(true);
     setError("");
     try {
@@ -369,6 +376,20 @@ export default function OfficeBrowseSelectPage() {
                 />
               </label>
             </div>
+            <label className="entry-form-label" htmlFor="admin-road-company">
+              Tên công ty (trên đầu sổ)
+            </label>
+            <input
+              id="admin-road-company"
+              className="sidebar-input"
+              value={form.company}
+              onChange={(e) => setForm((f) => ({ ...f, company: e.target.value }))}
+              placeholder="VD: CÔNG TY CP QLSC và XDCT GT II SƠN LA"
+            />
+            <p className="road-select-km-hint">
+              Lưu trên Firebase theo từng hạt; các sổ có dòng tên công ty (mặt đường, hành
+              lang, đếm xe, meta nhập liệu…) sẽ lấy theo giá trị này.
+            </p>
             <div className="road-select-form-actions">
               <button type="submit" className="btn-primary" disabled={saving}>
                 {saving ? "Đang lưu..." : editingId ? "Lưu thay đổi" : "Tạo sổ"}

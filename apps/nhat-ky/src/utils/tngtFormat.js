@@ -210,3 +210,86 @@ function formatDamageMillion(value, note) {
   if (note?.trim()) return note.trim();
   return "";
 }
+
+/** Hằng số bố cục trang A4 ngang — preview + in. */
+export const TNGT_SHEET_LAYOUT = {
+  sheetWidthMm: 297,
+  sheetHeightMm: 210,
+  paddingVerticalMm: 20,
+  topBlockMm: 28,
+  theadMm: 22,
+  dataRowMinMm: 8,
+  emptyRowMm: 7,
+  minEmptyRows: 4,
+  safetyMm: 10
+};
+
+export function tngtBodyBudgetMm(margins) {
+  const L = TNGT_SHEET_LAYOUT;
+  const padV =
+    margins != null
+      ? (Number(margins.top) || 0) + (Number(margins.bottom) || 0)
+      : L.paddingVerticalMm;
+  return Math.max(
+    40,
+    L.sheetHeightMm - padV - L.topBlockMm - L.theadMm - L.safetyMm
+  );
+}
+
+export function estimateTngtDataRowMm(entry) {
+  const L = TNGT_SHEET_LAYOUT;
+  const note = entry?.tngtNote?.trim() || "";
+  const loc = formatTngtLocationCell(entry);
+  const damage =
+    String(entry?.damageRoadNote || "") + String(entry?.damageVehicleNote || "");
+  function countLines(text, charsPerLine) {
+    if (!text) return 0;
+    let n = 0;
+    String(text)
+      .split("\n")
+      .forEach((line) => {
+        n += Math.max(1, Math.ceil(line.length / charsPerLine));
+      });
+    return n;
+  }
+  const lines = Math.max(1, countLines(note, 18), countLines(loc, 22), countLines(damage, 14));
+  return Math.max(L.dataRowMinMm, 5.5 + (lines - 1) * 3.6) + 0.4;
+}
+
+export function computeTngtPadRows(entries, margins) {
+  const L = TNGT_SHEET_LAYOUT;
+  const budgetMm = tngtBodyBudgetMm(margins);
+  const dataMm = (entries || []).reduce((sum, e) => sum + estimateTngtDataRowMm(e), 0);
+  const remainMm = Math.max(0, budgetMm - dataMm);
+  if (remainMm < 3) return { count: 0, rowHeightMm: L.emptyRowMm };
+  const count = Math.max(
+    entries?.length ? 1 : L.minEmptyRows,
+    Math.floor(remainMm / L.emptyRowMm)
+  );
+  return { count, rowHeightMm: remainMm / count };
+}
+
+export function packTngtPages(entries, margins) {
+  const budgetMm = tngtBodyBudgetMm(margins);
+  const list = entries || [];
+  if (!list.length) return [[]];
+  const pages = [];
+  let bucket = [];
+  let used = 0;
+  list.forEach((entry) => {
+    const h = estimateTngtDataRowMm(entry);
+    if (bucket.length > 0 && used + h > budgetMm) {
+      pages.push(bucket);
+      bucket = [];
+      used = 0;
+    }
+    if (bucket.length === 0 && h > budgetMm) {
+      pages.push([entry]);
+      return;
+    }
+    bucket.push(entry);
+    used += h;
+  });
+  if (bucket.length) pages.push(bucket);
+  return pages.length ? pages : [[]];
+}

@@ -4,13 +4,13 @@ import MatDuongPrintPages from "../components/MatDuongPrintPages";
 import { ViMonthInput } from "../components/ViDateInput";
 import { loadStorage, formatYearMonthVN } from "../utils/nhatKyFormat";
 import {
-  EMPTY_REPORT_META,
   filterMatDuongEntries,
   packMatDuongPages
 } from "../utils/matDuongFormat";
 import { printMatDuongPages } from "../utils/matDuongPrint";
 import { getMatDuongColWidths } from "../hooks/useMatDuongColWidths";
 import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
+import { resolveReportMetaFromRoad } from "../utils/roadsCatalog";
 
 const SIDEBAR_WIDTH = 300;
 const MARGIN_KEY = "matduong-print-margins-v1";
@@ -37,8 +37,8 @@ function clampMm(v, fallback) {
   return Math.min(40, Math.max(0, Math.round(n * 10) / 10));
 }
 
-export default function SoMatDuong({ storageTick = 0 }) {
-  const { storageKey } = useRoadWorkspace();
+export default function SoMatDuong({ storageTick = 0, readOnly = false }) {
+  const { storageKey, activeRoad } = useRoadWorkspace();
   const now = new Date();
   const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
@@ -48,7 +48,10 @@ export default function SoMatDuong({ storageTick = 0 }) {
   const [colWidths, setColWidths] = useState(getMatDuongColWidths);
 
   const stored = useMemo(() => loadStorage(storageKey), [storageKey, storageTick]);
-  const reportMeta = { ...EMPTY_REPORT_META, ...(stored.reportMeta || {}) };
+  const reportMeta = useMemo(
+    () => resolveReportMetaFromRoad(stored.reportMeta, activeRoad),
+    [stored.reportMeta, activeRoad]
+  );
   const data = filterMatDuongEntries(stored.entries, yearMonth);
   const printPageCount = useMemo(
     () => packMatDuongPages(data, margins).length,

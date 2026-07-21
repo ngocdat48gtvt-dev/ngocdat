@@ -165,13 +165,15 @@ export default function CongQuickEntry({
       setRegistry([...loadCongRegistry(scope)]);
     }
     void refresh();
-    const onChange = () => setRegistry([...loadCongRegistry(scope)]);
+    const onChange = () => {
+      if (!cancelled) setRegistry([...loadCongRegistry(scope)]);
+    };
     window.addEventListener(CONG_REGISTRY_EVENT, onChange);
     return () => {
       cancelled = true;
       window.removeEventListener(CONG_REGISTRY_EVENT, onChange);
     };
-  }, [scope, uid, activeRoad]);
+  }, [scope, uid, activeRoad?.id, activeRoad?.roadName, activeRoad?.label]);
 
   const validCount = useMemo(() => rows.filter(rowIsValid).length, [rows]);
   const editCount = useMemo(

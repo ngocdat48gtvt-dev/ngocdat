@@ -99,6 +99,14 @@ export function applyRemoteRoadsCatalog(uid, remote) {
       : "";
   const catalog = { activeRoadId, roads };
   saveRoadsCatalog(uid, catalog);
+  // Đồng bộ tên công ty / hạt / đường vào reportMeta từng sổ local
+  for (const road of roads) {
+    if (localStorage.getItem(getRoadStorageKey(uid, road.id))) {
+      syncRoadMetaToStorage(uid, road);
+    } else {
+      ensureRoadStorage(uid, road);
+    }
+  }
   return catalog;
 }
 
@@ -207,6 +215,26 @@ export function syncRoadMetaToStorage(uid, road) {
       }
     })
   );
+}
+
+/**
+ * Meta hiển thị đầu sổ: ưu tiên danh mục hạt (Firebase) cho company/hat/đường/km.
+ * Tránh sổ còn giữ tên công ty cũ trong reportMeta local/cloud.
+ */
+export function resolveReportMetaFromRoad(savedMeta, road) {
+  const base = { ...EMPTY_REPORT_META, ...(savedMeta || {}) };
+  if (!road) return base;
+  const company = String(road.company || "").trim();
+  const hat = String(road.hat || "").trim();
+  const roadName = String(road.roadName || road.label || "").trim();
+  const kmRange = String(road.kmRange || "").trim();
+  return {
+    ...base,
+    ...(company ? { company } : {}),
+    ...(hat ? { hat } : {}),
+    ...(roadName ? { roadName } : {}),
+    ...(kmRange ? { kmRange } : {})
+  };
 }
 
 export function removeRoad(uid, roadId) {

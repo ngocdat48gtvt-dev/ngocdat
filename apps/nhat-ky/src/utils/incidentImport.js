@@ -178,11 +178,8 @@ export function incidentToNhatKyEntry(incident, nhatKyDateIso, sectionOverride =
   ) {
     entry.exportTrafficDuty = true;
     entry.sourceIncidentType = incident.type || "";
-    entry.dutyPerson = incident.createdByName || "";
     entry.sourceIncidentCompletedDate = incident.completedDate || "";
-    if (progress >= 90 && incident.completedDate) {
-      entry.trafficRestoredAt = incident.completedDate;
-    }
+    // Người trực & thời gian thông xe: để trống — người dùng tự nhập trên sổ bão lũ
   }
 
   return migrateEntry(entry);
@@ -203,8 +200,7 @@ const SYNC_FROM_INCIDENT_KEYS = [
   "sourceIncidentType",
   "sourceIncidentDate",
   "sourceGroupName",
-  "sourceIncidentCompletedDate",
-  "trafficRestoredAt"
+  "sourceIncidentCompletedDate"
 ];
 
 function mergeImportedEntry(existing, fresh) {

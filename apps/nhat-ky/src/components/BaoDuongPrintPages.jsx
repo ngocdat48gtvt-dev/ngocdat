@@ -4,7 +4,8 @@ import {
   entryToBaoDuongRow,
   packBaoDuongPages,
   computeBaoDuongPadRows,
-  estimateBaoDuongDataRowMm
+  estimateBaoDuongDataRowMm,
+  groupBaoDuongEntriesByExecDay
 } from "../utils/baoDuongFormat";
 import {
   BAO_DUONG_COLS,
@@ -166,41 +167,71 @@ function BaoDuongPrintPage({
 }
 
 /**
- * Xem trước / in sổ BDTX — A4 dọc, kéo lề, chia trang.
- * Một đợt in = một khoảng thời gian (1 ngày hoặc từ→đến).
+ * Xem trước / in sổ BDTX — A4 dọc.
+ * - 1 ngày: gói entries thành nhiều tờ nếu vượt trang.
+ * - Khoảng A→B (groupByDay): mỗi ngày thực hiện = nhóm tờ riêng (không gộp 1 tờ).
  */
 export default function BaoDuongPrintPages({
   periodFrom,
   periodTo,
   entries,
+  groupByDay = false,
   margins = { top: 12, right: 12, bottom: 12, left: 14 },
   onMarginsChange,
   widths: widthsProp
 }) {
   const widths = widthsProp || getBaoDuongColWidths();
-  const chunks = useMemo(
-    () => packBaoDuongPages(entries, margins),
-    [entries, margins]
-  );
+
+  const dayGroups = useMemo(() => {
+    if (groupByDay) {
+      const groups = groupBaoDuongEntriesByExecDay(entries);
+      return groups.length
+        ? groups
+        : [{ periodFrom, periodTo, entries: [] }];
+    }
+    return [{ periodFrom, periodTo, entries: entries || [] }];
+  }, [groupByDay, entries, periodFrom, periodTo]);
+
+  const flatPages = useMemo(() => {
+    const out = [];
+    dayGroups.forEach((group) => {
+      const chunks = packBaoDuongPages(group.entries, margins);
+      chunks.forEach((chunk, chunkIdx) => {
+        out.push({
+          periodFrom: group.periodFrom,
+          periodTo: group.periodTo,
+          entries: chunk,
+          showSign: chunkIdx === chunks.length - 1
+        });
+      });
+    });
+    return out.length ? out : [{ periodFrom, periodTo, entries: [], showSign: true }];
+  }, [dayGroups, margins, periodFrom, periodTo]);
 
   let sttOffset = 0;
-  const pages = chunks.map((chunk, i) => {
+  let prevDay = "";
+  const pages = flatPages.map((page, i) => {
+    const dayKey = page.periodFrom || "";
+    if (dayKey !== prevDay) {
+      sttOffset = 0;
+      prevDay = dayKey;
+    }
     const offset = sttOffset;
-    sttOffset += chunk.length;
+    sttOffset += page.entries.length;
     return (
       <BaoDuongPrintPage
-        key={`bd-p${i}`}
-        periodFrom={periodFrom}
-        periodTo={periodTo}
-        entries={chunk}
+        key={`bd-p${i}-${page.periodFrom}`}
+        periodFrom={page.periodFrom}
+        periodTo={page.periodTo}
+        entries={page.entries}
         sttOffset={offset}
         margins={margins}
         widths={widths}
         showGuides={i === 0}
         onMarginsChange={onMarginsChange}
-        showSign={i === chunks.length - 1}
+        showSign={page.showSign}
         pageIndex={i}
-        pageCount={chunks.length}
+        pageCount={flatPages.length}
       />
     );
   });
@@ -208,7 +239,7 @@ export default function BaoDuongPrintPages({
   return (
     <div
       className="baoduong-print-stack baoduong-print-stack--preview"
-      data-page-count={chunks.length}
+      data-page-count={flatPages.length}
     >
       {pages}
     </div>

@@ -42,7 +42,7 @@ function clampMm(v, fallback) {
   return Math.min(40, Math.max(0, Math.round(n * 10) / 10));
 }
 
-export default function SoNhatKy({ date, onDateChange, onGoEdit, storageTick = 0 }) {
+export default function SoNhatKy({ date, onDateChange, onGoEdit, storageTick = 0, readOnly = false }) {
   const { storageKey } = useRoadWorkspace();
   const { entries, dayMeta } = useMemo(
     () => loadStorage(storageKey),
@@ -138,9 +138,16 @@ export default function SoNhatKy({ date, onDateChange, onGoEdit, storageTick = 0
               ? ` · ${entryCount} ghi chép`
               : " · Chưa có ghi chép"}
           </p>
-          <button type="button" className="btn-primary sonhatky-edit-btn" onClick={onGoEdit}>
-            Chỉnh sửa ngày này
-          </button>
+          {onGoEdit && !readOnly && (
+            <button type="button" className="btn-primary sonhatky-edit-btn" onClick={onGoEdit}>
+              Chỉnh sửa ngày này
+            </button>
+          )}
+          {readOnly && (
+            <p className="sonhatky-day-summary" style={{ marginTop: 8 }}>
+              Chế độ chỉ xem
+            </p>
+          )}
           <button
             type="button"
             className={`btn-secondary sonhatky-edit-btn sonhatky-edit-btn--sub${printOpen ? " active" : ""}`}
@@ -220,7 +227,22 @@ export default function SoNhatKy({ date, onDateChange, onGoEdit, storageTick = 0
       <main className="nhaplieu-review-pane">
         {!printOpen ? (
           <div className="sonhatky-screen-preview">
-            <NhatKyReview date={date} items={data} dayMeta={meta} alwaysShow />
+            <NhatKyReview
+              date={date}
+              items={data}
+              dayMeta={meta}
+              alwaysShow
+              onSectionSelect={
+                onGoEdit
+                  ? (sectionTitle) => onGoEdit(sectionTitle)
+                  : undefined
+              }
+              onEntrySelect={
+                onGoEdit
+                  ? (_idx, sectionTitle) => onGoEdit(sectionTitle)
+                  : undefined
+              }
+            />
           </div>
         ) : (
           <div className="sonhatky-print-preview-pane">

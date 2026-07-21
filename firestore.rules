@@ -102,6 +102,14 @@ service cloud.firestore {
         );
     }
 
+    // ADMIN cùng công ty — ghi danh mục tuyến app (roads) cho USER hiện trường
+    function canAdminWriteUserRoadsCatalog(userId) {
+      return isCompanyAdmin()
+        && targetUserExists(userId)
+        && targetUserCompanyId(userId) == myCompanyId()
+        && targetUserDoc(userId).role == 'USER';
+    }
+
     // ADMIN cùng công ty — ghi danh mục sổ nội nghiệp (office_roads_catalog) cho USER
     function canAdminWriteOfficeRoadsCatalog(userId) {
       return isCompanyAdmin()
@@ -133,6 +141,16 @@ service cloud.firestore {
         && myCompanyId().size() > 0
         && targetUserExists(userId)
         && targetUserCompanyId(userId) == myCompanyId();
+    }
+
+    // USER app query users where role==ADMIN cùng companyId (resolve catalogOwnerUid).
+    function userCanReadCompanyAdminProfile() {
+      return authUserExists()
+        && licenseOk(request.auth.uid)
+        && myCompanyId() is string
+        && myCompanyId().size() > 0
+        && resource.data.role == 'ADMIN'
+        && resource.data.companyId == myCompanyId();
     }
 
     // -------------------------------------------------------------------------
@@ -273,7 +291,8 @@ service cloud.firestore {
         || sameCompanyPeer(userId)
         || viewerCanReadTarget(userId)
         || viewerCanListCompanyUser()
-        || isSameCompanyUserDoc();
+        || isSameCompanyUserDoc()
+        || userCanReadCompanyAdminProfile();
 
       // Tạo user doc: seller hoặc app ghi sessionId/activeDevices lần đầu
       allow create: if isGlobalSeller()
@@ -316,6 +335,7 @@ service cloud.firestore {
         allow write: if isGlobalSeller()
           || (isCompanyAdmin() && userId == request.auth.uid)
           || canCompanyAdminWriteCatalog(userId)
+          || (docId == 'roads' && canAdminWriteUserRoadsCatalog(userId))
           || (docId == 'office_roads_catalog' && canAdminWriteOfficeRoadsCatalog(userId))
           || (isOwner(userId) && licenseOk(userId) && docId != 'office_roads_catalog');
       }

@@ -207,17 +207,38 @@ export function filterBaoDuongEntriesInRange(entries, fromIso, toIso) {
     });
 }
 
+/**
+ * Gom BDTX theo từng ngày thực hiện (plannedRepairDate) để in khoảng A→B
+ * thành nhiều tờ (mỗi ngày ít nhất 1 tờ), không gộp hết một đống một tờ.
+ */
+export function groupBaoDuongEntriesByExecDay(entries) {
+  const map = new Map();
+  (entries || []).forEach((e) => {
+    const d = String(e?.plannedRepairDate || "").trim();
+    if (!d) return;
+    if (!map.has(d)) map.set(d, []);
+    map.get(d).push(e);
+  });
+  return [...map.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, list]) => ({
+      periodFrom: date,
+      periodTo: date,
+      entries: list
+    }));
+}
+
 /** Hằng số bố cục A4 dọc — preview + in. */
 export const BAO_DUONG_SHEET_LAYOUT = {
   sheetWidthMm: 210,
   sheetHeightMm: 297,
-  topBlockMm: 48,
-  theadMm: 20,
-  signBlockMm: 40,
-  dataRowMinMm: 16,
-  emptyRowMm: 12,
-  minEmptyRows: 3,
-  safetyMm: 12
+  topBlockMm: 42,
+  theadMm: 18,
+  signBlockMm: 36,
+  dataRowMinMm: 14,
+  emptyRowMm: 11,
+  minEmptyRows: 6,
+  safetyMm: 8
 };
 
 export function baoDuongBodyBudgetMm(margins, { withSign = false } = {}) {
@@ -263,14 +284,17 @@ export function computeBaoDuongPadRows(entries, margins, opts = {}) {
     0
   );
   const remainMm = Math.max(0, budgetMm - dataMm);
-  if (remainMm < 4) {
+  if (remainMm < 3) {
     return { count: 0, rowHeightMm: L.emptyRowMm };
   }
-  const count = Math.max(
-    entries?.length ? 1 : L.minEmptyRows,
-    Math.floor(remainMm / L.emptyRowMm)
-  );
-  return { count, rowHeightMm: remainMm / count };
+  // Luôn kẻ đủ ô trống lấp phần còn lại tờ (tối thiểu minEmptyRows khi còn chỗ).
+  let count = Math.floor(remainMm / L.emptyRowMm);
+  if (count < L.minEmptyRows && remainMm >= L.minEmptyRows * 6) {
+    count = L.minEmptyRows;
+  }
+  count = Math.max(count, entries?.length ? 2 : L.minEmptyRows);
+  count = Math.max(1, count);
+  return { count, rowHeightMm: Math.max(6, remainMm / count) };
 }
 
 /**

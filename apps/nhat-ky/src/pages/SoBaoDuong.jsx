@@ -6,6 +6,7 @@ import { loadStorage, formatDisplayDate } from "../utils/nhatKyFormat";
 import {
   filterBaoDuongEntries,
   filterBaoDuongEntriesInRange,
+  groupBaoDuongEntriesByExecDay,
   collectBaoDuongWorkTypes,
   isBaoDuongSection,
   BAO_DUONG_MAX_DAYS,
@@ -47,7 +48,7 @@ function clampMm(v, fallback) {
   return Math.min(40, Math.max(0, Math.round(n * 10) / 10));
 }
 
-export default function SoBaoDuong({ date, onDateChange, onGoEdit, storageTick = 0 }) {
+export default function SoBaoDuong({ date, onDateChange, onGoEdit, storageTick = 0, readOnly = false }) {
   const { storageKey } = useRoadWorkspace();
   const [catalogTick, setCatalogTick] = useState(0);
   const [drafts, setDrafts] = useState({});
@@ -102,10 +103,17 @@ export default function SoBaoDuong({ date, onDateChange, onGoEdit, storageTick =
   const periodFrom = printScope === "range" ? rangeFrom : date;
   const periodTo = printScope === "range" ? rangeTo : date;
 
-  const printPageCount = useMemo(
-    () => packBaoDuongPages(printEntries, margins).length,
-    [printEntries, margins]
-  );
+  const printPageCount = useMemo(() => {
+    if (printScope === "range") {
+      const groups = groupBaoDuongEntriesByExecDay(printEntries);
+      if (!groups.length) return 1;
+      return groups.reduce(
+        (n, g) => n + packBaoDuongPages(g.entries, margins).length,
+        0
+      );
+    }
+    return packBaoDuongPages(printEntries, margins).length;
+  }, [printScope, printEntries, margins]);
 
   const missingTypes = useMemo(
     () => collectBaoDuongWorkTypes(entries).filter((t) => !hasQualityForType(t)),
@@ -135,10 +143,12 @@ export default function SoBaoDuong({ date, onDateChange, onGoEdit, storageTick =
   }, [missingTypes]);
 
   function updateDraft(type, field, value) {
+    if (readOnly) return;
     setDrafts((prev) => ({ ...prev, [type]: { ...prev[type], [field]: value } }));
   }
 
   function saveDraft(type) {
+    if (readOnly) return;
     const d = drafts[type];
     if (!d || (!d.method?.trim() && !d.result?.trim())) {
       window.alert("Nhập ít nhất một nội dung biện pháp hoặc nhận xét.");
@@ -205,9 +215,16 @@ export default function SoBaoDuong({ date, onDateChange, onGoEdit, storageTick =
               ? ` · ${data.length} công việc`
               : " · Chưa có công việc"}
           </p>
-          <button type="button" className="btn-primary sonhatky-edit-btn" onClick={onGoEdit}>
-            Thêm / sửa dữ liệu
-          </button>
+          {onGoEdit && !readOnly && (
+            <button type="button" className="btn-primary sonhatky-edit-btn" onClick={onGoEdit}>
+              Thêm / sửa dữ liệu
+            </button>
+          )}
+          {readOnly && (
+            <p className="sonhatky-day-summary" style={{ marginTop: 8 }}>
+              Chế độ chỉ xem
+            </p>
+          )}
           <button
             type="button"
             className={`btn-secondary sonhatky-edit-btn sonhatky-edit-btn--sub${
@@ -279,7 +296,7 @@ export default function SoBaoDuong({ date, onDateChange, onGoEdit, storageTick =
               <ul className="print-form-tips">
                 <li>Khổ A4 dọc</li>
                 <li>Kéo lề xanh trên tờ đầu</li>
-                <li>Chia trang tự động · cột theo sổ</li>
+                <li>Khoảng ngày: mỗi ngày thực hiện ≥ 1 tờ</li>
               </ul>
             </div>
           </div>
@@ -299,7 +316,7 @@ export default function SoBaoDuong({ date, onDateChange, onGoEdit, storageTick =
         {!printOpen ? (
           <div className="sonhatky-screen-preview">
             <div className="nhatky-review">
-              {missingTypes.length > 0 && (
+              {missingTypes.length > 0 && !readOnly && (
                 <div className="baoduong-missing no-print">
                   <p className="baoduong-missing-title">
                     Có {missingTypes.length} công tác mới chưa có nhận xét chuẩn. Bổ sung
@@ -367,6 +384,7 @@ export default function SoBaoDuong({ date, onDateChange, onGoEdit, storageTick =
               periodFrom={periodFrom}
               periodTo={periodTo}
               entries={printEntries}
+              groupByDay={printScope === "range"}
               margins={margins}
               onMarginsChange={setMargins}
               widths={colWidths}

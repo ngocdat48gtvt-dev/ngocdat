@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
 import { ViMonthInput } from "../components/ViDateInput";
+import PhieuCauPrintPages from "../components/PhieuCauPrintPages";
 import {
   loadCauRegistry,
   setCauRegistry,
@@ -17,26 +18,53 @@ import {
   applyPassedDaysDefaults,
   formatInspectionDate,
   syncCauInspectionsFromEntries,
+  persistCauRoadUnitName,
   CAU_INSPECTION_EVENT,
   daysInMonth
 } from "../utils/cauInspectionStore";
-import { loadStorage } from "../utils/nhatKyFormat";
+import { loadStorage, formatYearMonthVN } from "../utils/nhatKyFormat";
 import {
   PHIEU_CAU_COL_KEYS,
+  getPhieuCauColWidths,
   usePhieuCauColWidths
 } from "../hooks/usePhieuCauColWidths";
+import { printPhieuCauPages } from "../utils/phieuCauPrint";
 
 const SIDEBAR_WIDTH = 340;
+const MARGIN_KEY = "phieu-cau-print-margins-v1";
+const DEFAULT_MARGINS = { top: 5, right: 6, bottom: 5, left: 6 };
 
-/** Chiều cao hàng body (mm) để bảng chiếm hết phần còn lại của A4 ngang. */
+function clampMm(v, fallback) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(40, Math.max(0, Math.round(n * 10) / 10));
+}
+
+function loadMargins() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(MARGIN_KEY));
+    if (!saved || typeof saved !== "object") return { ...DEFAULT_MARGINS };
+    return {
+      top: clampMm(saved.top, DEFAULT_MARGINS.top),
+      right: clampMm(saved.right, DEFAULT_MARGINS.right),
+      bottom: clampMm(saved.bottom, DEFAULT_MARGINS.bottom),
+      left: clampMm(saved.left, DEFAULT_MARGINS.left)
+    };
+  } catch {
+    return { ...DEFAULT_MARGINS };
+  }
+}
+
+/** Chiều cao hàng body (mm) — chừa chỗ nét đáy khỏi bị cắt ở lề cuối. */
 function rowHeightMm(hasTitleHeader, rowCount) {
   const pageH = 210;
-  const pad = 14;
-  const titleH = hasTitleHeader ? 30 : 0;
-  const theadH = 13;
-  const avail = pageH - pad - titleH - theadH;
+  const pad = 11; // khớp padding sheet 5mm + 6mm
+  const titleH = hasTitleHeader ? 32 : 0;
+  const theadH = 17;
+  const bottomLine = 1.2;
+  const avail = pageH - pad - titleH - theadH - bottomLine;
   const n = Math.max(1, rowCount);
-  return Math.max(7.2, Math.min(12.5, avail / n));
+  return Math.max(6, Math.min(11, avail / n));
 }
 
 function currentYearMonth() {
@@ -250,6 +278,19 @@ export default function PhieuKiemTraCau({ readOnly = false, storageTick = 0 }) {
   const [yearMonth, setYearMonth] = useState(currentYearMonth);
   const [sheet, setSheet] = useState(() => loadCauInspectionSheet("", "", "", ""));
   const [message, setMessage] = useState("");
+  const [printOpen, setPrintOpen] = useState(false);
+  /** "one" = cầu đang chọn · "all" = tất cả cầu trong tháng */
+  const [printScope, setPrintScope] = useState("one");
+  const [margins, setMargins] = useState(loadMargins);
+  const [printColWidths, setPrintColWidths] = useState(getPhieuCauColWidths);
+
+  useEffect(() => {
+    localStorage.setItem(MARGIN_KEY, JSON.stringify(margins));
+  }, [margins]);
+
+  useEffect(() => {
+    if (printOpen) setPrintColWidths(getPhieuCauColWidths());
+  }, [printOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -403,6 +444,13 @@ export default function PhieuKiemTraCau({ readOnly = false, storageTick = 0 }) {
     setSheet((prev) => ({ ...prev, [field]: value }));
   }
 
+  /** Đơn vị QL: lưu chung sổ (mọi cầu / mọi tháng) ngay khi rời ô hoặc bấm Lưu. */
+  function commitUnitName(raw) {
+    if (readOnly || !uid || !activeRoadId) return;
+    const name = persistCauRoadUnitName(uid, activeRoadId, raw);
+    setSheet((prev) => ({ ...prev, unitName: name }));
+  }
+
   function updateRow(index, patch) {
     if (readOnly) return;
     setSheet((prev) => ({
@@ -418,24 +466,49 @@ export default function PhieuKiemTraCau({ readOnly = false, storageTick = 0 }) {
 
   function handleSave() {
     if (readOnly || !uid || !activeRoadId || !bridgeId) return;
+    commitUnitName(sheet.unitName);
     const saved = saveCauInspectionSheet(uid, activeRoadId, bridgeId, yearMonth, {
       ...sheet,
       bridgeName: selected?.name || sheet.bridgeName,
       km: selected?.km || sheet.km
     });
     setSheet(refreshCauSheetPassedDays(uid, activeRoadId, bridgeId, yearMonth, saved));
-    flash("Đã lưu phiếu kiểm tra cầu.");
+    flash("Đã lưu phiếu kiểm tra cầu (đơn vị QL dùng chung mọi tháng).");
   }
 
-  function handlePrint() {
-    document.body.classList.add("phieu-cau-printing");
-    const cleanup = () => {
-      document.body.classList.remove("phieu-cau-printing");
-      window.removeEventListener("afterprint", cleanup);
-    };
-    window.addEventListener("afterprint", cleanup);
-    window.setTimeout(() => window.print(), 50);
-  }
+  const printItems = useMemo(() => {
+    if (!printOpen || !bridges.length || !uid || !activeRoadId || !yearMonth) {
+      return [];
+    }
+    const list =
+      printScope === "all"
+        ? bridges
+        : bridges.filter((b) => b.id === bridgeId);
+    return list.map((b) => {
+      let s = loadCauInspectionSheet(uid, activeRoadId, b.id, yearMonth);
+      if (!s.unitName && roadLabel) s = { ...s, unitName: roadLabel };
+      return {
+        bridge: b,
+        sheet: applyPassedDaysDefaults({
+          ...s,
+          bridgeName: b.name || s.bridgeName,
+          km: b.km || s.km
+        })
+      };
+    });
+  }, [
+    printOpen,
+    printScope,
+    bridges,
+    bridgeId,
+    uid,
+    activeRoadId,
+    yearMonth,
+    roadLabel,
+    storageTick
+  ]);
+
+  const printPageCount = printItems.length * 2;
 
   const dayCount = daysInMonth(yearMonth);
   const splitAt = Math.ceil(dayCount / 2);
@@ -446,7 +519,7 @@ export default function PhieuKiemTraCau({ readOnly = false, storageTick = 0 }) {
   const sheetNo = Number(String(yearMonth || "").split("-")[1]) || "";
 
   return (
-    <div className="phieu-cau-page">
+    <div className={`phieu-cau-page${printOpen ? " phieu-cau-page--print" : ""}`}>
       <aside
         className="phieu-cau-sidebar no-print"
         style={{ width: SIDEBAR_WIDTH, minWidth: SIDEBAR_WIDTH, maxWidth: SIDEBAR_WIDTH }}
@@ -480,63 +553,162 @@ export default function PhieuKiemTraCau({ readOnly = false, storageTick = 0 }) {
             />
           </div>
 
-          <label className="hosocong-label">Đơn vị nhận quản lý duy tu bảo dưỡng</label>
-          <input
-            className="hosocong-input"
-            value={sheet.unitName || ""}
-            disabled={readOnly}
-            onChange={(e) => updateMeta("unitName", e.target.value)}
-            placeholder="Ví dụ: QL.37"
-          />
+          {!printOpen && (
+            <>
+              <label className="hosocong-label">Đơn vị nhận quản lý duy tu bảo dưỡng</label>
+              <input
+                className="hosocong-input"
+                value={sheet.unitName || ""}
+                disabled={readOnly}
+                onChange={(e) => updateMeta("unitName", e.target.value)}
+                onBlur={(e) => commitUnitName(e.target.value)}
+                placeholder="VD: Hạt 1.37 Công ty CP QLSC…"
+              />
+              <p className="sidebar-hint" style={{ marginTop: 4, fontSize: "0.8rem" }}>
+                Lưu chung cả sổ — mọi cầu, mọi tháng (Firebase).
+              </p>
 
-          <label className="hosocong-label">Cầu</label>
-          <select
-            className="hosocong-input"
-            value={bridgeId}
-            onChange={(e) => setBridgeId(e.target.value)}
+              <label className="hosocong-label">Cầu</label>
+              <select
+                className="hosocong-input"
+                value={bridgeId}
+                onChange={(e) => setBridgeId(e.target.value)}
+              >
+                {!bridges.length && <option value="">— Chưa có cầu —</option>}
+                {bridges.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name || "—"} ({b.km || "chưa LT"})
+                  </option>
+                ))}
+              </select>
+
+              <label className="hosocong-label">Họ tên tuần đường</label>
+              <input
+                className="hosocong-input"
+                value={sheet.tuanDuongDefault || ""}
+                disabled={readOnly}
+                onChange={(e) => updateMeta("tuanDuongDefault", e.target.value)}
+                placeholder="Nhập họ tên"
+              />
+
+              <label className="hosocong-label">Họ tên tuần kiểm</label>
+              <input
+                className="hosocong-input"
+                value={sheet.tuanKiemDefault || ""}
+                disabled={readOnly}
+                onChange={(e) => updateMeta("tuanKiemDefault", e.target.value)}
+                placeholder="Nhập họ tên"
+              />
+
+              <div className="hosocong-actions" style={{ marginTop: 10 }}>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    className="btn-primary btn-primary--compact"
+                    onClick={handleSave}
+                  >
+                    Lưu phiếu
+                  </button>
+                )}
+              </div>
+              {message && <p className="hosocong-msg">{message}</p>}
+            </>
+          )}
+
+          <button
+            type="button"
+            className={`btn-secondary sonhatky-edit-btn${printOpen ? " active" : ""}`}
+            style={{ marginTop: 10, width: "100%" }}
+            onClick={() => setPrintOpen((v) => !v)}
+            disabled={!bridges.length}
           >
-            {!bridges.length && <option value="">— Chưa có cầu —</option>}
-            {bridges.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name || "—"} ({b.km || "chưa LT"})
-              </option>
-            ))}
-          </select>
-
-          <label className="hosocong-label">Họ tên tuần đường</label>
-          <input
-            className="hosocong-input"
-            value={sheet.tuanDuongDefault || ""}
-            disabled={readOnly}
-            onChange={(e) => updateMeta("tuanDuongDefault", e.target.value)}
-            placeholder="Nhập họ tên"
-          />
-
-          <label className="hosocong-label">Họ tên tuần kiểm</label>
-          <input
-            className="hosocong-input"
-            value={sheet.tuanKiemDefault || ""}
-            disabled={readOnly}
-            onChange={(e) => updateMeta("tuanKiemDefault", e.target.value)}
-            placeholder="Nhập họ tên"
-          />
-
-          <div className="hosocong-actions" style={{ marginTop: 10 }}>
-            {!readOnly && (
-              <button type="button" className="btn-primary btn-primary--compact" onClick={handleSave}>
-                Lưu phiếu
-              </button>
-            )}
-            <button type="button" className="btn-secondary btn-primary--compact" onClick={handlePrint}>
-              In phiếu
-            </button>
-          </div>
-          {message && <p className="hosocong-msg">{message}</p>}
+            {printOpen ? "Đóng xem trước in" : "Xem trước in theo tháng"}
+          </button>
         </div>
+
+        {printOpen && (
+          <div className="sidebar-scroll">
+            <div className="print-form-panel">
+              <div className="print-form-label">In theo tháng</div>
+              <label className="hosocong-label">Phạm vi in</label>
+              <select
+                className="hosocong-input"
+                value={printScope}
+                onChange={(e) => setPrintScope(e.target.value)}
+              >
+                <option value="one">
+                  Từng cầu — {selected?.name || "cầu đang chọn"}
+                </option>
+                <option value="all">Tất cả các cầu ({bridges.length})</option>
+              </select>
+              {printScope === "one" && (
+                <>
+                  <label className="hosocong-label">Cầu in</label>
+                  <select
+                    className="hosocong-input"
+                    value={bridgeId}
+                    onChange={(e) => setBridgeId(e.target.value)}
+                  >
+                    {bridges.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name || "—"} ({b.km || "chưa LT"})
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+              <ul className="print-form-tips">
+                <li>Khổ A4 ngang (297 × 210 mm)</li>
+                <li>Mỗi cầu = 2 tờ (nửa tháng / tờ)</li>
+                <li>Kéo lề xanh trên tờ đầu bằng chuột</li>
+                <li>
+                  {printScope === "all"
+                    ? `${bridges.length} cầu · ${printPageCount} tờ`
+                    : `1 cầu · ${printPageCount} tờ`}
+                </li>
+              </ul>
+            </div>
+          </div>
+        )}
       </aside>
 
       <main className="phieu-cau-main">
-        {!selected ? (
+        {printOpen ? (
+          <div className="sonhatky-print-preview-pane landscape-print-preview-pane">
+            <div className="sonhatky-print-toolbar print-toolbar no-print">
+              <div className="print-toolbar-main">
+                <div className="print-toolbar-kicker">Xem trước in · A4 ngang</div>
+                <div className="print-toolbar-chips">
+                  <span className="print-chip">{formatYearMonthVN(yearMonth)}</span>
+                  <span className="print-chip">
+                    {printScope === "all"
+                      ? `${printItems.length} cầu`
+                      : selected?.name || "1 cầu"}
+                  </span>
+                  <span className="print-chip">{printPageCount} tờ</span>
+                  <span className="print-chip print-chip--muted">
+                    Lề {margins.top}/{margins.right}/{margins.bottom}/{margins.left} mm
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn-primary btn-primary--compact print-toolbar-action"
+                onClick={() => printPhieuCauPages(margins, printColWidths)}
+                disabled={!printItems.length}
+              >
+                {printScope === "all" ? "In tất cả cầu" : "In cầu này"}
+              </button>
+            </div>
+            <PhieuCauPrintPages
+              items={printItems}
+              yearMonth={yearMonth}
+              margins={margins}
+              onMarginsChange={setMargins}
+              widths={printColWidths}
+            />
+          </div>
+        ) : !selected ? (
           <p className="section-guide">Chọn cầu hoặc thêm cầu ở tab Danh sách cầu.</p>
         ) : (
           <div className="phieu-cau-a4 phieu-cau-a4--landscape">
@@ -560,6 +732,7 @@ export default function PhieuKiemTraCau({ readOnly = false, storageTick = 0 }) {
                       className="phieu-cau-inline-input phieu-cau-inline-input--full"
                       value={sheet.unitName || ""}
                       onChange={(e) => updateMeta("unitName", e.target.value)}
+                      onBlur={(e) => commitUnitName(e.target.value)}
                     />
                   )}
                 </p>

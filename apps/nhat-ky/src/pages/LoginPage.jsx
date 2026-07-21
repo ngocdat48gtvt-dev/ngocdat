@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { auth } from "../firebase/firebase";
+import { isBaoCaoMode } from "../lib/baoCaoMode";
 import {
+  BAO_CAO_PORTAL,
   getPortalRememberedEmail,
   markPortalLogin,
   NHAT_KY_PORTAL
@@ -11,7 +13,9 @@ import { useAuth } from "../context/AuthContext";
 
 export default function LoginPage() {
   const { authError } = useAuth();
-  const [email, setEmail] = useState(() => getPortalRememberedEmail(NHAT_KY_PORTAL));
+  const baoCao = isBaoCaoMode();
+  const portalId = baoCao ? BAO_CAO_PORTAL : NHAT_KY_PORTAL;
+  const [email, setEmail] = useState(() => getPortalRememberedEmail(portalId));
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -26,10 +30,15 @@ export default function LoginPage() {
       if (!profile) {
         await signOut(auth);
         setError(
-          "Tài khoản chưa kích hoạt, hết hạn hoặc chưa được cấp quyền Sổ nội nghiệp."
+          baoCao
+            ? "Tài khoản chưa kích hoạt hoặc hết hạn license."
+            : "Tài khoản chưa kích hoạt, hết hạn hoặc chưa được cấp quyền Sổ nội nghiệp."
         );
+      } else if (baoCao && profile.role !== "ADMIN") {
+        await signOut(auth);
+        setError("Cổng Báo cáo chỉ dành cho tài khoản ADMIN (lãnh đạo).");
       } else {
-        markPortalLogin(NHAT_KY_PORTAL, email);
+        markPortalLogin(portalId, email);
       }
     } catch {
       setError("Email hoặc mật khẩu không đúng.");
@@ -41,12 +50,16 @@ export default function LoginPage() {
   return (
     <div className="nhatky-login">
       <div className="nhatky-login-card">
-        <h1>Sổ nội nghiệp</h1>
+        <h1>{baoCao ? "Báo cáo khối lượng" : "Sổ nội nghiệp"}</h1>
         <p className="nhatky-login-sub">
-          Đăng nhập bằng tài khoản USER. Phiên đăng nhập tách riêng với cổng điều hành (ADMIN).
+          {baoCao
+            ? "Đăng nhập ADMIN để xem thống kê khối lượng chung toàn công ty (theo hạt / đường)."
+            : "Đăng nhập bằng tài khoản USER. Phiên đăng nhập tách riêng với cổng điều hành (ADMIN)."}
         </p>
         <form className="nhatky-login-form" onSubmit={handleSubmit}>
-          <label className="entry-form-label" htmlFor="nhat-ky-login-email">Email</label>
+          <label className="entry-form-label" htmlFor="nhat-ky-login-email">
+            Email
+          </label>
           <input
             id="nhat-ky-login-email"
             type="email"
@@ -56,7 +69,9 @@ export default function LoginPage() {
             onChange={(e) => setEmail(e.target.value)}
             required
           />
-          <label className="entry-form-label" htmlFor="login-password">Mật khẩu</label>
+          <label className="entry-form-label" htmlFor="login-password">
+            Mật khẩu
+          </label>
           <input
             id="login-password"
             type="password"
@@ -73,7 +88,9 @@ export default function LoginPage() {
             {submitting ? "Đang đăng nhập..." : "Đăng nhập"}
           </button>
         </form>
-        <a href="/san-pham" className="nhatky-login-home">← Về trang chủ</a>
+        <a href="/san-pham" className="nhatky-login-home">
+          ← Về trang chủ
+        </a>
       </div>
     </div>
   );

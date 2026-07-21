@@ -5,7 +5,10 @@ import { db } from "../firebase/firebase";
  * Phiếu kiểm tra cầu:
  * users/{uid}/office_books/{roadId}/modules/cau_inspections
  *
- * { sheets: { "<bridgeId>__<yyyy-mm>": sheetData } }
+ * {
+ *   sheets: { "<bridgeId>__<yyyy-mm>": sheetData },
+ *   roadMeta: { unitName }  // chung mọi cầu / mọi tháng
+ * }
  */
 
 const SCHEMA_VERSION = 1;
@@ -24,42 +27,47 @@ function sanitize(value) {
 
 /** @returns {Promise<Record<string, object>>} */
 export async function fetchCauInspections(uid, roadId) {
-  if (!uid || !roadId) return {};
+  const mod = await fetchCauInspectionsModule(uid, roadId);
+  return mod.sheets;
+}
+
+/** @returns {Promise<{ sheets: Record<string, object>, roadMeta: { unitName?: string } }>} */
+export async function fetchCauInspectionsModule(uid, roadId) {
+  if (!uid || !roadId) return { sheets: {}, roadMeta: {} };
   try {
     const snap = await getDoc(moduleRef(uid, roadId));
-    if (!snap.exists()) return {};
-    const sheets = snap.data()?.sheets;
-    return sheets && typeof sheets === "object" ? sheets : {};
+    if (!snap.exists()) return { sheets: {}, roadMeta: {} };
+    const data = snap.data() || {};
+    const sheets = data.sheets && typeof data.sheets === "object" ? data.sheets : {};
+    const roadMeta =
+      data.roadMeta && typeof data.roadMeta === "object" ? data.roadMeta : {};
+    return { sheets, roadMeta };
   } catch (err) {
     console.warn("Không đọc được phiếu KT cầu từ cloud.", err);
-    return {};
+    return { sheets: {}, roadMeta: {} };
   }
 }
 
-export async function pushCauInspections(uid, roadId, sheets) {
+export async function pushCauInspections(uid, roadId, sheets, roadMeta = null) {
   if (!uid || !roadId) throw new Error("Thiếu user hoặc roadId để lưu phiếu KT cầu.");
-  await setDoc(
-    moduleRef(uid, roadId),
-    sanitize({
-      sheets: sheets || {},
-      updatedAt: serverTimestamp(),
-      schemaVersion: SCHEMA_VERSION
-    }),
-    { merge: true }
-  );
+  const payload = {
+    sheets: sheets || {},
+    updatedAt: serverTimestamp(),
+    schemaVersion: SCHEMA_VERSION
+  };
+  if (roadMeta && typeof roadMeta === "object") {
+    payload.roadMeta = {
+      unitName: String(roadMeta.unitName || "").trim()
+    };
+  }
+  await setDoc(moduleRef(uid, roadId), sanitize(payload), { merge: true });
 }
 
 /** Đẩy / ghi đè 1 tờ phiếu (merge vào sheets map). */
 export async function pushOneCauInspection(uid, roadId, bridgeId, yearMonth, sheet) {
   if (!uid || !roadId || !bridgeId || !yearMonth) return;
   const id = cauInspectionSheetId(bridgeId, yearMonth);
-  let sheets = {};
-  try {
-    const snap = await getDoc(moduleRef(uid, roadId));
-    sheets = { ...(snap.data()?.sheets || {}) };
-  } catch {
-    sheets = {};
-  }
-  sheets[id] = sheet;
-  await pushCauInspections(uid, roadId, sheets);
+  const mod = await fetchCauInspectionsModule(uid, roadId);
+  const sheets = { ...mod.sheets, [id]: sheet };
+  await pushCauInspections(uid, roadId, sheets, mod.roadMeta);
 }

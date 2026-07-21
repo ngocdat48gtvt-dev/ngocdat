@@ -49,7 +49,9 @@ import ViDateInput from "../components/ViDateInput";
 import { makeEmptyQuickRows } from "../utils/bulkMatDuongImport";
 import {
   NEN_DUONG_SECTION,
-  defaultExportTrafficDuty
+  defaultExportTrafficDuty,
+  looksLikeEmail,
+  isLegacyAutoRestoredAt
 } from "../utils/trafficDutyFormat";
 import {
   TNGT_SECTION,
@@ -69,6 +71,7 @@ import {
   DEFAULT_CONG_WORK_TYPES
 } from "../services/masterDataService";
 import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
+import { resolveReportMetaFromRoad } from "../utils/roadsCatalog";
 import { persistImportMapFromEntries } from "../services/nhatKyImportService";
 import {
   loadCauRegistry,
@@ -222,10 +225,12 @@ export default function NhapLieuPage({
   onStorageChange,
   matDuongQuickBoot = false,
   onMatDuongQuickBootConsumed,
+  bootSection = "",
+  onBootSectionConsumed,
   readOnly = false
 }) {
   const { profile } = useAuth();
-  const { storageKey, activeRoadId, ownerUid } = useRoadWorkspace();
+  const { storageKey, activeRoadId, ownerUid, activeRoad } = useRoadWorkspace();
   const initial = loadStorage(storageKey);
   const [currentSection, setCurrentSection] = useState("");
   const [editingIndex, setEditingIndex] = useState(-1);
@@ -233,10 +238,9 @@ export default function NhapLieuPage({
     initial.entries.map(migrateEntry)
   );
   const [dayMetaMap, setDayMetaMap] = useState(initial.dayMeta || {});
-  const [reportMeta, setReportMeta] = useState(() => ({
-    ...EMPTY_REPORT_META,
-    ...(initial.reportMeta || {})
-  }));
+  const [reportMeta, setReportMeta] = useState(() =>
+    resolveReportMetaFromRoad(initial.reportMeta, activeRoad)
+  );
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [saveMessage, setSaveMessage] = useState("");
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT);
@@ -315,13 +319,37 @@ export default function NhapLieuPage({
   }, [matDuongQuickBoot, onMatDuongQuickBootConsumed]);
 
   useEffect(() => {
+    const title = String(bootSection || "").trim();
+    if (!title) return;
+    openForm(title);
+    const key = SECTIONS.find((s) => s.title === title)?.key;
+    if (key) {
+      setShowEntryDetails(true);
+      setExpandedSections((prev) => new Set([...prev, key]));
+    }
+    onBootSectionConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bootSection]);
+
+  useEffect(() => {
     if (!storageTick) return;
     const stored = loadStorage(storageKey);
     setData(stored.entries.map(migrateEntry));
     setDayMetaMap(stored.dayMeta || {});
-    setReportMeta({ ...EMPTY_REPORT_META, ...(stored.reportMeta || {}) });
+    setReportMeta(resolveReportMetaFromRoad(stored.reportMeta, activeRoad));
     setSaveMessage("Đã đồng bộ dữ liệu từ App hiện trường.");
-  }, [storageTick, storageKey]);
+  }, [storageTick, storageKey, activeRoad]);
+
+  useEffect(() => {
+    setReportMeta((prev) => resolveReportMetaFromRoad(prev, activeRoad));
+  }, [
+    activeRoad?.id,
+    activeRoad?.company,
+    activeRoad?.hat,
+    activeRoad?.roadName,
+    activeRoad?.label,
+    activeRoad?.kmRange
+  ]);
 
   useEffect(() => {
     if (!currentSection || !showEntryDetails) return;
@@ -420,9 +448,9 @@ export default function NhapLieuPage({
         measureSummary: item.measureSummary || "",
         mainResult: item.mainResult || "",
         exportTrafficDuty: item.exportTrafficDuty ?? defaultExportTrafficDuty(item),
-        dutyPerson: item.dutyPerson || "",
+        dutyPerson: looksLikeEmail(item.dutyPerson) ? "" : item.dutyPerson || "",
         trafficCause: item.trafficCause || "",
-        trafficRestoredAt: item.trafficRestoredAt || "",
+        trafficRestoredAt: isLegacyAutoRestoredAt(item) ? "" : item.trafficRestoredAt || "",
         trafficNote: item.trafficNote || "",
         exportTngt: item.exportTngt ?? defaultExportTngt(),
         tngtOccurDate: item.tngtOccurDate || item.date || date,
@@ -1546,9 +1574,10 @@ export default function NhapLieuPage({
                 {form.exportTrafficDuty && (
                   <>
                     <p className="section-guide">
-                      Số liệu sự cố (lý trình, kích thước, KL, người trực) lấy từ app hiện trường.
-                      Thời tiết ghi ở <strong>dòng đầu ngày</strong> trên sổ nhật ký. Các mục dưới
-                      ghi vào <strong>sổ chi tiết</strong> rồi tự sang sổ trực ĐBGT.
+                      Số liệu sự cố (lý trình, kích thước, KL) lấy từ app hiện trường.
+                      Thời tiết ghi ở <strong>dòng đầu ngày</strong> trên sổ nhật ký.
+                      <strong> Người trực</strong> và <strong>thời gian thông xe</strong> để trống —
+                      tự nhập trên sổ trực bão lũ.
                     </p>
                     <div className="entry-form-grid">
                       <div className="entry-form-field entry-form-field--full">
@@ -1727,6 +1756,14 @@ export default function NhapLieuPage({
               : (field, value) => setForm((prev) => ({ ...prev, [field]: value }))
           }
           onDayMetaChange={readOnly ? undefined : updateDayMeta}
+          onSectionSelect={(sectionTitle) => openForm(sectionTitle)}
+          onEntrySelect={(globalIndex, sectionTitle) => {
+            if (QUICK_GRID_SECTIONS.has(sectionTitle)) {
+              editEntryInGrid(globalIndex, sectionTitle);
+            } else {
+              openForm(sectionTitle, globalIndex);
+            }
+          }}
         />
       </main>
     </div>

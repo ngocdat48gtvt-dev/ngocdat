@@ -40,6 +40,14 @@ function loadWidths() {
   }
 }
 
+export function getTrafficDutyColWidths() {
+  return loadWidths();
+}
+
+export function sumTrafficDutyCols(widths) {
+  return TRAFFIC_DUTY_COLS.reduce((s, c) => s + (widths[c.key] || 0), 0);
+}
+
 export function useTrafficDutyColWidths() {
   const [widths, setWidths] = useState(loadWidths);
 

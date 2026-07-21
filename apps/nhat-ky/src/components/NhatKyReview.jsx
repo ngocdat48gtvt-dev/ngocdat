@@ -188,6 +188,14 @@ function SyncedRowTable({ cols, widths, rowClass, children }) {
   );
 }
 
+function isInteractiveTarget(target) {
+  return Boolean(
+    target?.closest?.(
+      "textarea, input, button, select, a, .weather-quick-picker, .nhatky-col-resizer"
+    )
+  );
+}
+
 export default function NhatKyReview({
   date,
   items,
@@ -196,10 +204,13 @@ export default function NhatKyReview({
   alwaysShow = false,
   onItemFieldChange,
   onDraftFieldChange,
-  onDayMetaChange
+  onDayMetaChange,
+  onSectionSelect,
+  onEntrySelect
 }) {
   const { widths, zoom, startColumnResize } = useColumnWidths();
   const editable = Boolean(onItemFieldChange);
+  const canOpenForm = Boolean(onSectionSelect || onEntrySelect);
 
   const leftW = sumCols(LEFT_COLS, widths);
   const rightW = sumCols(RIGHT_COLS, widths);
@@ -219,6 +230,22 @@ export default function NhatKyReview({
     return onItemFieldChange
       ? (v) => onItemFieldChange(item._globalIndex, field, v)
       : undefined;
+  }
+
+  function activateSection(sectionTitle) {
+    onSectionSelect?.(sectionTitle);
+  }
+
+  function activateEntry(item, sectionTitle) {
+    if (item?._draft) {
+      activateSection(sectionTitle);
+      return;
+    }
+    if (onEntrySelect && Number.isInteger(item?._globalIndex)) {
+      onEntrySelect(item._globalIndex, sectionTitle);
+      return;
+    }
+    activateSection(sectionTitle);
   }
 
   const allItems = draftItem ? [...items, { ...draftItem, _draft: true }] : items;
@@ -257,15 +284,19 @@ export default function NhatKyReview({
     });
 
     for (const block of bodyBlocks) {
+      const sectionTitle = block.section.title;
       const label = formatSectionHeading(block.section);
       rows.push({
         key: `${block.key}-h`,
+        clickable: canOpenForm,
+        sectionTitle,
+        onActivate: canOpenForm ? () => activateSection(sectionTitle) : undefined,
         left: {
-          className: "nhatky-section-hdr",
+          className: `nhatky-section-hdr${canOpenForm ? " nhatky-row--clickable" : ""}`,
           cells: emptyCols(label, "nhatky-col-label nhatky-col-label--section")
         },
         right: {
-          className: "nhatky-section-hdr nhatky-right-align",
+          className: `nhatky-section-hdr nhatky-right-align${canOpenForm ? " nhatky-row--clickable" : ""}`,
           cells: blankRightCells()
         }
       });
@@ -273,8 +304,11 @@ export default function NhatKyReview({
       if (block.rows.length === 0) {
         rows.push({
           key: `${block.key}-empty`,
+          clickable: canOpenForm,
+          sectionTitle,
+          onActivate: canOpenForm ? () => activateSection(sectionTitle) : undefined,
           left: {
-            className: "nhatky-section-empty",
+            className: `nhatky-section-empty${canOpenForm ? " nhatky-row--clickable" : ""}`,
             cells: (
               <>
                 <td className="nhatky-cell-blank" />
@@ -286,7 +320,7 @@ export default function NhatKyReview({
             )
           },
           right: {
-            className: "nhatky-right-data nhatky-right-empty",
+            className: `nhatky-right-data nhatky-right-empty${canOpenForm ? " nhatky-row--clickable" : ""}`,
             cells: (
               <>
                 <td className="nhatky-col-resolved nhatky-cell-blank" />
@@ -304,11 +338,15 @@ export default function NhatKyReview({
         const resolved = item.resolved || item.solution || "";
         const leaderNote = item.leaderNote || "";
         const note = item.inspectorNote || item.note || "";
+        const rowClickable = canOpenForm && !item._draft;
 
         rows.push({
           key: `${block.key}-${i}`,
+          clickable: rowClickable,
+          sectionTitle,
+          onActivate: rowClickable ? () => activateEntry(item, sectionTitle) : undefined,
           left: {
-            className: draftClass,
+            className: `${draftClass}${rowClickable ? " nhatky-row--clickable" : ""}`.trim(),
             cells: (
               <>
                 <td className="nhatky-col-date">
@@ -325,7 +363,7 @@ export default function NhatKyReview({
             )
           },
           right: {
-            className: `${draftClass} nhatky-right-editable`.trim(),
+            className: `${draftClass} nhatky-right-editable${rowClickable ? " nhatky-row--clickable" : ""}`.trim(),
             cells: (
               <>
                 <td className="nhatky-col-resolved">
@@ -382,6 +420,12 @@ export default function NhatKyReview({
 
   const syncRows = buildSyncRows();
 
+  function handleRowActivate(row, e) {
+    if (!row?.onActivate) return;
+    if (isInteractiveTarget(e.target)) return;
+    row.onActivate();
+  }
+
   return (
     <div className="nhatky-review">
       {!showSheet ? (
@@ -430,7 +474,16 @@ export default function NhatKyReview({
                 }
               >
               {syncRows.flatMap((row) => [
-                <div key={`${row.key}-l`} className="nhatky-body-cell nhatky-body-cell--left">
+                <div
+                  key={`${row.key}-l`}
+                  className={`nhatky-body-cell nhatky-body-cell--left${row.clickable ? " nhatky-body-cell--clickable" : ""}`}
+                  onDoubleClick={(e) => handleRowActivate(row, e)}
+                  title={
+                    row.clickable && row.sectionTitle
+                      ? `Tick đúp để mở form nhập: ${row.sectionTitle}`
+                      : undefined
+                  }
+                >
                   <SyncedRowTable
                     cols={LEFT_COLS}
                     widths={widths}
@@ -440,7 +493,16 @@ export default function NhatKyReview({
                   </SyncedRowTable>
                 </div>,
                 <div key={`${row.key}-g`} className="nhatky-body-gap" aria-hidden="true" />,
-                <div key={`${row.key}-r`} className="nhatky-body-cell nhatky-body-cell--right">
+                <div
+                  key={`${row.key}-r`}
+                  className={`nhatky-body-cell nhatky-body-cell--right${row.clickable ? " nhatky-body-cell--clickable" : ""}`}
+                  onDoubleClick={(e) => handleRowActivate(row, e)}
+                  title={
+                    row.clickable && row.sectionTitle
+                      ? `Tick đúp để mở form nhập: ${row.sectionTitle}`
+                      : undefined
+                  }
+                >
                   <SyncedRowTable
                     cols={RIGHT_COLS}
                     widths={widths}

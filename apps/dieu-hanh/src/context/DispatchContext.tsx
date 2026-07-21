@@ -23,6 +23,11 @@ import {
   computeDispatchSummary,
   computeRoadSummaries,
 } from '@/lib/incidentStats'
+import {
+  cleanupAllDuplicatePhotosOnCloud,
+  markPhotoCleanupRan,
+  photoCleanupCooldownActive,
+} from '@/services/incidentPhotoCleanupService'
 import { sortIncidentsByKm } from '@quanlysuco/shared'
 import {
   emptyDispatchFilters,
@@ -94,6 +99,35 @@ export function DispatchProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void loadUserNames()
   }, [loadUserNames])
+
+  /** Tự dọn ảnh trùng trên Firestore — giữ bản gốc (upload sớm nhất). */
+  useEffect(() => {
+    if (!user?.uid || loading || items.length === 0) return
+    if (photoCleanupCooldownActive()) return
+
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const { cleaned, removed } = await cleanupAllDuplicatePhotosOnCloud(items, {
+            maxIncidents: 50,
+            ownerUid: user.uid,
+            isCompanyAdmin,
+          })
+          if (cleaned > 0) {
+            markPhotoCleanupRan()
+            reloadIncidents()
+            if (removed > 0 && isCompanyAdmin) {
+              console.info(`[photo-cleanup] Đã gọn ${removed} ảnh trùng trên ${cleaned} sự cố`)
+            }
+          }
+        } catch {
+          /* bỏ qua — không chặn màn điều hành */
+        }
+      })()
+    }, 4000)
+
+    return () => window.clearTimeout(timer)
+  }, [user?.uid, loading, items.length, isCompanyAdmin, reloadIncidents])
 
   const reload = useCallback(() => {
     reloadIncidents()

@@ -37,6 +37,14 @@ function loadWidths() {
   }
 }
 
+export function getPhieuCauColWidths() {
+  return loadWidths();
+}
+
+export function sumPhieuCauCols(widths) {
+  return PHIEU_CAU_COLS.reduce((s, c) => s + (widths[c.key] || 0), 0);
+}
+
 export function usePhieuCauColWidths() {
   const [widths, setWidths] = useState(loadWidths);
 

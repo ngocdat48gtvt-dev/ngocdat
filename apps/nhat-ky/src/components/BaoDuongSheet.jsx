@@ -1,8 +1,12 @@
 import { formatDisplayDate } from "../utils/nhatKyFormat";
-import { entryToBaoDuongRow } from "../utils/baoDuongFormat";
+import {
+  entryToBaoDuongRow,
+  computeBaoDuongPadRows,
+  estimateBaoDuongDataRowMm
+} from "../utils/baoDuongFormat";
 import { BAO_DUONG_COLS, useBaoDuongColWidths } from "../hooks/useBaoDuongColWidths";
 
-const MIN_ROWS = 8;
+const SCREEN_MARGINS = { top: 14, right: 14, bottom: 16, left: 14 };
 
 function ResizableTh({ colKey, children, onResizeStart }) {
   return (
@@ -21,11 +25,18 @@ function ResizableTh({ colKey, children, onResizeStart }) {
   );
 }
 
-function emptyRows(count) {
+function emptyRows(count, rowHeightMm) {
   return Array.from({ length: count }, (_, i) => (
     <tr key={`empty-${i}`} className="baoduong-data-row baoduong-data-row--empty">
       {BAO_DUONG_COLS.map((col) => (
-        <td key={col.key} />
+        <td
+          key={col.key}
+          style={
+            rowHeightMm
+              ? { height: `${rowHeightMm}mm`, minHeight: `${rowHeightMm}mm` }
+              : undefined
+          }
+        />
       ))}
     </tr>
   ));
@@ -33,11 +44,17 @@ function emptyRows(count) {
 
 export default function BaoDuongSheet({ execDate, entries }) {
   const { widths, startColumnResize } = useBaoDuongColWidths();
+  const list = entries || [];
 
-  const rows = entries.map((entry, idx) => {
+  const rows = list.map((entry, idx) => {
     const r = entryToBaoDuongRow(entry, idx);
+    const h = estimateBaoDuongDataRowMm(entry, idx);
     return (
-      <tr key={`${entry.date}-${entry.kmFrom}-${idx}`} className="baoduong-data-row">
+      <tr
+        key={`${entry.date}-${entry.kmFrom}-${idx}`}
+        className="baoduong-data-row"
+        style={{ height: `${h}mm` }}
+      >
         <td className="baoduong-col-stt">{r.stt}</td>
         <td className="baoduong-col-work">{r.work}</td>
         <td className="baoduong-col-vitri">
@@ -53,7 +70,9 @@ export default function BaoDuongSheet({ execDate, entries }) {
     );
   });
 
-  const padCount = Math.max(0, MIN_ROWS - rows.length);
+  const { count: padCount, rowHeightMm } = computeBaoDuongPadRows(list, SCREEN_MARGINS, {
+    withSign: true
+  });
 
   return (
     <div className="baoduong-sheet-wrap">
@@ -103,7 +122,7 @@ export default function BaoDuongSheet({ execDate, entries }) {
           </thead>
           <tbody>
             {rows}
-            {emptyRows(padCount)}
+            {emptyRows(padCount, rowHeightMm)}
           </tbody>
         </table>
 

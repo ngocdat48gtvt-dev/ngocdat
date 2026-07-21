@@ -1,12 +1,21 @@
 import {
-  SECTIONS,
   entryIncidentType,
   formatDisplayDate,
   formatLyTrinh,
   migrateEntry
 } from "./nhatKyFormat";
-import { formatUnitLabel } from "./baoDuongFormat";
-import { inferEntryUnit, resolveEntryQuantity } from "./incidentUtils";
+import { formatUnitLabel, formatSideLabel, shouldExportBaoDuong } from "./baoDuongFormat";
+import {
+  BAO_DUONG_GROUPS,
+  getGroupForMaintenanceWork,
+  getGroupForType,
+  resolveMaintenanceWorkLabel
+} from "./baoDuongQualityStore";
+import {
+  ATGT_SECTION,
+  inferEntryUnit,
+  resolveEntryQuantity
+} from "./incidentUtils";
 
 export function normalizeStatsUnit(unit) {
   const u = String(unit || "")
@@ -15,10 +24,12 @@ export function normalizeStatsUnit(unit) {
   if (u === "m2" || u === "m²") return "m2";
   if (u === "m3" || u === "m³") return "m3";
   if (u === "m") return "m";
-  return u || "m3";
+  // Giữ nguyên đơn vị đếm từ master data (cái, cột, cây…)
+  if (u) return String(unit).trim();
+  return "m3";
 }
 
-const SECTION_ORDER = Object.fromEntries(SECTIONS.map((s, i) => [s.title, i]));
+const SECTION_ORDER = Object.fromEntries(BAO_DUONG_GROUPS.map((g, i) => [g, i]));
 
 export function normalizeWorkType(value) {
   return String(value || "")
@@ -28,14 +39,11 @@ export function normalizeWorkType(value) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
-/** Suy hạng mục từ tên đầu việc — vd. «Ổ gà» → «Mặt đường». */
+/** Suy hạng mục từ tên đầu việc BDTX / loại tuần đường. */
 export function inferSectionForWorkType(workType) {
-  const wt = normalizeWorkType(workType);
+  const wt = String(workType || "").trim();
   if (!wt) return "";
-  const matches = SECTIONS.filter((s) =>
-    s.types.some((t) => normalizeWorkType(t) === wt)
-  );
-  return matches.length === 1 ? matches[0].title : "";
+  return getGroupForMaintenanceWork(wt) || getGroupForType(wt) || "";
 }
 
 function enrichContract(contract) {
@@ -45,7 +53,7 @@ function enrichContract(contract) {
 }
 
 export function entryWorkKey(entry) {
-  const type = normalizeWorkType(entryIncidentType(entry));
+  const type = normalizeWorkType(resolveMaintenanceWorkLabel(entryIncidentType(entry)));
   const unit = normalizeStatsUnit(inferEntryUnit(entry));
   return `${entry.section || ""}|${type}|${unit}`;
 }
@@ -67,12 +75,33 @@ export function formatStatsNumber(value) {
   return n.toLocaleString("vi-VN", { maximumFractionDigits: 2 });
 }
 
+/** Ngày local dạng YYYY-MM-DD — không dùng toISOString() (lệch UTC → lùi 1 ngày ở VN). */
+export function toLocalIsoDate(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 export function defaultDateRange() {
   const now = new Date();
   const from = new Date(now.getFullYear(), now.getMonth(), 1);
   return {
-    dateFrom: from.toISOString().split("T")[0],
-    dateTo: now.toISOString().split("T")[0]
+    dateFrom: toLocalIsoDate(from),
+    dateTo: toLocalIsoDate(now)
+  };
+}
+
+/** Quý hiện tại: từ ngày 1 tháng đầu quý → hôm nay. */
+export function thisQuarterDateRange() {
+  const now = new Date();
+  const qStartMonth = Math.floor(now.getMonth() / 3) * 3;
+  const from = new Date(now.getFullYear(), qStartMonth, 1);
+  return {
+    dateFrom: toLocalIsoDate(from),
+    dateTo: toLocalIsoDate(now)
   };
 }
 
@@ -94,11 +123,14 @@ function inDateRange(date, dateFrom, dateTo) {
 }
 
 /**
- * Tổng hợp khối lượng theo hạng mục + đầu việc + đơn vị trong khoảng ngày.
+ * Tổng hợp khối lượng thực hiện theo sổ bảo dưỡng (BDTX):
+ * chỉ dòng đủ điều kiện xuất sổ, lọc theo ngày thực hiện (plannedRepairDate).
  */
 export function buildVolumeStats(entries, contractVolumes, options = {}) {
   const { dateFrom = "", dateTo = "", sectionFilter = "" } = options;
-  const normalized = (entries || []).map(migrateEntry);
+  const bdtxEntries = (entries || [])
+    .map(migrateEntry)
+    .filter((e) => shouldExportBaoDuong(e));
   const enrichedContracts = (contractVolumes || []).map(enrichContract);
   const contractMap = Object.fromEntries(
     enrichedContracts
@@ -108,8 +140,9 @@ export function buildVolumeStats(entries, contractVolumes, options = {}) {
 
   const groups = new Map();
 
-  for (const entry of normalized) {
-    if (!inDateRange(entry.date, dateFrom, dateTo)) continue;
+  for (const entry of bdtxEntries) {
+    const execDate = String(entry.plannedRepairDate || "").trim();
+    if (!inDateRange(execDate, dateFrom, dateTo)) continue;
     if (sectionFilter && entry.section !== sectionFilter) continue;
 
     const unit = inferEntryUnit(entry);
@@ -121,7 +154,7 @@ export function buildVolumeStats(entries, contractVolumes, options = {}) {
       groups.set(key, {
         key,
         section: entry.section || "",
-        workType: entryIncidentType(entry),
+        workType: resolveMaintenanceWorkLabel(entryIncidentType(entry)),
         unit: normalizeStatsUnit(unit),
         unitLabel: formatUnitLabel(normalizeStatsUnit(unit)),
         entryCount: 0,
@@ -132,15 +165,15 @@ export function buildVolumeStats(entries, contractVolumes, options = {}) {
     const row = groups.get(key);
     row.entryCount += 1;
     row.totalDone += qty;
-    row.items.push({
-      date: entry.date,
-      dateLabel: formatDisplayDate(entry.date),
-      kmFrom: entry.kmFrom,
-      kmTo: entry.kmTo,
-      kmLabel: formatKmRange(entry.kmFrom, entry.kmTo),
-      quantity: qty,
-      resolvedStatus: entry.resolvedStatus || ""
-    });
+    row.items.push(
+      toVolumeDetailItem(entry, {
+        date: execDate,
+        unit,
+        quantity: qty,
+        workType: row.workType,
+        section: row.section
+      })
+    );
   }
 
   for (const contract of enrichedContracts) {
@@ -205,6 +238,51 @@ export function buildVolumeStats(entries, contractVolumes, options = {}) {
   return { rows, shortCount, okCount, entryCount };
 }
 
+function formatDim(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  if (Math.abs(n - Math.round(n)) < 0.001) return String(Math.round(n));
+  return String(Math.round(n * 100) / 100);
+}
+
+/** Chi tiết một dòng KL để xuất bảng kê. */
+export function toVolumeDetailItem(entry, extras = {}) {
+  const unit = extras.unit || inferEntryUnit(entry);
+  const qty =
+    extras.quantity != null
+      ? extras.quantity
+      : resolveEntryQuantity({ ...entry, unit });
+  const normUnit = normalizeStatsUnit(unit);
+  const sideRaw = String(entry.side || "").trim().toUpperCase();
+  return {
+    date: extras.date || entry.plannedRepairDate || entry.date || "",
+    dateLabel: formatDisplayDate(
+      extras.date || entry.plannedRepairDate || entry.date || ""
+    ),
+    kmFrom: entry.kmFrom || "",
+    kmTo: entry.kmTo || "",
+    kmFromLabel: entry.kmFrom ? `Km${formatLyTrinh(entry.kmFrom)}` : "",
+    kmToLabel: entry.kmTo ? `Km${formatLyTrinh(entry.kmTo)}` : "",
+    kmLabel: formatKmRange(entry.kmFrom, entry.kmTo),
+    side: sideRaw,
+    sideLabel: formatSideLabel(sideRaw) || sideRaw,
+    unit: normUnit,
+    unitLabel: formatUnitLabel(normUnit) || normUnit,
+    length: formatDim(entry.length ?? entry.dai),
+    width: formatDim(entry.width ?? entry.rong),
+    height: formatDim(entry.height ?? entry.cao),
+    quantity: qty,
+    quantityLabel: formatStatsNumber(qty),
+    workType:
+      extras.workType ||
+      resolveMaintenanceWorkLabel(entryIncidentType(entry)) ||
+      "",
+    section: extras.section || entry.section || "",
+    note: String(entry.note || entry.content || "").trim(),
+    resolvedStatus: entry.resolvedStatus || ""
+  };
+}
+
 function formatKmRange(kmFrom, kmTo) {
   const from = kmFrom ? `Km${formatLyTrinh(kmFrom)}` : "";
   const to = kmTo ? `Km${formatLyTrinh(kmTo)}` : "";
@@ -212,12 +290,202 @@ function formatKmRange(kmFrom, kmTo) {
   return from || to || "";
 }
 
-/** Gợi ý đầu việc từ dữ liệu NK (để nhập HĐ nhanh). */
+/**
+ * Gom các dòng chi tiết từ các đầu việc đã chọn (theo row.key).
+ */
+export function collectSelectedVolumeDetails(rows, selectedKeys) {
+  const keySet = new Set(selectedKeys || []);
+  const out = [];
+  for (const row of rows || []) {
+    if (!keySet.has(row.key)) continue;
+    for (const item of row.items || []) {
+      out.push({
+        ...item,
+        workType: item.workType || row.workType,
+        section: item.section || row.section,
+        unit: item.unit || row.unit,
+        unitLabel: item.unitLabel || row.unitLabel
+      });
+    }
+  }
+  out.sort((a, b) => {
+    const sa = SECTION_ORDER[a.section] ?? 999;
+    const sb = SECTION_ORDER[b.section] ?? 999;
+    if (sa !== sb) return sa - sb;
+    if (a.workType !== b.workType) {
+      return String(a.workType).localeCompare(String(b.workType), "vi");
+    }
+    if (a.unit !== b.unit) return String(a.unit).localeCompare(String(b.unit));
+    if (a.date !== b.date) return String(a.date).localeCompare(String(b.date));
+    return String(a.kmFrom).localeCompare(String(b.kmFrom));
+  });
+  return out;
+}
+
+/**
+ * Chia bảng kê theo hạng mục (mục lớn) → đầu việc (+ ĐVT), có tổng từng nhóm.
+ * @returns {{ sections: Array<{ section, workGroups: Array<{ workType, unit, unitLabel, rows, totalQty }> }> }}
+ */
+export function groupVolumeDetailRows(rows) {
+  const sectionMap = new Map();
+
+  for (const item of rows || []) {
+    const section = String(item.section || "").trim() || "Khác";
+    const workType = String(item.workType || "").trim() || "—";
+    const unit = String(item.unit || "").trim();
+    const unitLabel = item.unitLabel || formatUnitLabel(unit) || unit;
+    const workKey = `${workType}|${unit}`;
+
+    if (!sectionMap.has(section)) {
+      sectionMap.set(section, { section, workMap: new Map() });
+    }
+    const sec = sectionMap.get(section);
+    if (!sec.workMap.has(workKey)) {
+      sec.workMap.set(workKey, {
+        workType,
+        unit,
+        unitLabel,
+        rows: [],
+        totalQty: 0
+      });
+    }
+    const group = sec.workMap.get(workKey);
+    group.rows.push(item);
+    group.totalQty += Number(item.quantity) || 0;
+  }
+
+  const sections = [...sectionMap.values()]
+    .map((sec) => ({
+      section: sec.section,
+      workGroups: [...sec.workMap.values()].map((g) => ({
+        ...g,
+        totalQty: Math.round(g.totalQty * 100) / 100
+      }))
+    }))
+    .sort((a, b) => {
+      const sa = SECTION_ORDER[a.section] ?? 999;
+      const sb = SECTION_ORDER[b.section] ?? 999;
+      if (sa !== sb) return sa - sb;
+      return a.section.localeCompare(b.section, "vi");
+    });
+
+  for (const sec of sections) {
+    sec.workGroups.sort((a, b) => {
+      const t = a.workType.localeCompare(b.workType, "vi");
+      if (t !== 0) return t;
+      return a.unit.localeCompare(b.unit);
+    });
+  }
+
+  return { sections };
+}
+
+/**
+ * Phân loại phát hiện ATGT trên sổ nhật ký: mất / hư hỏng (còn lại).
+ * «Mất …» → mất; «Hỏng / nghiêng / mờ / che khuất…» → hư hỏng.
+ */
+export function classifyAtgtDamageKind(workType) {
+  const t = normalizeWorkType(workType);
+  if (t.startsWith("mat ")) return "mat";
+  return "hu_hong";
+}
+
+export function atgtDamageKindLabel(kind) {
+  return kind === "mat" ? "Mất" : "Hư hỏng";
+}
+
+/**
+ * Thống kê KL mục Công trình ATGT theo sổ nhật ký (ngày phát hiện).
+ * Theo dõi khối lượng mất / hư hỏng — không lọc BDTX, không so HĐ.
+ */
+export function buildAtgtDiaryVolumeStats(entries, options = {}) {
+  const { dateFrom = "", dateTo = "", kindFilter = "" } = options;
+  const groups = new Map();
+
+  for (const entry of (entries || []).map(migrateEntry)) {
+    if (entry.section !== ATGT_SECTION) continue;
+    if (!inDateRange(entry.date, dateFrom, dateTo)) continue;
+
+    const workType = String(entryIncidentType(entry) || "").trim();
+    if (!workType) continue;
+
+    const kind = classifyAtgtDamageKind(workType);
+    if (kindFilter && kind !== kindFilter) continue;
+
+    const unit = inferEntryUnit(entry);
+    const qty = resolveEntryQuantity({ ...entry, unit });
+    if (qty <= 0) continue;
+
+    const normUnit = normalizeStatsUnit(unit);
+    const key = `${kind}|${normalizeWorkType(workType)}|${normUnit}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        section: ATGT_SECTION,
+        kind,
+        kindLabel: atgtDamageKindLabel(kind),
+        workType,
+        unit: normUnit,
+        unitLabel: formatUnitLabel(normUnit) || normUnit,
+        entryCount: 0,
+        totalDone: 0,
+        items: []
+      });
+    }
+    const row = groups.get(key);
+    row.entryCount += 1;
+    row.totalDone += qty;
+    row.items.push(
+      toVolumeDetailItem(entry, {
+        date: entry.date,
+        unit,
+        quantity: qty,
+        workType,
+        section: ATGT_SECTION
+      })
+    );
+  }
+
+  const rows = [...groups.values()].map((row) => ({
+    ...row,
+    items: row.items.sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      return String(a.kmFrom).localeCompare(String(b.kmFrom));
+    })
+  }));
+
+  rows.sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === "mat" ? -1 : 1;
+    const typeCmp = a.workType.localeCompare(b.workType, "vi");
+    if (typeCmp !== 0) return typeCmp;
+    return a.unit.localeCompare(b.unit);
+  });
+
+  const matRows = rows.filter((r) => r.kind === "mat");
+  const huHongRows = rows.filter((r) => r.kind === "hu_hong");
+  const entryCount = rows.reduce((sum, r) => sum + r.entryCount, 0);
+  const matQty = matRows.reduce((sum, r) => sum + r.totalDone, 0);
+  const huHongQty = huHongRows.reduce((sum, r) => sum + r.totalDone, 0);
+  const matCount = matRows.reduce((sum, r) => sum + r.entryCount, 0);
+  const huHongCount = huHongRows.reduce((sum, r) => sum + r.entryCount, 0);
+
+  return {
+    rows,
+    entryCount,
+    matCount,
+    huHongCount,
+    matQty,
+    huHongQty,
+    typeCount: rows.length
+  };
+}
+
+/** Gợi ý đầu việc từ dòng đã vào sổ bảo dưỡng — map sang tên công việc BDTX. */
 export function suggestWorkTypesFromEntries(entries) {
   const seen = new Set();
   const list = [];
-  for (const entry of (entries || []).map(migrateEntry)) {
-    const type = entryIncidentType(entry);
+  for (const entry of (entries || []).map(migrateEntry).filter(shouldExportBaoDuong)) {
+    const type = resolveMaintenanceWorkLabel(entryIncidentType(entry));
     if (!type || !entry.section) continue;
     const key = `${entry.section}|${type}`;
     if (seen.has(key)) continue;
