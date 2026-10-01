@@ -505,6 +505,33 @@ export function freeLocalStorageQuota(keepKey = "", extraKeep = []) {
   });
 }
 
+/** Sổ không nhét vừa localStorage vẫn hiện trong phiên này. */
+const memoryStorage = new Map();
+
+function parseStoredBook(parsed, includeDeleted) {
+  const empty = {
+    entries: [],
+    dayMeta: {},
+    reportMeta: { ...EMPTY_REPORT_META },
+    importMap: {}
+  };
+  if (!parsed) return empty;
+  const list = Array.isArray(parsed) ? parsed : parsed.entries || [];
+  let entries = dedupeDiaryEntriesByFingerprint(
+    sortAllEntryDates(list.map(migrateEntry))
+  );
+  if (!includeDeleted) entries = entries.filter((e) => !e?.deletedAt);
+  if (Array.isArray(parsed)) {
+    return { ...empty, entries };
+  }
+  return {
+    entries,
+    dayMeta: parsed.dayMeta || {},
+    reportMeta: { ...EMPTY_REPORT_META, ...(parsed.reportMeta || {}) },
+    importMap: parsed.importMap && typeof parsed.importMap === "object" ? parsed.importMap : {}
+  };
+}
+
 export function loadStorage(storageKey = "nhatky", options = {}) {
   const includeDeleted = options?.includeDeleted === true;
   const empty = {
@@ -513,24 +540,14 @@ export function loadStorage(storageKey = "nhatky", options = {}) {
     reportMeta: { ...EMPTY_REPORT_META },
     importMap: {}
   };
+  if (memoryStorage.has(storageKey)) {
+    return parseStoredBook(memoryStorage.get(storageKey), includeDeleted);
+  }
   const raw = localStorage.getItem(storageKey);
   if (!raw) return empty;
   try {
     const parsed = JSON.parse(raw);
-    const list = Array.isArray(parsed) ? parsed : parsed.entries || [];
-    let entries = dedupeDiaryEntriesByFingerprint(
-      sortAllEntryDates(list.map(migrateEntry))
-    );
-    if (!includeDeleted) entries = entries.filter((e) => !e?.deletedAt);
-    if (Array.isArray(parsed)) {
-      return { ...empty, entries };
-    }
-    return {
-      entries,
-      dayMeta: parsed.dayMeta || {},
-      reportMeta: { ...EMPTY_REPORT_META, ...(parsed.reportMeta || {}) },
-      importMap: parsed.importMap && typeof parsed.importMap === "object" ? parsed.importMap : {}
-    };
+    return parseStoredBook(parsed, includeDeleted);
   } catch {
     return empty;
   }
@@ -589,9 +606,14 @@ export function saveStorage(entries, dayMeta, reportMeta, storageKey = "nhatky",
   };
   const ok = safeSetLocalStorage(storageKey, payload);
   if (!ok) {
-    console.warn("Không ghi được sổ vào localStorage (quota đầy):", storageKey);
-    return false;
+    console.warn("Không ghi được sổ vào localStorage (quota đầy) — giữ trong bộ nhớ phiên.", storageKey);
+    memoryStorage.set(storageKey, payload);
+    if (!options.silent) {
+      notifyOfficeBooksLocalChange(storageKey);
+    }
+    return true;
   }
+  memoryStorage.delete(storageKey);
   if (!options.silent) {
     notifyOfficeBooksLocalChange(storageKey);
   }

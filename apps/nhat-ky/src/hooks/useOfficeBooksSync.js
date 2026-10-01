@@ -112,6 +112,7 @@ export function useOfficeBooksSync({
   const hydrateGenRef = useRef(0);
   const [syncStatus, setSyncStatus] = useState("idle");
   const [syncError, setSyncError] = useState("");
+  const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
     onHydratedRef.current = onHydrated;
@@ -234,9 +235,13 @@ export function useOfficeBooksSync({
   }, [canPush, flushPush, persistCurrentPending]);
 
   const retrySync = useCallback(async () => {
-    if (!canPush) return false;
-    setSyncStatus("pending");
     setSyncError("");
+    if (!canPush) {
+      setSyncStatus("checking");
+      setReloadTick((n) => n + 1);
+      return true;
+    }
+    setSyncStatus("pending");
     await persistCurrentPending();
     return flushPush();
   }, [canPush, flushPush, persistCurrentPending]);
@@ -267,10 +272,10 @@ export function useOfficeBooksSync({
       let skipPushAfterHydrate;
       let hadPending = false;
       let hydrateFailed = false;
+      setSyncStatus("checking");
+      setSyncError("");
       try {
         if (canPush && !browseMode) {
-          setSyncStatus("checking");
-          setSyncError("");
           const pending = await loadPendingOfficeBook(storageKey);
           if (pending) {
             hadPending = true;
@@ -289,7 +294,18 @@ export function useOfficeBooksSync({
         skipPushAfterHydrate = (!hasLocal && !hadPending) || browseMode;
         // Luôn tải đủ ngày từ cloud. Incremental (updatedAt) dễ bỏ sót document
         // legacy không có field updatedAt → máy/tài khoản khác mở sổ thấy trống/thiếu.
-        const remote = await fetchOfficeBookAsStorage(uid, roadId, { sinceMs: 0 });
+        const remote = await fetchOfficeBookAsStorage(uid, roadId, {
+          sinceMs: 0,
+          onPartial: (partial) => {
+            if (cancelled || hydrateGenRef.current !== gen) return;
+            try {
+              mergeRemoteSafelyIntoLocalStorage(storageKey, partial);
+              onHydratedRef.current?.();
+            } catch (err) {
+              console.warn("Chưa ghi được một phần sổ.", err);
+            }
+          }
+        });
         if (cancelled) return;
 
         const hasRemote = (remote.remoteDayCount || 0) > 0;
@@ -490,20 +506,21 @@ export function useOfficeBooksSync({
         hydrateFailed = true;
         console.warn("Không hydrate được office_books.", err);
         skipPushAfterHydrate = true;
-        if (canPush && !browseMode) {
-          setSyncStatus("error");
-          setSyncError(err?.message || "Không đối chiếu được dữ liệu cloud.");
-        }
+        setSyncStatus("error");
+        setSyncError(err?.message || "Không đối chiếu được dữ liệu cloud.");
       } finally {
         // Phiên hydrate cũ không được hạ cờ của phiên mới (nếu không, push chạy
         // khi cloud chưa về và sổ trên màn hình thành lúc có lúc trống).
         if (hydrateGenRef.current !== gen) return;
         hydratingRef.current = false;
-        if (!cancelled && canPush && !browseMode && !skipPushAfterHydrate) {
+        if (cancelled || hydrateFailed) return;
+        if (canPush && !browseMode && !skipPushAfterHydrate) {
           setSyncStatus("pending");
           setTimeout(() => void flushPush(), 0);
-        } else if (!cancelled && canPush && !browseMode && !hydrateFailed) {
+        } else if (canPush && !browseMode) {
           setSyncStatus("synced");
+        } else {
+          setSyncStatus("idle");
         }
       }
     }
@@ -525,7 +542,8 @@ export function useOfficeBooksSync({
     canPush,
     browseMode,
     applyCatalogMeta,
-    flushPush
+    flushPush,
+    reloadTick
   ]);
 
   // Đọc trực tiếp ngày người dùng đang mở — chỉ khi local chưa có ngày đó
@@ -613,7 +631,14 @@ export function useOfficeBooksSync({
   );
 
   return {
-    status: canPush ? syncStatus : browseMode ? "readonly" : "idle",
+    status:
+      syncStatus === "error" || syncStatus === "checking"
+        ? syncStatus
+        : canPush
+          ? syncStatus
+          : browseMode
+            ? "readonly"
+            : "idle",
     error: syncError,
     retry: retrySync
   };

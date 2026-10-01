@@ -253,30 +253,49 @@ function dayFromDoc(d) {
  * Đọc ngày từ server, chia trang. Một lần getDocs cả sổ dễ timeout
  * rồi trả như sổ trống — đọc lại từng trang, lỗi mạng thì thử lại.
  */
-async function fetchDayDocsPaged(uid, roadId, { dateFrom = "", dateTo = "" } = {}) {
-  const pageSize = 40;
-  const all = [];
+async function fetchDayDocsFallback(uid, roadId, { dateFrom = "", dateTo = "" } = {}) {
+  const constraints = [];
+  if (dateFrom) constraints.push(where(documentId(), ">=", dateFrom));
+  if (dateTo) constraints.push(where(documentId(), "<=", dateTo));
+  const snap = await withFirestoreRetry(() =>
+    constraints.length
+      ? getDocs(query(daysCol(uid, roadId), ...constraints))
+      : getDocs(daysCol(uid, roadId))
+  );
+  return snap.docs.map(dayFromDoc);
+}
+
+async function fetchDayDocsPaged(uid, roadId, { dateFrom = "", dateTo = "", onPartial } = {}) {
+  const pageSize = 20;
+  const days = [];
   let cursor = null;
-  for (;;) {
-    const constraints = [orderBy(documentId())];
-    if (dateFrom) constraints.push(where(documentId(), ">=", dateFrom));
-    if (dateTo) constraints.push(where(documentId(), "<=", dateTo));
-    constraints.push(limit(pageSize));
-    if (cursor) constraints.push(startAfter(cursor));
-    const snap = await withFirestoreRetry(() =>
-      getDocsFromServer(query(daysCol(uid, roadId), ...constraints))
-    );
-    snap.docs.forEach((d) => all.push(dayFromDoc(d)));
-    if (snap.docs.length < pageSize) break;
-    cursor = snap.docs[snap.docs.length - 1];
+  try {
+    for (;;) {
+      const constraints = [orderBy(documentId()), limit(pageSize)];
+      if (dateFrom) constraints.push(where(documentId(), ">=", dateFrom));
+      if (dateTo) constraints.push(where(documentId(), "<=", dateTo));
+      if (cursor) constraints.push(startAfter(cursor));
+      const snap = await withFirestoreRetry(() =>
+        getDocsFromServer(query(daysCol(uid, roadId), ...constraints))
+      );
+      snap.docs.forEach((d) => days.push(dayFromDoc(d)));
+      if (days.length) onPartial?.(days.slice());
+      if (snap.docs.length < pageSize) break;
+      cursor = snap.docs[snap.docs.length - 1];
+    }
+    return days;
+  } catch (err) {
+    console.warn("Đọc sổ theo trang thất bại, đọc nguyên collection.", err);
+    const all = await fetchDayDocsFallback(uid, roadId, { dateFrom, dateTo });
+    if (all.length) onPartial?.(all);
+    return all;
   }
-  return all;
 }
 
 /** Đọc toàn bộ ngày của một sổ (roadId). Lỗi mạng/quyền → throw (không trả [] giả). */
-export async function fetchAllOfficeBookDays(uid, roadId) {
+export async function fetchAllOfficeBookDays(uid, roadId, opts = {}) {
   if (!uid || !roadId) return [];
-  return fetchDayDocsPaged(uid, roadId);
+  return fetchDayDocsPaged(uid, roadId, opts);
 }
 
 /**
@@ -399,38 +418,10 @@ export async function pushOfficeBookDays(uid, roadId, days, { baseDays = null } 
   return results;
 }
 
-/** Hydrate: meta + days → object storage local. */
-export async function fetchOfficeBookAsStorage(
-  uid,
-  roadId,
-  { sinceMs = 0, dateFrom = "", dateTo = "" } = {}
-) {
-  const wantIncremental = Number.isFinite(sinceMs) && sinceMs > 0;
-  const ranged = Boolean(dateFrom || dateTo);
-  const metaState = await fetchOfficeBookMetaState(uid, roadId);
-
-  let dayDocs;
-  let incremental = false;
-
-  if (ranged) {
-    dayDocs = await fetchOfficeBookDaysInRange(uid, roadId, dateFrom, dateTo);
-  } else if (wantIncremental) {
-    const sinceDocs = await fetchOfficeBookDaysSince(uid, roadId, sinceMs);
-    if (sinceDocs == null) {
-      // Query tăng dần lỗi (index / quyền) → tải đủ để không bỏ trống sổ.
-      dayDocs = await fetchAllOfficeBookDays(uid, roadId);
-      incremental = false;
-    } else {
-      dayDocs = sinceDocs;
-      incremental = true;
-    }
-  } else {
-    dayDocs = await fetchAllOfficeBookDays(uid, roadId);
-  }
-
+function storageFromDayDocs(dayDocs, metaState, flags = {}) {
   const entries = [];
   const dayMeta = {};
-  dayDocs.forEach((d) => {
+  (dayDocs || []).forEach((d) => {
     activeDiaryEntries(d.entries || []).forEach((e) => {
       entries.push(stampEntryDate(e, d.date));
     });
@@ -441,11 +432,54 @@ export async function fetchOfficeBookAsStorage(
   return {
     entries,
     dayMeta,
-    reportMeta: metaState.reportMeta || {},
-    metaRevision: metaState.revision,
-    remoteDayCount: dayDocs.length,
-    remoteDays: dayDocs,
-    incremental,
-    ranged
+    reportMeta: metaState?.reportMeta || {},
+    metaRevision: metaState?.revision || 0,
+    remoteDayCount: (dayDocs || []).length,
+    remoteDays: dayDocs || [],
+    incremental: !!flags.incremental,
+    ranged: !!flags.ranged
   };
+}
+
+/** Hydrate: meta + days → object storage local. */
+export async function fetchOfficeBookAsStorage(
+  uid,
+  roadId,
+  { sinceMs = 0, dateFrom = "", dateTo = "", onPartial } = {}
+) {
+  const wantIncremental = Number.isFinite(sinceMs) && sinceMs > 0;
+  const ranged = Boolean(dateFrom || dateTo);
+  let metaState = { reportMeta: {}, revision: 0 };
+  try {
+    metaState = await fetchOfficeBookMetaState(uid, roadId);
+  } catch (err) {
+    // Meta lỗi không được chặn phần nhật ký — trước đây cả sổ thành trang trống.
+    console.warn("Không đọc được meta sổ, vẫn tải các ngày.", err);
+  }
+
+  let dayDocs;
+  let incremental = false;
+
+  const reportPartial = (days) => {
+    if (typeof onPartial !== "function" || !days?.length) return;
+    onPartial(storageFromDayDocs(days, metaState, { incremental: false, ranged }));
+  };
+
+  if (ranged) {
+    dayDocs = await fetchDayDocsPaged(uid, roadId, { dateFrom, dateTo, onPartial: reportPartial });
+  } else if (wantIncremental) {
+    const sinceDocs = await fetchOfficeBookDaysSince(uid, roadId, sinceMs);
+    if (sinceDocs == null) {
+      // Query tăng dần lỗi (index / quyền) → tải đủ để không bỏ trống sổ.
+      dayDocs = await fetchAllOfficeBookDays(uid, roadId, { onPartial: reportPartial });
+      incremental = false;
+    } else {
+      dayDocs = sinceDocs;
+      incremental = true;
+    }
+  } else {
+    dayDocs = await fetchAllOfficeBookDays(uid, roadId, { onPartial: reportPartial });
+  }
+
+  return storageFromDayDocs(dayDocs, metaState, { incremental, ranged });
 }
