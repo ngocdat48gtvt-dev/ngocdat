@@ -91,10 +91,22 @@ export function RoadWorkspaceProvider({
       let cancelled = false;
       setReady(false);
       const watchdog = window.setTimeout(() => {
-        if (!cancelled) {
-          setCatalog({ activeRoadId: initialRoadId || "", roads: [] });
-          setReady(true);
-        }
+        void fetchOfficeRoadsCatalog(uid)
+          .then((remote) => {
+            if (cancelled) return;
+            const roads = remote?.roads || [];
+            setCatalog({
+              roads,
+              activeRoadId:
+                initialRoadId && roads.some((r) => r.id === initialRoadId)
+                  ? initialRoadId
+                  : ""
+            });
+            setReady(true);
+          })
+          .catch(() => {
+            if (!cancelled) setReady(true);
+          });
       }, 8000);
       const unsub = subscribeOfficeRoadsCatalog(
         uid,

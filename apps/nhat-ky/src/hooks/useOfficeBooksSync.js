@@ -109,6 +109,7 @@ export function useOfficeBooksSync({
   const catalogRoadRef = useRef(catalogRoad);
   const pendingWriteRef = useRef(Promise.resolve());
   const flushRunRef = useRef(null);
+  const hydrateGenRef = useRef(0);
   const [syncStatus, setSyncStatus] = useState("idle");
   const [syncError, setSyncError] = useState("");
 
@@ -259,6 +260,7 @@ export function useOfficeBooksSync({
     if (!enabled || !uid || !roadId || !storageKey) return undefined;
 
     let cancelled = false;
+    const gen = ++hydrateGenRef.current;
 
     async function hydrate() {
       hydratingRef.current = true;
@@ -493,6 +495,9 @@ export function useOfficeBooksSync({
           setSyncError(err?.message || "Không đối chiếu được dữ liệu cloud.");
         }
       } finally {
+        // Phiên hydrate cũ không được hạ cờ của phiên mới (nếu không, push chạy
+        // khi cloud chưa về và sổ trên màn hình thành lúc có lúc trống).
+        if (hydrateGenRef.current !== gen) return;
         hydratingRef.current = false;
         if (!cancelled && canPush && !browseMode && !skipPushAfterHydrate) {
           setSyncStatus("pending");
@@ -511,7 +516,6 @@ export function useOfficeBooksSync({
 
     return () => {
       cancelled = true;
-      hydratingRef.current = false;
     };
   }, [
     enabled,

@@ -65,7 +65,6 @@ export default function OfficeBrowseSelectPage() {
           ? "Không đọc được danh mục sổ của USER này (quyền Firestore)."
           : msg || "Không tải được danh sách tuần đường."
       );
-      setRoads([]);
     } finally {
       setLoadingRoads(false);
     }

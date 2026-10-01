@@ -1,4 +1,4 @@
-import { doc, getDoc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDocFromServer, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase/firebase";
 import { normalizeRoad } from "../utils/roadsCatalog";
 import { EMPTY_REPORT_META } from "../utils/nhatKyFormat";
@@ -39,7 +39,7 @@ async function syncRoadMetaToOfficeBook(ownerUid, road) {
 /** Danh sách hạt/sổ của USER — SSOT trên cloud, ADMIN quản lý. */
 export async function fetchOfficeRoadsCatalog(ownerUid) {
   if (!ownerUid) return { activeRoadId: "", roads: [] };
-  const snap = await getDoc(catalogRef(ownerUid));
+  const snap = await getDocFromServer(catalogRef(ownerUid));
   if (!snap.exists()) return { activeRoadId: "", roads: [] };
   return normalizeCatalog(snap.data());
 }
@@ -50,6 +50,8 @@ export function subscribeOfficeRoadsCatalog(ownerUid, onUpdate, onError) {
   return onSnapshot(
     catalogRef(ownerUid),
     (snap) => {
+      // Cache chưa có document không phải «user không có sổ» — chờ bản server.
+      if (!snap.exists() && snap.metadata.fromCache) return;
       onUpdate(
         snap.exists()
           ? normalizeCatalog(snap.data())

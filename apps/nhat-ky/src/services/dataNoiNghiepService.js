@@ -42,6 +42,8 @@ export function subscribeDataNoiNghiep(uid, onUpdate, onError) {
   return onSnapshot(
     dataRef(uid),
     (snap) => {
+      // Bản cache trống không được hiểu là cloud chưa có danh mục (rồi đẩy đè).
+      if (!snap.exists() && snap.metadata.fromCache) return;
       const data = snap.data();
       onUpdate({
         exists: snap.exists(),

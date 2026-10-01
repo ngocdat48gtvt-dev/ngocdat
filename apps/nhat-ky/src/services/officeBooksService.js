@@ -3,10 +3,15 @@ import {
   doc,
   documentId,
   getDoc,
+  getDocFromServer,
   getDocs,
+  getDocsFromServer,
+  limit,
+  orderBy,
   query,
   runTransaction,
   serverTimestamp,
+  startAfter,
   Timestamp,
   where
 } from "firebase/firestore";
@@ -130,19 +135,15 @@ export async function fetchOfficeBookMeta(uid, roadId) {
 
 export async function fetchOfficeBookMetaState(uid, roadId) {
   if (!uid || !roadId) return { reportMeta: {}, revision: 0 };
-  try {
-    const snap = await getDoc(bookRef(uid, roadId));
-    if (!snap.exists()) return { reportMeta: {}, revision: 0 };
-    const data = snap.data() || {};
-    return {
-      reportMeta:
-        data.reportMeta && typeof data.reportMeta === "object" ? data.reportMeta : {},
-      revision: Number(data.metaRevision) || 0
-    };
-  } catch (err) {
-    console.warn("Không đọc được office_books meta state.", err);
-    return { reportMeta: {}, revision: 0 };
-  }
+  // Lỗi mạng phải throw. Trả {} giả khiến lần hydrate sau ghi đè meta đang có.
+  const snap = await withFirestoreRetry(() => getDocFromServer(bookRef(uid, roadId)));
+  if (!snap.exists()) return { reportMeta: {}, revision: 0 };
+  const data = snap.data() || {};
+  return {
+    reportMeta:
+      data.reportMeta && typeof data.reportMeta === "object" ? data.reportMeta : {},
+    revision: Number(data.metaRevision) || 0
+  };
 }
 
 /** Merge ba chiều theo field; không còn ghi đè nguyên reportMeta từ snapshot cũ. */
@@ -211,20 +212,71 @@ export async function fetchOfficeBookDay(uid, roadId, date) {
   }
 }
 
+function isTransientFirestoreError(err) {
+  const code = String(err?.code || "").toLowerCase();
+  return (
+    code.includes("unavailable") ||
+    code.includes("deadline-exceeded") ||
+    code.includes("aborted") ||
+    code.includes("cancelled") ||
+    code.includes("resource-exhausted") ||
+    code.includes("internal")
+  );
+}
+
+async function withFirestoreRetry(run, tries = 3) {
+  let lastErr;
+  for (let i = 0; i < tries; i += 1) {
+    try {
+      return await run();
+    } catch (err) {
+      lastErr = err;
+      if (!isTransientFirestoreError(err) || i === tries - 1) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 400 * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
+
+function dayFromDoc(d) {
+  const data = d.data() || {};
+  return {
+    date: d.id,
+    entries: entriesFromDayData(data, d.id),
+    dayMeta: data.dayMeta && typeof data.dayMeta === "object" ? data.dayMeta : {},
+    updatedAtMs: data.updatedAt?.toMillis ? data.updatedAt.toMillis() : 0,
+    revision: Number(data.revision) || 0
+  };
+}
+
+/**
+ * Đọc ngày từ server, chia trang. Một lần getDocs cả sổ dễ timeout
+ * rồi trả như sổ trống — đọc lại từng trang, lỗi mạng thì thử lại.
+ */
+async function fetchDayDocsPaged(uid, roadId, { dateFrom = "", dateTo = "" } = {}) {
+  const pageSize = 40;
+  const all = [];
+  let cursor = null;
+  for (;;) {
+    const constraints = [orderBy(documentId())];
+    if (dateFrom) constraints.push(where(documentId(), ">=", dateFrom));
+    if (dateTo) constraints.push(where(documentId(), "<=", dateTo));
+    constraints.push(limit(pageSize));
+    if (cursor) constraints.push(startAfter(cursor));
+    const snap = await withFirestoreRetry(() =>
+      getDocsFromServer(query(daysCol(uid, roadId), ...constraints))
+    );
+    snap.docs.forEach((d) => all.push(dayFromDoc(d)));
+    if (snap.docs.length < pageSize) break;
+    cursor = snap.docs[snap.docs.length - 1];
+  }
+  return all;
+}
+
 /** Đọc toàn bộ ngày của một sổ (roadId). Lỗi mạng/quyền → throw (không trả [] giả). */
 export async function fetchAllOfficeBookDays(uid, roadId) {
   if (!uid || !roadId) return [];
-  const snap = await getDocs(daysCol(uid, roadId));
-  return snap.docs.map((d) => {
-    const data = d.data();
-    return {
-      date: d.id,
-      entries: entriesFromDayData(data, d.id),
-      dayMeta: data.dayMeta && typeof data.dayMeta === "object" ? data.dayMeta : {},
-      updatedAtMs: data.updatedAt?.toMillis ? data.updatedAt.toMillis() : 0,
-      revision: Number(data.revision) || 0
-    };
-  });
+  return fetchDayDocsPaged(uid, roadId);
 }
 
 /**
@@ -257,21 +309,8 @@ export async function fetchOfficeBookDaysSince(uid, roadId, sinceMs) {
 /** Đọc đúng khoảng ngày cho báo cáo, thay vì quét toàn bộ lịch sử của sổ. */
 export async function fetchOfficeBookDaysInRange(uid, roadId, dateFrom, dateTo) {
   if (!uid || !roadId) return [];
-  const constraints = [];
-  if (dateFrom) constraints.push(where(documentId(), ">=", dateFrom));
-  if (dateTo) constraints.push(where(documentId(), "<=", dateTo));
-  if (!constraints.length) return fetchAllOfficeBookDays(uid, roadId);
-  const snap = await getDocs(query(daysCol(uid, roadId), ...constraints));
-  return snap.docs.map((d) => {
-    const data = d.data();
-    return {
-      date: d.id,
-      entries: entriesFromDayData(data, d.id),
-      dayMeta: data.dayMeta && typeof data.dayMeta === "object" ? data.dayMeta : {},
-      updatedAtMs: data.updatedAt?.toMillis ? data.updatedAt.toMillis() : 0,
-      revision: Number(data.revision) || 0
-    };
-  });
+  if (!dateFrom && !dateTo) return fetchAllOfficeBookDays(uid, roadId);
+  return fetchDayDocsPaged(uid, roadId, { dateFrom, dateTo });
 }
 
 export async function pushOfficeBookDay(uid, roadId, date, payload) {
