@@ -1,46 +1,22 @@
-import { signOut } from 'firebase/auth'
-import { auth } from '@/firebase/firebase'
-
 export type PortalId = 'dieu-hanh' | 'web-user' | 'nhat-ky'
-export type PortalFamily = 'admin' | 'field'
-
-const PORTAL_FAMILY: Record<PortalId, PortalFamily> = {
-  'dieu-hanh': 'admin',
-  'web-user': 'field',
-  'nhat-ky': 'field',
-}
-
-const SESSION_FAMILY_KEY = 'qlsc_portal_family'
 const SESSION_PORTAL_KEY = 'qlsc_active_portal'
 const EMAIL_PREFIX = 'qlsc_portal_email_'
 
 export const DIEU_HANH_PORTAL: PortalId = 'dieu-hanh'
 
-function getPortalFamily(portalId: PortalId): PortalFamily {
-  return PORTAL_FAMILY[portalId]
-}
-
 let initPromise: Promise<void> | null = null
 
-/** Đăng xuất nếu cổng trước đó thuộc nhóm vai trò khác (admin vs field). */
+/** Ghi nhận cổng hiện tại; Firebase Auth được dùng chung trên toàn bộ website. */
 export function initPortalAuth(portalId: PortalId): Promise<void> {
   if (!initPromise) {
-    initPromise = (async () => {
-      const family = getPortalFamily(portalId)
-      const activeFamily = sessionStorage.getItem(SESSION_FAMILY_KEY)
-      if (activeFamily && activeFamily !== family && auth.currentUser) {
-        await signOut(auth)
-      }
-      sessionStorage.setItem(SESSION_FAMILY_KEY, family)
+    initPromise = Promise.resolve().then(() => {
       sessionStorage.setItem(SESSION_PORTAL_KEY, portalId)
-    })()
+    })
   }
   return initPromise
 }
 
 export function markPortalLogin(portalId: PortalId, email?: string): void {
-  const family = getPortalFamily(portalId)
-  sessionStorage.setItem(SESSION_FAMILY_KEY, family)
   sessionStorage.setItem(SESSION_PORTAL_KEY, portalId)
   if (email) {
     try {
@@ -52,9 +28,7 @@ export function markPortalLogin(portalId: PortalId, email?: string): void {
 }
 
 export function clearPortalSession(portalId: PortalId): void {
-  const family = getPortalFamily(portalId)
-  if (sessionStorage.getItem(SESSION_FAMILY_KEY) === family) {
-    sessionStorage.removeItem(SESSION_FAMILY_KEY)
+  if (sessionStorage.getItem(SESSION_PORTAL_KEY) === portalId) {
     sessionStorage.removeItem(SESSION_PORTAL_KEY)
   }
 }

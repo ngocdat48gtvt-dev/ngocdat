@@ -1,21 +1,24 @@
 import {
   formatDisplayDate,
   formatLyTrinh,
+  isCulvertDiaryEntry,
   migrateEntry,
   parseDayWeather
 } from "./nhatKyFormat";
-import {
-  MAT_DUONG_SECTION,
-  shouldExportMatDuong,
-  resolveEntryKmTo,
-  calcAreaM2
-} from "./matDuongFormat";
+import { calcAreaM2 } from "./matDuongFormat";
+import { formatBookDecimal, parseBookNumber } from "./bookNumberFormat";
 import {
   getQualityForType,
   getMaintenanceNameForType,
   getDeadlineDaysForType,
-  needMaintenanceForType
+  needMaintenanceForType,
+  normalizeUnitValue,
+  isCountUnit
 } from "./baoDuongQualityStore";
+import {
+  buildRouteDisplayBlocks
+} from "./roadsCatalog";
+import { expandEntriesForVolumeBooks } from "./mergeDiaryEntries";
 
 export const BAO_DUONG_MAX_DAYS = 3;
 
@@ -28,12 +31,14 @@ export const BAO_DUONG_SECTIONS = new Set([
   "Ngầm, tràn (lũ, ngập)",
   "Cột mốc GP mặt bằng, lộ giới",
   "Công trình an toàn giao thông",
-  "Công tác phát cây",
   "Công trình cầu"
 ]);
 
 export function isBaoDuongSection(section) {
-  return BAO_DUONG_SECTIONS.has(String(section || "").trim());
+  const s = String(section || "").trim();
+  if (BAO_DUONG_SECTIONS.has(s)) return true;
+  // Section cũ phát cây (trước khi migrateEntry) vẫn thuộc BDTX.
+  return s === "Công tác phát cây" || s === "Phát cây";
 }
 
 const WORK_NAMES = {
@@ -91,6 +96,7 @@ export function autoQualityForType(type) {
 const SIDE_LABELS = {
   T: "Làn trái",
   P: "Làn phải",
+  "T+P": "Làn trái + phải",
   G: "Giữa tuyến",
   M: "Cả mặt đường"
 };
@@ -98,6 +104,11 @@ const SIDE_LABELS = {
 export function formatSideLabel(side) {
   const key = String(side || "").trim().toUpperCase();
   return SIDE_LABELS[key] || "";
+}
+
+/** Chỉ cống (không phải rãnh): lý trình không ghi phía (Làn trái/phải). */
+export function shouldOmitBaoDuongSide(entry) {
+  return isCulvertDiaryEntry(entry);
 }
 
 export function addDays(isoDate, days) {
@@ -121,9 +132,12 @@ function deadlineDaysForType(type) {
   return days;
 }
 
-/** Ngày dự kiến sửa = ngày phát hiện + deadlineDays của loại công việc. */
-export function plannedRepairDateForType(incidentDate, type) {
-  return addDays(incidentDate, deadlineDaysForType(type));
+/**
+ * Ngày dự kiến sửa mặc định = ngày phát hiện + 1.
+ * Hạn theo loại công việc chỉ giới hạn max trên lịch (maxPlannedRepairDateForType).
+ */
+export function plannedRepairDateForType(incidentDate, _type) {
+  return defaultPlannedRepairDate(incidentDate);
 }
 
 /** Hạn cuối cho phép chọn ngày dự kiến sửa theo deadline của loại công việc. */
@@ -147,14 +161,12 @@ export function validatePlannedRepairDate(incidentDate, plannedDate) {
 }
 
 export function shouldExportBaoDuong(entry) {
-  if (!BAO_DUONG_SECTIONS.has(entry.section)) return false;
+  if (!isBaoDuongSection(entry.section)) return false;
   if (!entry.plannedRepairDate) return false;
   // Loại công việc khai báo "không sinh BDTX" thì không đưa sang sổ.
   if (!needMaintenanceForType(entry.type)) return false;
-  // Riêng mặt đường: tôn trọng cờ xuất sổ và loại trừ loại không sửa chữa.
-  if (entry.section === MAT_DUONG_SECTION && !shouldExportMatDuong(entry)) {
-    return false;
-  }
+  // Sổ mặt đường (exportMatDuong) và sổ BDTX độc lập:
+  // bỏ tick xuất sổ mặt đường vẫn hiện BDTX nếu đã chọn ngày xuất.
   return true;
 }
 
@@ -162,7 +174,7 @@ export function shouldExportBaoDuong(entry) {
 export function collectBaoDuongWorkTypes(entries) {
   const seen = new Set();
   const out = [];
-  (entries || [])
+  expandEntriesForVolumeBooks(entries || [])
     .map(migrateEntry)
     .filter((e) => shouldExportBaoDuong(e))
     .forEach((e) => {
@@ -176,7 +188,7 @@ export function collectBaoDuongWorkTypes(entries) {
 }
 
 export function filterBaoDuongEntries(entries, execDate) {
-  return entries
+  return expandEntriesForVolumeBooks(entries || [])
     .map(migrateEntry)
     .filter((e) => shouldExportBaoDuong(e) && e.plannedRepairDate === execDate)
     .sort((a, b) => {
@@ -190,7 +202,7 @@ export function filterBaoDuongEntriesInRange(entries, fromIso, toIso) {
   const from = String(fromIso || "").trim();
   const to = String(toIso || "").trim();
   if (!from || !to || from > to) return [];
-  return entries
+  return expandEntriesForVolumeBooks(entries || [])
     .map(migrateEntry)
     .filter(
       (e) =>
@@ -208,17 +220,34 @@ export function filterBaoDuongEntriesInRange(entries, fromIso, toIso) {
 }
 
 /**
- * Gom BDTX theo từng ngày thực hiện (plannedRepairDate) để in khoảng A→B
- * thành nhiều tờ (mỗi ngày ít nhất 1 tờ), không gộp hết một đống một tờ.
+ * Gom BDTX theo từng ngày thực hiện (plannedRepairDate).
+ * Nếu có periodFrom/periodTo: đủ mọi ngày trong khoảng (kể cả ngày không có việc).
  */
-export function groupBaoDuongEntriesByExecDay(entries) {
+export function groupBaoDuongEntriesByExecDay(entries, periodFrom, periodTo) {
   const map = new Map();
-  (entries || []).forEach((e) => {
+  expandEntriesForVolumeBooks(entries || []).forEach((e) => {
     const d = String(e?.plannedRepairDate || "").trim();
     if (!d) return;
     if (!map.has(d)) map.set(d, []);
     map.get(d).push(e);
   });
+
+  const from = String(periodFrom || "").trim();
+  const to = String(periodTo || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(from) && /^\d{4}-\d{2}-\d{2}$/.test(to) && from <= to) {
+    const dates = [];
+    const start = new Date(`${from}T12:00:00`);
+    const end = new Date(`${to}T12:00:00`);
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      dates.push(d.toISOString().split("T")[0]);
+    }
+    return dates.map((date) => ({
+      periodFrom: date,
+      periodTo: date,
+      entries: map.get(date) || []
+    }));
+  }
+
   return [...map.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, list]) => ({
@@ -232,28 +261,72 @@ export function groupBaoDuongEntriesByExecDay(entries) {
 export const BAO_DUONG_SHEET_LAYOUT = {
   sheetWidthMm: 210,
   sheetHeightMm: 297,
+  /** Tiêu đề + thời gian + intro (trang đầu ngày). */
   topBlockMm: 42,
-  theadMm: 18,
-  signBlockMm: 36,
-  dataRowMinMm: 14,
+  /** Trang tiếp (không tiêu đề): chỉ chừa sát bảng. */
+  contTopBlockMm: 2,
+  theadMm: 20,
+  /**
+   * Khối ký (trong vùng nội dung, dưới bảng) — CSS flow:
+   * «Hạt trưởng» + cách 24,5mm (0,7 × 35) + tên 13pt + đệm nhỏ ≈ 40mm.
+   */
+  signNameGapMm: 24.5,
+  /** Khi co hàng: khoảng «Hạt trưởng» → tên (0,7 × 25mm). */
+  signNameGapCompressedMm: 17.5,
+  signRoleMm: 6,
+  signNameLineMm: 7,
+  signPadAfterNameMm: 2,
+  /** @deprecated dùng baoDuongSignBlockMm() */
+  signBlockMm: 40,
+  /** «Hạt trưởng» → mép dưới giấy (lề + khối ký). */
+  signFromBottomMm: 55,
+  /** Một dòng 12pt + padding ô — không ép hàng thấp hơn chữ. */
+  dataRowMinMm: 8,
+  /** Hàng tiêu đề nhánh khi gộp đường. */
+  routeHeaderMm: 8,
   emptyRowMm: 11,
-  minEmptyRows: 6,
-  safetyMm: 8
+  /** Không co ước lượng — chữ 12pt wrap cao hơn ASCII. */
+  rowHeightScale: 1,
+  minEmptyRows: 3,
+  safetyMm: 8,
+  /** Dự phòng ước lượng thấp — tờ có ký bớt ~1 hàng trống. */
+  signSlackMm: 12,
+  /** Không co hàng để nhét thêm dòng (tràn lề dưới). */
+  rowCompressMin: 1,
+  /** Không kéo cao hàng cho kín tờ — hàng vừa chữ trong ô. */
+  rowStretchMax: 1
 };
 
-export function baoDuongBodyBudgetMm(margins, { withSign = false } = {}) {
+/** Chiều cao khối ký (mm) trong vùng nội dung. */
+export function baoDuongSignBlockMm() {
   const L = BAO_DUONG_SHEET_LAYOUT;
-  const padV =
-    (Number(margins?.top) || 0) + (Number(margins?.bottom) || 0);
-  const sign = withSign ? L.signBlockMm : 0;
+  return (
+    L.signRoleMm + L.signNameGapMm + L.signNameLineMm + L.signPadAfterNameMm
+  );
+}
+
+export function baoDuongBodyBudgetMm(
+  margins,
+  { withSign = false, withTitle = true } = {}
+) {
+  const L = BAO_DUONG_SHEET_LAYOUT;
+  const padTop = Number(margins?.top) || 0;
+  const padBottom = Number(margins?.bottom) || 0;
+  const top = withTitle ? L.topBlockMm : L.contTopBlockMm;
+  // Tờ có ký: trừ lề dưới + cả khối ký (flow) — tránh trừ trùng / thiếu chỗ tên.
+  const bottomReserve = withSign
+    ? padBottom + baoDuongSignBlockMm()
+    : padBottom;
+  const safety = withSign ? L.safetyMm + L.signSlackMm : L.safetyMm;
   return Math.max(
-    50,
-    L.sheetHeightMm - padV - L.topBlockMm - L.theadMm - sign - L.safetyMm
+    40,
+    L.sheetHeightMm - padTop - bottomReserve - top - L.theadMm - safety
   );
 }
 
 export function estimateBaoDuongDataRowMm(entry, index = 0) {
   const L = BAO_DUONG_SHEET_LAYOUT;
+  const scale = Number(L.rowHeightScale) > 0 ? Number(L.rowHeightScale) : 1;
   const r = entryToBaoDuongRow(entry, index);
 
   function countLines(text, charsPerLine) {
@@ -268,87 +341,216 @@ export function estimateBaoDuongDataRowMm(entry, index = 0) {
   }
 
   const lines = Math.max(
-    countLines(r.work, 18),
-    countLines(r.viTri, 22),
-    countLines(r.measureSummary, 22),
-    countLines(r.mainResult, 36)
+    countLines(r.work, 13),
+    countLines(r.viTri, 17),
+    countLines(r.measureSummary, 15),
+    countLines(r.mainResult, 26)
   );
-  return Math.max(L.dataRowMinMm, 10 + (lines - 1) * 4.2) + 0.4;
+  // 12pt × line-height ~1,05 ≈ 4,6mm/dòng + padding dọc. Không cộng sẵn 12mm.
+  const rawMm = Math.max(L.dataRowMinMm, 2.2 + lines * 4.65);
+  return rawMm * scale;
 }
 
-export function computeBaoDuongPadRows(entries, margins, opts = {}) {
+export function estimateBaoDuongBlockMm(block) {
+  if (!block) return 0;
   const L = BAO_DUONG_SHEET_LAYOUT;
-  const budgetMm = baoDuongBodyBudgetMm(margins, opts);
-  const dataMm = (entries || []).reduce(
-    (sum, e, i) => sum + estimateBaoDuongDataRowMm(e, i),
-    0
-  );
-  const remainMm = Math.max(0, budgetMm - dataMm);
-  if (remainMm < 3) {
-    return { count: 0, rowHeightMm: L.emptyRowMm };
+  const scale = Number(L.rowHeightScale) > 0 ? Number(L.rowHeightScale) : 1;
+  if (block.kind === "routeHeader") {
+    return (L.routeHeaderMm || 8) * scale;
   }
-  // Luôn kẻ đủ ô trống lấp phần còn lại tờ (tối thiểu minEmptyRows khi còn chỗ).
-  let count = Math.floor(remainMm / L.emptyRowMm);
-  if (count < L.minEmptyRows && remainMm >= L.minEmptyRows * 6) {
-    count = L.minEmptyRows;
-  }
-  count = Math.max(count, entries?.length ? 2 : L.minEmptyRows);
-  count = Math.max(1, count);
-  return { count, rowHeightMm: Math.max(6, remainMm / count) };
+  return estimateBaoDuongDataRowMm(block.entry, Math.max(0, (block.stt || 1) - 1));
 }
 
 /**
- * Chia entries thành các tờ A4 dọc.
- * Tờ cuối dành chỗ khối chữ ký.
+ * Khi gộp ≥2 nhánh: nhóm theo tên đường (cùng tên gộp km) + tiêu đề đoạn.
+ * Tách 1 nhánh: vẫn hiện tiêu đề đoạn đang xem.
  */
-export function packBaoDuongPages(entries, margins) {
-  const list = entries || [];
-  if (!list.length) return [[]];
+const BAO_DUONG_ROUTE_OPTS = { forceRouteHeadings: true };
 
-  const budgetNoSign = baoDuongBodyBudgetMm(margins, { withSign: false });
-  const budgetWithSign = baoDuongBodyBudgetMm(margins, { withSign: true });
+export function groupBaoDuongEntriesByRouteSections(entries, road, viewOpts = {}) {
+  return buildRouteDisplayBlocks(entries, road, viewOpts, BAO_DUONG_ROUTE_OPTS)
+    .reduce((sections, block) => {
+      if (block.kind === "routeHeader") {
+        sections.push({ heading: block.heading, routeId: block.routeId, entries: [] });
+        return sections;
+      }
+      if (!sections.length) {
+        sections.push({ heading: null, routeId: block.routeId || "", entries: [] });
+      }
+      sections[sections.length - 1].entries.push(block.entry);
+      return sections;
+    }, []);
+}
 
-  // Đóng gói tạm với budget không chữ ký
-  const rough = [];
-  let bucket = [];
-  let used = 0;
-  list.forEach((entry, index) => {
-    const h = estimateBaoDuongDataRowMm(entry, index);
-    if (bucket.length > 0 && used + h > budgetNoSign) {
-      rough.push(bucket);
-      bucket = [];
-      used = 0;
-    }
-    if (bucket.length === 0 && h > budgetNoSign) {
-      rough.push([entry]);
-      return;
-    }
-    bucket.push(entry);
-    used += h;
-  });
-  if (bucket.length) rough.push(bucket);
+/** Hàng render: tiêu đề nhánh + dòng công việc (STT liên tục cả sổ). */
+export function buildBaoDuongDisplayBlocks(entries, road, viewOpts = {}) {
+  return buildRouteDisplayBlocks(entries, road, viewOpts, BAO_DUONG_ROUTE_OPTS);
+}
 
-  // Tờ cuối: nếu vượt budget có chữ ký → tách hàng dư sang tờ mới
-  const pages = rough.map((p) => [...p]);
-  if (!pages.length) return [[]];
+/**
+ * Bố cục hàng trên 1 tờ:
+ * - Không co và không kéo cao hàng (hàng vừa chữ trong ô).
+ * - Tờ giữa: không chèn hàng trống.
+ * - Tờ cuối có ký / tờ trống: mới dùng hàng trống pad.
+ * @param {array} entriesOrBlocks — entries thuần hoặc blocks (routeHeader + entry)
+ */
+export function computeBaoDuongRowLayout(entriesOrBlocks, margins, opts = {}) {
+  const L = BAO_DUONG_SHEET_LAYOUT;
+  const withSign = opts.withSign !== false;
+  const withTitle = opts.withTitle !== false;
+  /** Tờ còn trang sau (không phải tờ cuối của ngày) — không chèn hàng trống. */
+  const hasMorePages = opts.hasMorePages === true;
+  const budgetMm = baoDuongBodyBudgetMm(margins, { withSign, withTitle });
+  const list = entriesOrBlocks || [];
+  const isBlock = list.some((x) => x && (x.kind === "entry" || x.kind === "routeHeader"));
+  const naturalMm = list.reduce((sum, item, i) => {
+    if (isBlock) return sum + estimateBaoDuongBlockMm(item);
+    return sum + estimateBaoDuongDataRowMm(item, i);
+  }, 0);
 
-  let last = pages[pages.length - 1];
-  let lastUsed = last.reduce(
-    (s, e, i) => s + estimateBaoDuongDataRowMm(e, i),
-    0
-  );
-  const overflow = [];
-  while (last.length > 1 && lastUsed > budgetWithSign) {
-    const moved = last.pop();
-    overflow.unshift(moved);
-    lastUsed = last.reduce(
-      (s, e, i) => s + estimateBaoDuongDataRowMm(e, i),
-      0
-    );
+  const rowScale = 1;
+  const usedMm = naturalMm * rowScale;
+  const remainMm = Math.max(0, budgetMm - usedMm);
+  const signNameGapMm =
+    rowScale < 1 ? L.signNameGapCompressedMm || 17.5 : L.signNameGapMm || 24.5;
+  const heightScale = Number(L.rowHeightScale) > 0 ? Number(L.rowHeightScale) : 1;
+  const emptyRowMm = L.emptyRowMm * heightScale;
+
+  // Tờ giữa có dữ liệu: không hàng trống.
+  if (hasMorePages && list.length > 0) {
+    return { count: 0, rowHeightMm: emptyRowMm, rowScale, signNameGapMm };
   }
-  if (overflow.length) pages.push(overflow);
 
-  return pages.length ? pages : [[]];
+  if (remainMm < 3 || rowScale < 1) {
+    return { count: 0, rowHeightMm: emptyRowMm, rowScale, signNameGapMm };
+  }
+
+  let count = Math.floor(remainMm / emptyRowMm);
+  if (withSign && count > 0) count -= 1;
+  while (
+    withSign &&
+    count > 0 &&
+    usedMm + count * emptyRowMm + L.signSlackMm > budgetMm
+  ) {
+    count -= 1;
+  }
+
+  if (!list.length) {
+    count = Math.max(count, withSign ? Math.min(L.minEmptyRows, 2) : L.minEmptyRows);
+  } else {
+    count = Math.max(0, count);
+  }
+  return { count, rowHeightMm: emptyRowMm, rowScale, signNameGapMm };
+}
+
+/** Tương thích cũ — trả về count / rowHeightMm / rowScale. */
+export function computeBaoDuongPadRows(entries, margins, opts = {}) {
+  return computeBaoDuongRowLayout(entries, margins, opts);
+}
+
+/**
+ * Chia sổ BDTX thành các tờ A4 dọc trong 1 ngày.
+ * @param entries — danh sách công việc
+ * @param margins
+ * @param viewCtx — { road, routesViewMode, activeRouteId, titleRouteIds } để tách tiêu đề nhánh khi gộp
+ * @returns {Array<Array<block>>} mỗi tờ = mảng block (routeHeader | entry)
+ */
+export function packBaoDuongPages(entries, margins, viewCtx = null) {
+  const blocks =
+    viewCtx?.road
+      ? buildBaoDuongDisplayBlocks(entries, viewCtx.road, viewCtx)
+      : (entries || []).map((entry, i) => ({
+          kind: "entry",
+          entry,
+          stt: i + 1,
+          key: `e-${i}`
+        }));
+
+  if (!blocks.length) return [[]];
+
+  const heightOf = (b) => estimateBaoDuongBlockMm(b);
+
+  // Đủ 1 tờ kể cả khối ký thì không tách.
+  const singleBudget = baoDuongBodyBudgetMm(margins, {
+    withSign: true,
+    withTitle: true
+  });
+  const totalMm = blocks.reduce((s, b) => s + heightOf(b), 0);
+  if (totalMm <= singleBudget) return [blocks];
+
+  const pages = [];
+  let idx = 0;
+  let pageIndex = 0;
+
+  while (idx < blocks.length) {
+    const isFirst = pageIndex === 0;
+    const budget = baoDuongBodyBudgetMm(margins, {
+      withSign: false,
+      withTitle: isFirst
+    });
+    const bucket = [];
+    let used = 0;
+    while (idx < blocks.length) {
+      const item = blocks[idx];
+      const h = heightOf(item);
+      // Không để tiêu đề nhánh đứng một mình cuối tờ nếu còn công việc sau.
+      if (
+        bucket.length > 0 &&
+        item.kind === "routeHeader" &&
+        used + h > budget * 0.85
+      ) {
+        break;
+      }
+      if (bucket.length > 0 && used + h > budget) {
+        break;
+      }
+      if (bucket.length === 0 && h > budget) {
+        bucket.push(item);
+        idx += 1;
+        break;
+      }
+      bucket.push(item);
+      used += h;
+      idx += 1;
+    }
+    pages.push(bucket);
+    pageIndex += 1;
+  }
+
+  // Tờ cuối phải vừa budget có chữ ký — chuyển hàng thừa sang tờ mới.
+  let guard = 0;
+  while (guard < 80) {
+    guard += 1;
+    const lastIdx = pages.length - 1;
+    const last = pages[lastIdx];
+    if (!last.length) break;
+    const isFirst = lastIdx === 0;
+    const budget = baoDuongBodyBudgetMm(margins, {
+      withSign: true,
+      withTitle: isFirst
+    });
+    const lastUsed = last.reduce((s, b) => s + heightOf(b), 0);
+    if (lastUsed <= budget) break;
+    if (last.length === 1) break;
+    const moved = last.pop();
+    if (!pages[lastIdx + 1]) pages.push([]);
+    pages[lastIdx + 1].unshift(moved);
+  }
+
+  let cleaned = pages.filter((p) => p.length > 0);
+  while (
+    cleaned.length >= 2 &&
+    cleaned[cleaned.length - 1].length === 0 &&
+    cleaned[cleaned.length - 2].length > 0
+  ) {
+    cleaned[cleaned.length - 1].push(cleaned[cleaned.length - 2].pop());
+    cleaned = cleaned.filter((p) => p.length > 0);
+  }
+  return cleaned.length ? cleaned : [[]];
+}
+
+export function countBaoDuongEntryBlocks(blocks) {
+  return (blocks || []).filter((b) => b?.kind === "entry").length;
 }
 
 export function formatKmCell(value) {
@@ -360,7 +562,34 @@ export function formatWorkName(type) {
   if (!type) return "";
   const maintenance = getMaintenanceNameForType(type);
   if (maintenance) return maintenance;
-  return WORK_NAMES[type] || `Xử lý ${type}`;
+  return WORK_NAMES[type] || String(type).replace(/^xử\s*lý\s+/i, "").trim() || type;
+}
+
+/**
+ * Tên cột 2 sổ BDTX — cùng nguồn với thống kê KL.
+ * Thử type rồi sourceIncidentType trên danh mục (cột Công việc BDTX).
+ */
+export function formatWorkNameFromEntry(entry) {
+  const e = migrateEntry(entry || {});
+  const type = String(e.type || "").trim();
+  const source = String(e.sourceIncidentType || "").trim();
+  // Nền đường: khôi phục đúng loại từ source khi type bị gộp «Sụt lún».
+  const candidates = [];
+  if (e.section === "Nền đường" && type === "Sụt lún" && /^sa\s*bồi/i.test(source)) {
+    candidates.push(source, type);
+  } else {
+    if (type) candidates.push(type);
+    if (source && source !== type) candidates.push(source);
+  }
+  for (const candidate of candidates) {
+    const maintenance = getMaintenanceNameForType(candidate);
+    if (maintenance) return maintenance;
+  }
+  const primary = candidates[0] || "";
+  if (!primary) return "";
+  if (WORK_NAMES[primary]) return WORK_NAMES[primary];
+  // Không ghép «Xử lý + loại tuần đường» — cột Đầu việc = Công việc BDTX.
+  return primary.replace(/^xử\s*lý\s+/i, "").trim() || primary;
 }
 
 export function formatUnitLabel(unit) {
@@ -371,17 +600,42 @@ export function formatUnitLabel(unit) {
 
 /** Dòng "Khối lượng thực hiện" theo mẫu sổ BDTX. */
 export function formatQuantityLine(entry) {
-  const q = entry.quantity;
-  if (q) {
-    return `- Khối lượng thực hiện: ${q} ${formatUnitLabel(entry.unit)}`;
+  const unit = normalizeUnitValue(entry?.unit);
+  const label = formatUnitLabel(unit || entry?.unit);
+  const l = formatBookDecimal(entry?.length);
+  const w = formatBookDecimal(entry?.width);
+  const h = formatBookDecimal(entry?.height);
+  const qFmt = formatBookDecimal(entry?.quantity);
+
+  if (unit === "m2") {
+    const area = qFmt || formatBookDecimal(calcAreaM2(entry)) || "…";
+    if (l && w) {
+      return `- Khối lượng thực hiện: ${l} x ${w} = ${area} ${label}`;
+    }
+    return `- Khối lượng thực hiện: ${area} ${label}`.trim();
   }
-  const area = calcAreaM2(entry);
-  const l = entry.length;
-  const w = entry.width;
-  if (area && l && w) {
-    return `- Khối lượng thực hiện: dài ${l} × rộng ${w} = ${area} m²`;
+
+  if (unit === "m3") {
+    let vol = qFmt;
+    if (!vol) {
+      const ln = parseBookNumber(entry?.length);
+      const wn = parseBookNumber(entry?.width);
+      const hn = parseBookNumber(entry?.height);
+      if (ln > 0 && wn > 0 && hn > 0) {
+        vol = formatBookDecimal(ln * wn * hn);
+      }
+    }
+    vol = vol || "…";
+    if (l && w && h) {
+      return `- Khối lượng thực hiện: ${l} x ${w} x ${h} = ${vol} ${label}`;
+    }
+    return `- Khối lượng thực hiện: ${vol} ${label}`.trim();
   }
-  return "- Khối lượng thực hiện: dài × rộng = … m²";
+
+  if (qFmt) {
+    return `- Khối lượng thực hiện: ${qFmt} ${label}`.trim();
+  }
+  return `- Khối lượng thực hiện: … ${label}`.trim();
 }
 
 export function formatMainResult(entry) {
@@ -395,33 +649,42 @@ export function formatMainResult(entry) {
   return parts.join("\n");
 }
 
-/** Cột (3) mẫu sổ: "Ghi lý trình, vị trí công việc được thực hiện". */
-export function formatViTri(entry) {
-  const kmFrom = formatKmCell(entry.kmFrom);
-  const explicitTo = String(entry.kmTo || "").trim();
-  let kmTo = "";
-  if (explicitTo) {
-    const formatted = formatKmCell(entry.kmTo);
-    if (formatted && formatted !== kmFrom) kmTo = formatted;
-  } else {
-    // Không có lý trình cuối nhập tay → suy từ chiều dài (nếu có).
-    const resolved = formatKmCell(resolveEntryKmTo(entry));
-    if (resolved && resolved !== kmFrom) kmTo = resolved;
+function baoDuongSideCode(side) {
+  const key = String(side || "").trim().toUpperCase();
+  if (!key) return "";
+  if (key === "P" || key === "T" || key === "G" || key === "M") return key;
+  if (key === "T+P" || key === "P+T" || key === "TP" || key === "PT") return "T+P";
+  return "";
+}
+
+/** Cầu, cống, biển, cột, đơn vị đếm: một lý trình. Không suy km cuối từ chiều dài. */
+function isPointBaoDuongEntry(entry) {
+  const e = migrateEntry(entry);
+  if (isCulvertDiaryEntry(e)) return true;
+  const section = String(e.section || "").trim();
+  if (
+    section === "Công trình cầu" ||
+    section === "Công trình an toàn giao thông" ||
+    section === "Cột mốc GP mặt bằng, lộ giới"
+  ) {
+    return true;
   }
-  let range = "";
-  if (kmFrom && kmTo) range = `${kmFrom} – ${kmTo}`;
-  else range = kmFrom || kmTo;
+  const type = `${e.type || ""} ${e.sourceIncidentType || ""}`;
+  if (/biển|cột|cọc|hộ lan|lan can/i.test(type) && !/rãnh/i.test(type)) return true;
+  return isCountUnit(formatUnitLabel(e.unit));
+}
 
-  const sideLabel = formatSideLabel(entry.side);
-  const parts = [];
-  if (sideLabel) parts.push(sideLabel);
-  if (range) parts.push(range);
-  const base = parts.join(", ");
-
-  const extra = entry.viTriNote?.trim() || entry.location?.trim() || "";
-  if (extra && !base) return extra;
-  if (extra) return `${base} (${extra})`;
-  return base;
+/** Cột (3): giống biên bản nghiệm thu — «Km0+570 (P)», không ghi làn trái/phải. */
+export function formatViTri(entry) {
+  const e = migrateEntry(entry);
+  const from = String(formatKmCell(e.kmFrom) || "").trim();
+  const to = isPointBaoDuongEntry(e)
+    ? ""
+    : String(formatKmCell(e.kmTo) || "").trim();
+  let km = from && to && from !== to ? `${from} - ${to}` : from || to || "";
+  const side = baoDuongSideCode(e.side);
+  if (km && side) km += ` (${side})`;
+  return km;
 }
 
 export function formatMethodSummary(entry) {
@@ -429,10 +692,157 @@ export function formatMethodSummary(entry) {
   return autoQualityForType(entry.type).method;
 }
 
+/**
+ * Cùng ngày sổ tuần đường = ngày BDTX → cột 4 dòng chi tiết: Đã xử lý: tên BD, KL.
+ * Khác ngày → 1 dòng nhận xét Hạt trưởng ở hàng BDTX khác ngày đầu tiên trong ngày.
+ */
+export function isBaoDuongSameDiaryDay(entry) {
+  if (!shouldExportBaoDuong(entry)) return false;
+  const diary = String(entry?.date || "").trim();
+  const bdtx = String(entry?.plannedRepairDate || "").trim();
+  return Boolean(diary && bdtx && diary === bdtx);
+}
+
+export function isBaoDuongDeferredDiaryDay(entry) {
+  if (!shouldExportBaoDuong(entry)) return false;
+  const diary = String(entry?.date || "").trim();
+  const bdtx = String(entry?.plannedRepairDate || "").trim();
+  return Boolean(diary && bdtx && diary !== bdtx);
+}
+
+function formatDiaryQuantityShort(entry) {
+  const e = migrateEntry(entry);
+  const q = formatBookDecimal(e.quantity);
+  if (q) {
+    return `${q} ${formatUnitLabel(e.unit)}`.trim();
+  }
+  const area = formatBookDecimal(calcAreaM2(e));
+  if (area) return `${area} m²`;
+  return "";
+}
+
+/** Cột 4 nhật ký khi xử lý trong ngày (cùng ngày BDTX). */
+export function buildBaoDuongSameDayResolved(entry) {
+  const e = migrateEntry(entry);
+  const work = formatWorkNameFromEntry(e);
+  const qty = formatDiaryQuantityShort(e);
+  if (work && qty) return `Đã xử lý: ${work}, ${qty}`;
+  if (work) return `Đã xử lý: ${work}`;
+  if (qty) return `Đã xử lý: ${qty}`;
+  return "Đã xử lý";
+}
+
+/** Nhận xét hoãn BDTX (khác ngày sổ tuần đường). Hạn = ngày sổ + 3 ngày. */
+export function buildBaoDuongDeferredNote(entry) {
+  const e = migrateEntry(entry);
+  if (!isBaoDuongDeferredDiaryDay(e)) return "";
+  const diary = String(e.date || "").trim();
+  if (!diary) return "";
+  const deadline = addDays(diary, 3);
+  return `Yêu cầu đội thực hiện các tồn tại trong thời gian quy định và xong trước ngày ${formatDisplayDate(deadline)}`;
+}
+
+/** @deprecated */
+export function buildBaoDuongDeferredNoteForGroup(groupEntries) {
+  const deferred = (groupEntries || [])
+    .map(migrateEntry)
+    .filter((e) => isBaoDuongDeferredDiaryDay(e));
+  if (!deferred.length) return "";
+  return buildBaoDuongDeferredNote(deferred[0]);
+}
+
+/**
+ * Cột 5: chỉ 1 dòng nhận xét ở hàng BDTX khác ngày đầu tiên (theo thứ tự duyệt).
+ * `alreadyPlaced` — đã ghi nhận xét ở hạng mục trước trong cùng ngày.
+ * Trả về { anns, placed }.
+ */
+export function annotateDeferredLeaderNotes(sectionItems, { alreadyPlaced = false } = {}) {
+  const items = (sectionItems || []).map(migrateEntry);
+  let placed = Boolean(alreadyPlaced);
+  const anns = items.map((e) => {
+    if (!isBaoDuongDeferredDiaryDay(e)) {
+      return {
+        note: String(e.leaderNote || "").trim(),
+        rowspan: 1,
+        skipLeader: false,
+        deferredLocked: false,
+        hatSignAnchor: false
+      };
+    }
+    const custom = String(e.leaderNote || "").trim();
+    if (custom) {
+      return {
+        note: custom,
+        rowspan: 1,
+        skipLeader: false,
+        deferredLocked: false,
+        hatSignAnchor: false
+      };
+    }
+    if (placed) {
+      return {
+        note: "",
+        rowspan: 1,
+        skipLeader: false,
+        deferredLocked: true,
+        hatSignAnchor: false
+      };
+    }
+    placed = true;
+    return {
+      note: buildBaoDuongDeferredNote(e),
+      rowspan: 1,
+      skipLeader: false,
+      deferredLocked: true,
+      hatSignAnchor: true
+    };
+  });
+  return { anns, placed };
+}
+
+/** @deprecated dùng annotateDeferredLeaderNotes */
+export function annotateDeferredTypeGroups(sectionItems, opts) {
+  return annotateDeferredLeaderNotes(sectionItems, opts).anns;
+}
+
+/** @deprecated */
+export function buildBaoDuongSectionDeferredNote(sectionEntries) {
+  return buildBaoDuongDeferredNoteForGroup(sectionEntries);
+}
+
+/** Cột 4 sổ tuần đường (ưu tiên quy tắc BDTX cùng ngày). */
+export function formatNhatKyResolvedCol(entry) {
+  const e = migrateEntry(entry);
+  if (isBaoDuongSameDiaryDay(e)) return buildBaoDuongSameDayResolved(e);
+  return String(e.resolved || e.solution || "").trim();
+}
+
+/** Cột 5 — nhận xét hoãn BDTX do annotate gắn ở hàng đầu; không tự gắn từng dòng. */
+export function formatNhatKyLeaderNoteCol(entry) {
+  const e = migrateEntry(entry);
+  const note = String(e.leaderNote || "").trim();
+  if (note) return note;
+  if (isBaoDuongDeferredDiaryDay(e)) return buildBaoDuongDeferredNote(e);
+  return "";
+}
+
+/** Gắn sẵn cột 4 khi BDTX cùng ngày. Nhận xét Hạt trưởng (cột 5) giữ nguyên. */
+export function applyBaoDuongDiaryNotes(entry) {
+  const e = migrateEntry(entry);
+  if (!shouldExportBaoDuong(e)) return e;
+  if (isBaoDuongSameDiaryDay(e)) {
+    return {
+      ...e,
+      resolved: buildBaoDuongSameDayResolved(e)
+    };
+  }
+  return e;
+}
+
 export function entryToBaoDuongRow(entry, index) {
   return {
     stt: index + 1,
-    work: formatWorkName(entry.type),
+    work: formatWorkNameFromEntry(entry),
     viTri: formatViTri(entry),
     measureSummary: formatMethodSummary(entry),
     mainResult: formatMainResult(entry),

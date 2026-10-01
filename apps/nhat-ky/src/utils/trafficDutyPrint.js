@@ -37,7 +37,7 @@ ${landscapePageShellCss(margins)}
   width: 100%;
   table-layout: fixed;
   font-family: "Times New Roman", Times, serif;
-  font-size: 11pt;
+  font-size: 9.9pt;
   line-height: 1.25;
 }
 ${colRules}
@@ -49,9 +49,9 @@ ${excelThinTableCss(".traffic-duty-table")}
   text-align: center;
   word-wrap: break-word;
   overflow-wrap: anywhere;
-  font-size: 11pt;
+  font-size: 9.9pt;
 }
-.traffic-duty-table th { font-weight: 700; font-size: 11pt; }
+.traffic-duty-table th { font-weight: 700; font-size: 9.9pt; }
 .traffic-duty-col-damage,
 .traffic-duty-col-editable { text-align: left; }
 .traffic-duty-pre {

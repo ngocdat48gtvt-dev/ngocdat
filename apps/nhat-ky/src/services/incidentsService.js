@@ -38,6 +38,13 @@ function mapCore(id, data) {
     selectedBefore: data.selectedBefore ?? "",
     selectedAfter: data.selectedAfter ?? "",
     reportImageOrder: data.reportImageOrder ?? "",
+    /** Tick cột «Ghép ảnh Word» — nhớ trên cloud để máy khác thấy. */
+    wordMergeChecked: Boolean(data.wordMergeChecked),
+    /** 0 = chưa trình; ≥1 = lần trình hồ sơ (đồng bộ web điều hành). */
+    dossierRound: (() => {
+      const n = Number(data.dossierRound);
+      return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+    })(),
     status: data.status,
     progress: data.progress ?? 0,
     updates: data.updates ?? [],
@@ -148,6 +155,7 @@ export async function createIncident(uid, input) {
     selectedBefore: "",
     selectedAfter: "",
     reportImageOrder: "",
+    wordMergeChecked: false,
     status,
     progress,
     locked: false,
@@ -194,6 +202,51 @@ export async function updateIncident(uid, docId, patch) {
   });
 }
 
+/**
+ * Drawer chi tiết: cập nhật tiến độ và/hoặc ngày hoàn thành.
+ * Có ngày hoàn thành → tiến độ = 100% (DONE).
+ */
+export async function updateIncidentProgressFields(
+  uid,
+  docId,
+  { progress, completedDate } = {}
+) {
+  const patch = { updatedAt: serverTimestamp() };
+
+  if (completedDate !== undefined) {
+    const dateVi = normalizeViDate(completedDate);
+    if (dateVi) {
+      patch.completedDate = dateVi;
+      patch.progress = 100;
+      patch.status = statusFromProgress(100);
+    } else {
+      patch.completedDate = "";
+    }
+  }
+
+  if (progress !== undefined && patch.progress === undefined) {
+    const p = clampProgress(progress);
+    patch.progress = p;
+    patch.status = statusFromProgress(p);
+  }
+
+  await updateDoc(doc(db, "users", uid, "incidents", docId), patch);
+  return {
+    progress: patch.progress,
+    status: patch.status,
+    completedDate: patch.completedDate
+  };
+}
+
+/** @deprecated dùng updateIncidentProgressFields */
+export async function updateIncidentCompletedDate(uid, docId, completedDate, progress = 0) {
+  const value = resolveCompletedDate(progress, completedDate);
+  const result = await updateIncidentProgressFields(uid, docId, {
+    completedDate: value || completedDate || ""
+  });
+  return result.completedDate ?? value;
+}
+
 /** Chuyển vào thùng rác (giữ lại để khôi phục). */
 export async function softDeleteIncident(uid, docId) {
   await updateDoc(doc(db, "users", uid, "incidents", docId), {
@@ -231,6 +284,85 @@ export async function updateReportImageSelection(
     selectedAfter: String(selectedAfter ?? ""),
     updatedAt: serverTimestamp()
   });
+}
+
+/** Gán lần trình hồ sơ (0 = chưa trình) cho các sự cố của user. */
+export async function setMyIncidentsDossierRoundBulk(uid, ids, dossierRound) {
+  const round =
+    Number.isFinite(dossierRound) && dossierRound > 0 ? Math.floor(dossierRound) : 0;
+  let ok = 0;
+  let fail = 0;
+  for (const id of ids || []) {
+    try {
+      await updateDoc(doc(db, "users", uid, "incidents", id), {
+        dossierRound: round,
+        updatedAt: serverTimestamp()
+      });
+      ok++;
+    } catch {
+      fail++;
+    }
+  }
+  return { ok, fail };
+}
+
+/**
+ * Sửa hàng loạt ngày xảy ra / ngày hoàn thành.
+ * - date: bắt buộc có giá trị nếu truyền (dd/MM/yyyy hoặc yyyy-mm-dd).
+ * - completedDate: có giá trị → tiến độ 100%; chuỗi rỗng → chỉ xóa ngày HT (giữ tiến độ).
+ */
+export async function setMyIncidentsDatesBulk(uid, ids, { date, completedDate } = {}) {
+  const hasDate = date !== undefined;
+  const hasCompleted = completedDate !== undefined;
+  if (!hasDate && !hasCompleted) return { ok: 0, fail: 0 };
+
+  const dateVi = hasDate ? normalizeViDate(date) : undefined;
+  const completedVi = hasCompleted ? normalizeViDate(completedDate) : undefined;
+  if (hasDate && !dateVi) return { ok: 0, fail: (ids || []).length };
+
+  let ok = 0;
+  let fail = 0;
+  for (const id of ids || []) {
+    try {
+      const patch = { updatedAt: serverTimestamp() };
+      if (hasDate) patch.date = dateVi;
+      if (hasCompleted) {
+        if (completedVi) {
+          patch.completedDate = completedVi;
+          patch.progress = 100;
+          patch.status = statusFromProgress(100);
+        } else {
+          patch.completedDate = "";
+        }
+      }
+      await updateDoc(doc(db, "users", uid, "incidents", id), patch);
+      ok++;
+    } catch {
+      fail++;
+    }
+  }
+  return { ok, fail };
+}
+
+/** Tick / bỏ tick cột Ghép ảnh Word — lưu ngay lên Firestore. */
+export async function updateWordMergeChecked(uid, docId, checked) {
+  await updateDoc(doc(db, "users", uid, "incidents", docId), {
+    wordMergeChecked: Boolean(checked),
+    updatedAt: serverTimestamp()
+  });
+}
+
+/** Tick hàng loạt cột Ghép ảnh Word. */
+export async function updateWordMergeCheckedMany(uid, ids, checked) {
+  const value = Boolean(checked);
+  await Promise.all(
+    (ids || []).map((id) =>
+      updateDoc(doc(db, "users", uid, "incidents", id), {
+        wordMergeChecked: value,
+        updatedAt: serverTimestamp()
+      })
+    )
+  );
 }
 
 /** @deprecated dùng updateReportImageSelection */

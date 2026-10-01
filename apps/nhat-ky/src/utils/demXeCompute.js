@@ -27,6 +27,11 @@ export function hasDirectionData(dir) {
   return VEHICLE_TYPES.some((v) => parseCount(dir.counts?.[v.key]) > 0);
 }
 
+/** Ngày có số liệu đếm xe thực (không tính khung giờ / tên đường seed sẵn). */
+export function dayHasVehicleCounts(day) {
+  return (day?.directions || []).some((d) => sumCounts(d?.counts) > 0);
+}
+
 /** Nhóm ngày thành các đợt đếm (tối đa 3 ngày liên tiếp / đợt). */
 export function listCountBatches(dayKeys = []) {
   const sorted = [...dayKeys].sort();

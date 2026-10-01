@@ -234,14 +234,84 @@ export function uniqueImageUrls(urls: string[]): string[] {
   return out
 }
 
-/** Ảnh trước thi công (hiện trường). */
-export function beforeConstructionImages(inc: IncidentRecord): string[] {
-  return uniqueImageUrls(inc.beforeImages ?? [])
+/** Phân loại ảnh theo path Storage / tên file (`/before/` `_before_` …). */
+export function imagePathKind(url: string): 'before' | 'after' | '' {
+  const s = String(url || '').toLowerCase()
+  if (s.includes('/before/') || s.includes('_before_')) return 'before'
+  if (s.includes('/after/') || s.includes('_after_')) return 'after'
+  return ''
 }
 
-/** Ảnh sau thi công — gộp xử lý + hoàn thiện, bỏ trùng URL. */
+/** Tên file sau khi bỏ tiền tố millis upload (13 số, có thể có chữ F/… phía trước). */
+export function storageFileBaseName(urlOrPath: string): string {
+  let s = String(urlOrPath || '').trim().split(/[?#]/)[0]
+  const slash = s.lastIndexOf('/')
+  if (slash >= 0) s = s.slice(slash + 1)
+  try {
+    s = decodeURIComponent(s)
+  } catch {
+    /* giữ nguyên */
+  }
+  // VD: 1783…_name.jpg | F1783…_name.jpg | 1783…-name.jpg
+  while (/^[a-z]?\d{13}[-_]/i.test(s)) {
+    s = s.replace(/^[a-z]?\d{13}[-_]/i, '')
+  }
+  return s
+}
+
+/**
+ * Ảnh upload nhầm từ cache `firebase_images` (tên = MD5 32 hex).
+ * VD: `1783854127190_d89bbaf198982a3528c6399cac00a585.jpg`
+ */
+export function isCacheHashPhotoUrl(urlOrPath: string): boolean {
+  const base = storageFileBaseName(urlOrPath).toLowerCase()
+  return /^[a-f0-9]{32}\.jpe?g$/.test(base)
+}
+
+/** Mốc chụp trong tên overlay: `_before_1782699032929` / `_after_…` — dùng bắt trùng upload lặp. */
+export function captureStampKey(urlOrPath: string): string {
+  const base = storageFileBaseName(urlOrPath).toLowerCase()
+  const m = /_(before|after)_(\d{13})/.exec(base)
+  return m ? `${m[1]}_${m[2]}` : ''
+}
+
+/** Pool có ít nhất một URL kiểu hash-cache (ứng viên dọn trùng). */
+export function hasCacheHashPhotoUrls(urls: Iterable<string>): boolean {
+  for (const u of urls) {
+    if (isCacheHashPhotoUrl(u)) return true
+  }
+  return false
+}
+
+/** Có ≥2 URL cùng mốc chụp (upload lặp cùng file overlay). */
+export function hasDuplicateCaptureStamps(urls: Iterable<string>): boolean {
+  const seen = new Set<string>()
+  for (const raw of urls) {
+    const key = captureStampKey(String(raw || ''))
+    if (!key) continue
+    if (seen.has(key)) return true
+    seen.add(key)
+  }
+  return false
+}
+
+/** Ảnh trước thi công (hiện trường) — bỏ URL after bị ghi nhầm vào beforeImages. */
+export function beforeConstructionImages(inc: IncidentRecord): string[] {
+  return uniqueImageUrls(
+    (inc.beforeImages ?? []).filter((u) => imagePathKind(u) !== 'after'),
+  )
+}
+
+/** Ảnh sau thi công — gộp ảnh xử lý và ảnh hoàn thành, giống logic xuất Word của user. */
 export function afterConstructionImages(inc: IncidentRecord): string[] {
-  return uniqueImageUrls([...(inc.afterImages ?? []), ...completionImages(inc)])
+  const afterField = (inc.afterImages ?? []).filter(
+    (u) => imagePathKind(u) !== 'before',
+  )
+  return uniqueImageUrls(
+    [...afterField, ...completionImages(inc)].filter(
+      (u) => imagePathKind(u) !== 'before',
+    ),
+  )
 }
 
 function isLocalOnlyForWeb(ref: string): boolean {
@@ -283,7 +353,7 @@ export function uploadMillisFromPath(path: string): number | null {
   } catch {
     /* giữ nguyên */
   }
-  const m = /^(\d{13})/.exec(name)
+  const m = /^[a-z]?(\d{13})/i.exec(name)
   if (!m) return null
   const n = Number(m[1])
   return Number.isFinite(n) ? n : null
@@ -303,6 +373,7 @@ export function preferOriginalCloudUrl(current: string, candidate: string): stri
 export function dedupeCloudUrls(urls: string[]): string[] {
   const result: string[] = []
   const byToken = new Map<string, number>()
+  const byCapture = new Map<string, number>()
   for (const raw of urls || []) {
     const url = String(raw || '').trim()
     if (!url.startsWith('http')) continue
@@ -319,9 +390,18 @@ export function dedupeCloudUrls(urls: string[]): string[] {
         continue
       }
     }
+    const cap = captureStampKey(url)
+    if (cap) {
+      const capIdx = byCapture.get(cap)
+      if (capIdx != null) {
+        result[capIdx] = preferOriginalCloudUrl(result[capIdx], url)
+        continue
+      }
+    }
     const idx = result.length
     result.push(url)
     if (pt) byToken.set(pt, idx)
+    if (cap) byCapture.set(cap, idx)
   }
   return result
 }
@@ -331,13 +411,20 @@ export function hasDuplicateCloudUrls(urls: string[]): boolean {
   return dedupeCloudUrls(http).length < http.length
 }
 
-/** Pool ảnh hiển thị gallery — khớp app sau khi gộp trùng. */
+/**
+ * Pool ảnh hiển thị gallery — chỉ bỏ URL trùng hoàn toàn và path chỉ có trên app.
+ * Không gộp theo tên/mốc chụp vì có thể làm mất các ảnh khác nhau mà user vẫn xem được.
+ */
 export function incidentGalleryBeforeUrls(inc: IncidentRecord): string[] {
-  return webDisplayImageUrls(dedupeCloudUrls(beforeConstructionImages(inc)))
+  return uniqueImageUrls(beforeConstructionImages(inc)).filter(
+    (url) => !isLocalOnlyForWeb(url),
+  )
 }
 
 export function incidentGalleryAfterUrls(inc: IncidentRecord): string[] {
-  return webDisplayImageUrls(dedupeCloudUrls(afterConstructionImages(inc)))
+  return uniqueImageUrls(afterConstructionImages(inc)).filter(
+    (url) => !isLocalOnlyForWeb(url),
+  )
 }
 
 export function countHiddenLocalImages(pool: string[]): number {
@@ -352,26 +439,14 @@ export function countHiddenLocalImages(pool: string[]): number {
  * bỏ dấu tiếng Việt, lowercase, bỏ ký tự không phải chữ/số.
  */
 export function photoToken(ref: string): string {
-  let s = (ref ?? '').trim()
+  let s = storageFileBaseName(ref)
   if (!s) return ''
-  s = s.split(/[?#]/)[0]
-  const slash = s.lastIndexOf('/')
-  if (slash >= 0) s = s.slice(slash + 1)
-  try {
-    s = decodeURIComponent(s)
-  } catch {
-    /* giữ nguyên nếu decode lỗi */
-  }
-  // tên có thể bị mã hoá lần nữa sau khi cắt path
-  const slash2 = s.lastIndexOf('/')
-  if (slash2 >= 0) s = s.slice(slash2 + 1)
-  s = s.replace(/^\d{13}[-_]?/, '')
   s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D')
   s = s.toLowerCase().replace(/[^a-z0-9]/g, '')
   return s
 }
 
-/** Cùng một ảnh (URL trùng hoặc cùng photoToken). */
+/** Cùng một ảnh (URL trùng, cùng photoToken, hoặc cùng mốc chụp overlay). */
 export function isSamePhotoUrl(a: string, b: string): boolean {
   const x = (a ?? '').trim()
   const y = (b ?? '').trim()
@@ -379,7 +454,10 @@ export function isSamePhotoUrl(a: string, b: string): boolean {
   if (x === y) return true
   const tx = photoToken(x)
   const ty = photoToken(y)
-  return tx !== '' && tx === ty
+  if (tx !== '' && tx === ty) return true
+  const cx = captureStampKey(x)
+  const cy = captureStampKey(y)
+  return cx !== '' && cx === cy
 }
 
 export function removeUrlFromImagePool(pool: string[], url: string): string[] {
@@ -394,6 +472,25 @@ export function removeReportImageSlotByUrl(
   return slots.filter((s) => !(s.kind === kind && isSamePhotoUrl(s.url, url)))
 }
 
+function removeUrlFromUpdates(
+  updates: IncidentRecord['updates'],
+  url: string,
+): { updates: IncidentRecord['updates']; changed: boolean } {
+  let changed = false
+  const next = (updates ?? []).map((u) => {
+    const imgs = Array.isArray(u?.images) ? u.images : []
+    if (!imgs.length) return u
+    const filtered = removeUrlFromImagePool(imgs, url)
+    if (filtered.length === imgs.length) return u
+    changed = true
+    return { ...u, images: filtered }
+  })
+  return { updates: next, changed }
+}
+
+/**
+ * Gỡ 1 ảnh — sau xử lý có thể nằm ở afterImages và/hoặc updates[].images.
+ */
 export function computeRemoveIncidentImagePatch(
   inc: IncidentRecord,
   kind: 'before' | 'after',
@@ -407,18 +504,36 @@ export function computeRemoveIncidentImagePatch(
     kind === 'after'
       ? removeUrlFromImagePool(inc.afterImages ?? [], url)
       : [...(inc.afterImages ?? [])]
-  const slots = removeReportImageSlotByUrl(reportImageSlots(inc), kind, url)
+
+  const { updates, changed: updatesChanged } =
+    kind === 'after'
+      ? removeUrlFromUpdates(inc.updates, url)
+      : { updates: [...(inc.updates ?? [])], changed: false }
+
+  const nextInc = { ...inc, beforeImages, afterImages, updates }
+  const slots = removeReportImageSlotByUrl(reportImageSlots(nextInc), kind, url)
   const { selectedBefore, selectedAfter } = legacyRefsFromReportSlots(slots)
-  const sourcePool = kind === 'before' ? (inc.beforeImages ?? []) : (inc.afterImages ?? [])
+  const sourcePool = [
+    ...(inc.beforeImages ?? []),
+    ...(inc.afterImages ?? []),
+    ...(inc.updates ?? []).flatMap((u) => u.images ?? []),
+  ]
   const removedUrl = sourcePool.find((u) => isSamePhotoUrl(u, url)) ?? url
+  const removed =
+    beforeImages.length < (inc.beforeImages ?? []).length ||
+    afterImages.length < (inc.afterImages ?? []).length ||
+    updatesChanged
+
   return {
     beforeImages,
     afterImages,
+    updates,
     reportImageOrder: encodeReportImageOrder(slots),
     selectedBefore,
     selectedAfter,
     slots,
     removedUrl,
+    removed,
   }
 }
 

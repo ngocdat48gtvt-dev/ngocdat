@@ -4,6 +4,8 @@
  * Mỗi cầu: { id, name, km }.
  */
 
+import { filterAssetsForRoute } from "./roadsCatalog";
+
 const LEGACY_KEY = "cau-registry-v1";
 export const CAU_REGISTRY_EVENT = "cau-registry-changed";
 export const CAU_SECTION = "Công trình cầu";
@@ -19,11 +21,86 @@ function storageKeyFor(scope) {
   return s ? `cau-registry-v1-${s}` : LEGACY_KEY;
 }
 
-export function cauScope(uid, roadId) {
+export function cauScope(uid, roadId, routeId = "") {
   const u = String(uid || "").trim();
   const r = String(roadId || "").trim();
+  const rt = String(routeId || "").trim();
   if (!u || !r) return "";
-  return `${u}__${r}`;
+  return rt ? `${u}__${r}__rt_${rt}` : `${u}__${r}`;
+}
+
+/**
+ * Scope đọc: nhiều nhánh → theo routeId; 1 nhánh → key sổ cũ.
+ */
+export function resolveCauScope(uid, roadId, routeId, routes = []) {
+  const list = Array.isArray(routes) ? routes : [];
+  const multi = list.length > 1;
+  const rid = String(routeId || list[0]?.id || "").trim();
+  if (multi && rid) return cauScope(uid, roadId, rid);
+  return cauScope(uid, roadId);
+}
+
+/** Sổ cũ (1 list chung) → tách theo km vào từng nhánh. */
+export function migrateBookCauToFirstRoute(uid, roadId, routes = []) {
+  const list = Array.isArray(routes) ? routes : [];
+  if (!uid || !roadId || list.length <= 1) return;
+  const bookScope = cauScope(uid, roadId);
+  const bookList = loadCauRegistry(bookScope);
+  if (!bookList.length) return;
+
+  for (const route of list) {
+    const rid = String(route?.id || "").trim();
+    if (!rid) continue;
+    const routeScope = cauScope(uid, roadId, rid);
+    if (loadCauRegistry(routeScope).length) continue;
+    const filtered = filterAssetsForRoute(bookList, route, list).map((e) => ({
+      ...e,
+      routeId: rid
+    }));
+    if (filtered.length) setCauRegistry(routeScope, filtered);
+  }
+  setCauRegistry(bookScope, []);
+}
+
+/**
+ * Lọc cầu theo nhánh đang chọn (routeId hoặc lý trình trong đoạn km).
+ * Gộp pool sổ cũ + mọi nhánh rồi lọc.
+ */
+export function loadCauRegistryForRoute(uid, roadId, route, routes = []) {
+  const list = Array.isArray(routes) ? routes : [];
+  const multi = list.length > 1;
+  const rid = String(route?.id || "").trim();
+  const scope = resolveCauScope(uid, roadId, rid, list);
+  let items = loadCauRegistry(scope);
+  if (!multi || !route) return items;
+
+  const pool = [];
+  const seen = new Set();
+  const pushAll = (arr) => {
+    for (const e of arr || []) {
+      const id = String(e?.id || "").trim();
+      const key = id || `${e?.km || ""}|${e?.name || ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      pool.push(e);
+    }
+  };
+  pushAll(items);
+  pushAll(loadCauRegistry(cauScope(uid, roadId)));
+  for (const r of list) {
+    const id = String(r?.id || "").trim();
+    if (!id) continue;
+    pushAll(loadCauRegistry(cauScope(uid, roadId, id)));
+  }
+  return filterAssetsForRoute(pool, route, list);
+}
+
+export function writeCauScope(uid, roadId, routeId, routes = []) {
+  const list = Array.isArray(routes) ? routes : [];
+  const multi = list.length > 1;
+  const rid = String(routeId || list[0]?.id || "").trim();
+  if (multi && rid) return cauScope(uid, roadId, rid);
+  return cauScope(uid, roadId);
 }
 
 const cacheByKey = new Map();
@@ -83,20 +160,58 @@ export function makeEmptyCauRows(count = 1) {
   }));
 }
 
+/**
+ * Tách dữ liệu dán từ Excel / văn bản thành các dòng cầu.
+ * Mỗi dòng: Tên cầu [tab|;|≥2 space] Lý trình
+ * hoặc «Tên cầu … Km316+900» / «Tên cầu … 316+900» (1 khoảng cũng được).
+ */
 export function parseCauPaste(text) {
   const rows = [];
+  const kmAtEnd =
+    /(?:^|[\s\t;]+)(?:Km\s*)?(\d{1,4}\s*\+\s*\d{1,4}|\d{5,7})\s*$/i;
+
   String(text || "")
     .split(/\r?\n/)
-    .forEach((line) => {
-      if (!line.trim()) return;
-      const cells = line.split(/\t|;|\s{2,}/).map((c) => c.trim());
-      if (!cells.length) return;
-      if (/^(stt|tên|ten|cầu|cau|lý trình|ly trinh)/i.test(cells[0])) return;
-      if (cells.length >= 2) {
-        rows.push({ id: nextId(), name: cells[0], km: cells[1] });
-      } else {
-        rows.push({ id: nextId(), name: cells[0], km: "" });
+    .forEach((rawLine) => {
+      const line = String(rawLine || "").trim();
+      if (!line) return;
+
+      // Chỉ bỏ hàng tiêu đề thật (không bỏ tên cầu bắt đầu bằng «Cầu …»)
+      const cellsProbe = line.split(/\t|;|\s{2,}/).map((c) => c.trim()).filter(Boolean);
+      const first = (cellsProbe[0] || "").toLowerCase();
+      if (
+        /^(stt|tên cầu|ten cau|tên|ten|lý trình|ly trinh|km|ghi chú|ghi chu)$/i.test(first) &&
+        cellsProbe.every((c) => !/\d/.test(c))
+      ) {
+        return;
       }
+
+      let name = "";
+      let km = "";
+
+      if (cellsProbe.length >= 2) {
+        // Cột cuối thường là lý trình
+        const last = cellsProbe[cellsProbe.length - 1];
+        if (kmAtEnd.test(last) || /^\d/.test(last) || /\+/.test(last)) {
+          km = last.replace(/^Km\s*/i, "").trim();
+          name = cellsProbe.slice(0, -1).join(" ").trim();
+        } else {
+          name = cellsProbe[0];
+          km = cellsProbe[1];
+        }
+      } else {
+        // Một cụm: tách lý trình ở cuối («Cầu Sông Cầu 435+200»)
+        const m = line.match(kmAtEnd);
+        if (m) {
+          km = m[1].replace(/\s+/g, "");
+          name = line.slice(0, m.index).trim();
+        } else {
+          name = line;
+        }
+      }
+
+      if (!name && !km) return;
+      rows.push({ id: nextId(), name, km });
     });
   return rows;
 }

@@ -34,9 +34,13 @@ export async function removeIncidentImage(
   url: string,
 ) {
   const patch = computeRemoveIncidentImagePatch(incident, kind, url)
+  if (!patch.removed) {
+    throw new Error('Không tìm thấy ảnh trong dữ liệu sự cố để xóa.')
+  }
   await updateDoc(doc(db, 'users', ownerUid, 'incidents', docId), {
     beforeImages: patch.beforeImages,
     afterImages: patch.afterImages,
+    updates: patch.updates,
     reportImageOrder: patch.reportImageOrder,
     selectedBefore: patch.selectedBefore,
     selectedAfter: patch.selectedAfter,

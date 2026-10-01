@@ -3,7 +3,8 @@ import {
   formatStatsNumber,
   normalizeStatsUnit,
   normalizeWorkType,
-  parseQuantity
+  parseQuantity,
+  dedupeVolumeDetailItems
 } from "./volumeStatsFormat";
 import { BAO_DUONG_GROUPS } from "./baoDuongQualityStore";
 
@@ -126,10 +127,11 @@ export function buildCompanyVolumeRows(sources, options = {}) {
       if (r.totalDone <= 0 && !(r.contractQty > 0)) continue;
 
       const roadName = src.roadName || "";
+      const workType = r.workType;
       const mergeKey = companyContractKey({
         roadName,
         section: r.section,
-        workType: r.workType,
+        workType,
         unit: r.unit
       });
 
@@ -148,7 +150,7 @@ export function buildCompanyVolumeRows(sources, options = {}) {
           kmRange: src.kmRange || "",
           kmRanges: src.kmRange ? [src.kmRange] : [],
           section: r.section,
-          workType: r.workType,
+          workType,
           unit: r.unit,
           unitLabel: r.unitLabel,
           totalDone: 0,
@@ -186,8 +188,11 @@ export function buildCompanyVolumeRows(sources, options = {}) {
   }
 
   const rows = [...merged.values()].map((row) => {
+    const uniqueItems = dedupeVolumeDetailItems(row.items);
+    const totalDone = uniqueItems.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
+    const entryCount = uniqueItems.length;
     const contractQty = row.hasAnyContract ? row.contractQty : null;
-    const fields = recomputeContractFields(row.totalDone, contractQty);
+    const fields = recomputeContractFields(totalDone, contractQty);
     const userName =
       row.userNames.length <= 1
         ? row.userNames[0] || row.userName || ""
@@ -214,9 +219,9 @@ export function buildCompanyVolumeRows(sources, options = {}) {
       workType: row.workType,
       unit: row.unit,
       unitLabel: row.unitLabel,
-      totalDone: row.totalDone,
-      entryCount: row.entryCount,
-      items: row.items,
+      totalDone,
+      entryCount,
+      items: uniqueItems,
       ...fields
     };
   });

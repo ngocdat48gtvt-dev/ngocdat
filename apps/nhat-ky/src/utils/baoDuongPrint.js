@@ -3,8 +3,10 @@ import {
   getBaoDuongColWidths,
   sumBaoDuongCols
 } from "../hooks/useBaoDuongColWidths";
+import { printViaIframe } from "./printViaIframe";
+import { printFolioCss, printFolioMarkup } from "./printFolio";
 
-/** CSS dự phòng khi in qua iframe — A4 dọc. */
+/** CSS in A4 dọc — dùng trong iframe (tránh Chrome lệch khung khi in từ DOM app). */
 export function buildBaoDuongPrintCss(margins, widths) {
   const top = Number(margins?.top) || 0;
   const right = Number(margins?.right) || 0;
@@ -18,7 +20,7 @@ export function buildBaoDuongPrintCss(margins, widths) {
   ).join("\n");
 
   return `
-@page {
+@page baoduongPrintPage {
   size: A4 portrait;
   margin: 0;
 }
@@ -35,12 +37,17 @@ html, body {
   font-size: 12pt;
 }
 .sheet {
+  page: baoduongPrintPage;
   width: 210mm;
-  min-height: 296.8mm;
+  height: 296.8mm;
+  max-height: 296.8mm;
   padding: ${top}mm ${right}mm ${bottom}mm ${left}mm;
   overflow: hidden;
   page-break-after: always;
   break-after: page;
+  page-break-inside: avoid;
+  break-inside: avoid;
+  box-sizing: border-box;
 }
 .sheet:last-child {
   page-break-after: auto;
@@ -48,6 +55,8 @@ html, body {
 }
 .sheet-inner {
   width: 100%;
+  height: 100%;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -56,86 +65,128 @@ html, body {
   font-family: "Times New Roman", Times, serif;
   font-size: 13pt;
   font-weight: 700;
-  margin: 0 0 8px;
-  line-height: 1.35;
+  margin: 0 0 6px;
+  line-height: 1.28;
   text-transform: uppercase;
+  flex: 0 0 auto;
 }
 .baoduong-period {
   margin: 0 0 4px;
   font-family: "Times New Roman", Times, serif;
   font-size: 13pt;
+  flex: 0 0 auto;
 }
 .baoduong-intro {
   margin: 0 0 8px;
   font-family: "Times New Roman", Times, serif;
   font-size: 13pt;
+  flex: 0 0 auto;
 }
 .baoduong-table {
   width: 100%;
-  border-collapse: separate !important;
+  border-collapse: collapse !important;
   border-spacing: 0 !important;
   border: none !important;
   table-layout: fixed;
   font-family: "Times New Roman", Times, serif;
   font-size: 12pt;
-  line-height: 1.35;
+  line-height: 1.03;
+  flex: 0 1 auto;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 ${colRules}
 .baoduong-table th,
 .baoduong-table td {
-  border-top: 0.5pt solid #808080 !important;
-  border-left: 0.5pt solid #808080 !important;
-  border-right: none !important;
-  border-bottom: none !important;
-  padding: 4px 5px;
+  border: 0.5pt solid #000 !important;
+  padding: 2.5px 4px;
   vertical-align: top;
+  text-align: left !important;
   word-wrap: break-word;
   overflow-wrap: anywhere;
   background: #fff !important;
   position: static !important;
-}
-.baoduong-table th:last-child,
-.baoduong-table td:last-child {
-  border-right: 0.5pt solid #808080 !important;
-}
-.baoduong-table thead tr:last-child th,
-.baoduong-table tbody tr:last-child td {
-  border-bottom: 0.5pt solid #808080 !important;
+  box-sizing: border-box !important;
 }
 .baoduong-table th {
   font-weight: 700;
-  text-align: center;
+  text-align: center !important;
   font-size: 12pt;
   vertical-align: middle;
 }
-.baoduong-header-num th { font-size: 12pt; padding: 2px 3px; }
-.baoduong-col-stt { text-align: center; vertical-align: middle; }
+.baoduong-header-num th {
+  font-size: 12pt;
+  padding: 2px 3px;
+  font-weight: 400 !important;
+  font-style: normal;
+}
+.baoduong-table tbody td { text-align: left !important; }
+.baoduong-table tbody td.baoduong-col-stt {
+  text-align: center !important;
+  vertical-align: middle !important;
+}
+.baoduong-col-stt { text-align: center !important; vertical-align: middle !important; }
 .baoduong-pre {
   margin: 0;
   white-space: pre-wrap;
   font-family: inherit;
   font-size: inherit;
-  text-align: left;
+  display: block;
+  width: 100%;
+  text-align: left !important;
 }
 .baoduong-sign {
-  margin-top: 8px;
+  margin-top: 6px;
+  flex: 0 0 auto;
   display: flex;
   justify-content: flex-end;
-  padding-right: 4%;
+  padding-right: 6%;
+  padding-top: 2mm;
+  padding-bottom: 2mm;
+  page-break-inside: avoid;
+  break-inside: avoid;
 }
-.baoduong-sign-box { width: 45%; text-align: center; font-size: 13px; }
-.baoduong-sign-role { font-weight: 700; margin-bottom: 4px; }
-.baoduong-sign-hint { font-size: 12px; color: #334155; }
+.baoduong-sign-box {
+  position: relative;
+  width: 45%;
+  text-align: center;
+}
+.baoduong-sign-role {
+  font-family: "Times New Roman", Times, serif;
+  font-weight: 700;
+  font-size: 13pt;
+  line-height: 1.25;
+  margin: 0;
+}
+.baoduong-sign-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 1.35em;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 11pt;
+  color: #334155;
+  font-style: italic;
+}
+.baoduong-sign-name {
+  position: static;
+  margin: var(--bd-sign-name-gap, 24.5mm) 0 0;
+  min-height: 1.2em;
+  font-family: "Times New Roman", Times, serif;
+  font-weight: 700;
+  font-size: 13pt;
+  line-height: 1.25;
+}
 .no-print { display: none !important; }
 .col-resize-handle { display: none !important; }
+.baoduong-print-page-num { display: none !important; }
 `;
 }
 
 /**
- * In sổ BDTX — ưu tiên in trực tiếp từ xem trước (body class),
- * tránh iframe ẩn (Chrome hay in nhầm trang app / khổ ngang phiếu KT).
+ * In sổ BDTX qua iframe — khổ A4 dọc ổn định (PDF / máy in).
  */
-export function printBaoDuongPages(margins, widths) {
+export function printBaoDuongPages(margins, widths, pageStart) {
   const pages = Array.from(
     document.querySelectorAll(".baoduong-print-stack--preview .baoduong-print-page")
   );
@@ -144,16 +195,21 @@ export function printBaoDuongPages(margins, widths) {
     return;
   }
 
-  // In từ DOM xem trước — ổn định trên Chrome
-  document.body.classList.add("baoduong-printing");
-  const cleanup = () => {
-    document.body.classList.remove("baoduong-printing");
-    window.removeEventListener("afterprint", cleanup);
-  };
-  window.addEventListener("afterprint", cleanup);
-  // Fallback nếu afterprint không chạy (một số trình duyệt)
-  window.setTimeout(cleanup, 60_000);
-  window.setTimeout(() => {
-    window.print();
-  }, 80);
+  const w = widths || getBaoDuongColWidths();
+  const sheetsHtml = pages
+    .map((page) => {
+      const inner = page.querySelector(".baoduong-print-inner");
+      const html = inner ? inner.innerHTML : page.innerHTML;
+      const folio = printFolioMarkup(pageStart);
+      return `<div class="sheet">${folio}<div class="sheet-inner">${html}</div></div>`;
+    })
+    .join("\n");
+
+  printViaIframe({
+    title: "Sổ bảo dưỡng thường xuyên",
+    css: `${buildBaoDuongPrintCss(margins, w)}\n${printFolioCss(pageStart)}`,
+    sheetsHtml,
+    pageWMm: 210,
+    pageHMm: 297
+  });
 }

@@ -1,10 +1,12 @@
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase/firebase";
 import { normalizeLedger } from "../utils/demXeStore";
 
 /**
  * Sổ đếm xe:
  * users/{uid}/office_books/{roadId}/modules/dem_xe
+ *   - ledger: sổ 1 nhánh / legacy
+ *   - byRoute[routeId]: sổ từng nhánh khi ≥2 đường
  *
  * Legacy (đọc để migrate):
  * users/{uid}/master_data/vehicle_count_ledger.byRoad[roadName]
@@ -24,6 +26,12 @@ function sanitize(value) {
   return JSON.parse(JSON.stringify(value ?? null));
 }
 
+function ledgerHasContent(ledger) {
+  if (!ledger || typeof ledger !== "object") return false;
+  if (Object.keys(ledger.days || {}).length > 0) return true;
+  return Object.values(ledger.cover || {}).some((v) => String(v || "").trim());
+}
+
 async function fetchLegacyDemXe(uid, roadName) {
   const road = String(roadName || "").trim();
   if (!uid || !road) return null;
@@ -37,8 +45,14 @@ async function fetchLegacyDemXe(uid, roadName) {
   }
 }
 
-/** @returns {Promise<object|null>} */
-export async function fetchDemXeForRoad(uid, roadId, roadName = "") {
+/**
+ * @param {{ routeId?: string, isFirstRoute?: boolean }} [opts]
+ * @returns {Promise<object|null>}
+ */
+export async function fetchDemXeForRoad(uid, roadId, roadName = "", opts = {}) {
+  const routeId = String(opts.routeId || "").trim();
+  const isFirstRoute = Boolean(opts.isFirstRoute);
+
   if (!uid || !roadId) {
     return fetchLegacyDemXe(uid, roadName);
   }
@@ -46,13 +60,26 @@ export async function fetchDemXeForRoad(uid, roadId, roadName = "") {
     const snap = await getDoc(demXeModuleRef(uid, roadId));
     if (snap.exists()) {
       const data = snap.data();
+      if (routeId) {
+        const byRoute = data.byRoute && typeof data.byRoute === "object" ? data.byRoute : {};
+        if (byRoute[routeId]) return normalizeLedger(byRoute[routeId]);
+        // Nhánh đầu: fallback ledger legacy trên cùng module
+        if (isFirstRoute) {
+          const ledger =
+            data.ledger && typeof data.ledger === "object" ? data.ledger : data;
+          if (ledgerHasContent(ledger) && !byRoute[routeId]) {
+            return normalizeLedger(ledger);
+          }
+        }
+        return null;
+      }
       const ledger = data.ledger && typeof data.ledger === "object" ? data.ledger : data;
       return normalizeLedger(ledger);
     }
   } catch (err) {
     console.warn("Không đọc được sổ đếm xe từ office_books.", err);
   }
-  return fetchLegacyDemXe(uid, roadName);
+  return routeId && !isFirstRoute ? null : fetchLegacyDemXe(uid, roadName);
 }
 
 export async function fetchAllDemXe(uid) {
@@ -71,9 +98,14 @@ export async function fetchAllDemXe(uid) {
   }
 }
 
-export async function pushDemXeForRoad(uid, roadId, ledger, roadName = "") {
+/**
+ * @param {{ routeId?: string }} [opts]
+ */
+export async function pushDemXeForRoad(uid, roadId, ledger, roadName = "", opts = {}) {
+  const routeId = String(opts.routeId || "").trim();
+  const clean = normalizeLedger(ledger);
+
   if (!uid || !roadId) {
-    // Fallback legacy nếu thiếu roadId (tương thích cũ)
     const road = String(roadName || "").trim();
     if (!uid || !road) throw new Error("Thiếu user hoặc roadId để lưu sổ đếm xe.");
     const ref = legacyLedgerRef(uid);
@@ -84,17 +116,37 @@ export async function pushDemXeForRoad(uid, roadId, ledger, roadName = "") {
     } catch {
       byRoad = {};
     }
-    byRoad[road] = normalizeLedger(ledger);
+    byRoad[road] = clean;
     await setDoc(ref, { byRoad, updatedAt: serverTimestamp() }, { merge: true });
     return;
   }
-  await setDoc(
-    demXeModuleRef(uid, roadId),
-    sanitize({
-      ledger: normalizeLedger(ledger),
+
+  const ref = demXeModuleRef(uid, roadId);
+  if (routeId) {
+    const snap = await getDoc(ref);
+    if (!snap.exists()) {
+      await setDoc(ref, {
+        byRoute: { [routeId]: sanitize(clean) },
+        updatedAt: serverTimestamp(),
+        schemaVersion: SCHEMA_VERSION
+      });
+      return;
+    }
+    await updateDoc(ref, {
+      [`byRoute.${routeId}`]: sanitize(clean),
       updatedAt: serverTimestamp(),
       schemaVersion: SCHEMA_VERSION
-    }),
+    });
+    return;
+  }
+
+  await setDoc(
+    ref,
+    {
+      ledger: sanitize(clean),
+      updatedAt: serverTimestamp(),
+      schemaVersion: SCHEMA_VERSION
+    },
     { merge: true }
   );
 }

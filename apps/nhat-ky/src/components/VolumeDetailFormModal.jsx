@@ -3,14 +3,16 @@ import {
   formatStatsNumber,
   groupVolumeDetailRows
 } from "../utils/volumeStatsFormat";
-import { chainageExcelValue } from "../lib/excelReportBuilder";
+import {
+  setExcelDecimalCell,
+  setExcelKmCell
+} from "../utils/excelCellFormat";
 import { printViaIframe, excelThinTableCss } from "../utils/printViaIframe";
+import { toRomanUpper } from "../utils/roadsCatalog";
 
 /** STT · Ngày · LT đầu · LT cuối · Phía · ĐVT · Dài · Rộng · Cao · KL */
 const COL_COUNT = 10;
 const LABEL_COLS = 9;
-/** Số Excel = km*1000+m, hiển thị Km388+400 */
-const KM_EXCEL_FMT = '"Km"0"+"000';
 
 function cell(value) {
   return String(value ?? "").trim();
@@ -33,12 +35,14 @@ function periodLabel(dateFrom, dateTo) {
     .join("/")}`;
 }
 
-/** Duyệt theo đầu việc: hàng tiêu đề (tên + tổng) rồi các dòng chi tiết. */
+/** Duyệt theo hạng mục (I. II. …) → đầu việc → dòng chi tiết. */
 function walkGroupedRows(sections, handlers) {
   let stt = 0;
-  for (const sec of sections) {
+  sections.forEach((sec, secIndex) => {
+    const roman = toRomanUpper(secIndex + 1);
+    handlers.onSectionHeader?.(sec, roman, secIndex);
     for (const group of sec.workGroups) {
-      handlers.onWorkHeader?.(group, sec);
+      handlers.onWorkHeader?.(group, sec, roman);
       let localStt = 0;
       for (const row of group.rows) {
         stt += 1;
@@ -46,7 +50,7 @@ function walkGroupedRows(sections, handlers) {
         handlers.onRow?.(row, localStt, group, sec, stt);
       }
     }
-  }
+  });
 }
 
 const HEADERS = [
@@ -65,6 +69,11 @@ const HEADERS = [
 function buildDetailTableHtml(sections) {
   const parts = [];
   walkGroupedRows(sections, {
+    onSectionHeader(sec, roman) {
+      parts.push(`<tr class="sec-group">
+        <td colspan="${COL_COUNT}"><strong>${roman}. ${cell(sec.section)}</strong></td>
+      </tr>`);
+    },
     onWorkHeader(group) {
       parts.push(`<tr class="sec">
         <td colspan="${LABEL_COLS}"><strong>${cell(group.workType)}</strong></td>
@@ -124,6 +133,7 @@ const PRINT_CSS = `
   .kl-detail-table th { font-weight: bold; text-align: center; }
   .kl-detail-table .num { text-align: right; }
   .kl-detail-table tr.sec td { background: #f1f5f9; font-weight: bold; }
+  .kl-detail-table tr.sec-group td { background: #cbd5e1; font-weight: bold; }
 `;
 
 function thinBorder(color = "000000") {
@@ -173,6 +183,20 @@ async function exportVolumeDetailExcel(sections, { period, filename }) {
   });
 
   walkGroupedRows(sections, {
+    onSectionHeader(sec, roman) {
+      const row = ws.addRow([`${roman}. ${sec.section || ""}`]);
+      ws.mergeCells(row.number, 1, row.number, COL_COUNT);
+      row.getCell(1).font = { name: "Times New Roman", size: 12, bold: true };
+      row.getCell(1).alignment = { horizontal: "left", vertical: "middle" };
+      for (let i = 1; i <= COL_COUNT; i += 1) {
+        row.getCell(i).border = thinBorder();
+        row.getCell(i).fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFCBD5E1" }
+        };
+      }
+    },
     onWorkHeader(group) {
       const row = ws.addRow([
         group.workType || "",
@@ -202,33 +226,32 @@ async function exportVolumeDetailExcel(sections, { period, filename }) {
       }
     },
     onRow(item, stt) {
-      const kmFromRaw = String(item.kmFrom || "").trim();
-      const kmToRaw = String(item.kmTo || "").trim();
-      const kmFromVal = kmFromRaw ? chainageExcelValue(kmFromRaw) : "";
-      const kmToVal = kmToRaw ? chainageExcelValue(kmToRaw) : "";
       const row = ws.addRow([
         stt,
         item.dateLabel || "",
-        kmFromVal,
-        kmToVal,
+        null,
+        null,
         item.side || item.sideLabel || "",
         item.unitLabel || item.unit || "",
-        item.length ? Number(item.length) : "",
-        item.width ? Number(item.width) : "",
-        item.height ? Number(item.height) : "",
-        Number(item.quantity) || 0
+        null,
+        null,
+        null,
+        null
       ]);
+      setExcelKmCell(row.getCell(3), item.kmFrom);
+      setExcelKmCell(row.getCell(4), item.kmTo);
+      setExcelDecimalCell(row.getCell(7), item.length, { forceDecimals: true });
+      setExcelDecimalCell(row.getCell(8), item.width, { forceDecimals: true });
+      setExcelDecimalCell(row.getCell(9), item.height, { forceDecimals: true });
+      setExcelDecimalCell(row.getCell(10), item.quantity, { forceDecimals: true });
+
       row.eachCell((c, col) => {
         c.font = { name: "Times New Roman", size: 11 };
         c.border = thinBorder();
         c.alignment = {
           vertical: "middle",
-          horizontal: col === 1 || (col >= 7 && col <= 10) ? "right" : "left"
+          horizontal: col === 1 || (col >= 7 && col <= 10) ? "right" : col === 3 || col === 4 ? "center" : "left"
         };
-        if ((col === 3 || col === 4) && c.value !== "" && c.value != null) {
-          c.numFmt = KM_EXCEL_FMT;
-          c.alignment = { vertical: "middle", horizontal: "center" };
-        }
       });
     }
   });
@@ -288,6 +311,17 @@ export default function VolumeDetailFormModal({
   const bodyNodes = [];
   if (rows.length > 0) {
     walkGroupedRows(sections, {
+      onSectionHeader(sec, roman) {
+        bodyNodes.push(
+          <tr key={`sec-${sec.section}`} className="stats-kl-group-row">
+            <td colSpan={COL_COUNT}>
+              <strong>
+                {roman}. {sec.section}
+              </strong>
+            </td>
+          </tr>
+        );
+      },
       onWorkHeader(group, sec) {
         bodyNodes.push(
           <tr

@@ -1,13 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   afterConstructionImages,
   assignReportSlotOrder,
   beforeConstructionImages,
   buildIncidentTimelineEvents,
   clearReportImageSlots,
-  computeKhoiLuong,
   encodeReportImageOrder,
-  formatIncidentSize,
+  formatDimValue,
   formatIncidentUnit,
   formatKhoiLuong,
   formatTimelineDate,
@@ -17,21 +16,64 @@ import {
   reportImageSlots,
   reportSlotOrderIndex,
   selectAllReportImageSlots,
+  clampProgress,
+  splitVolumeByGeology,
   statusFromProgress,
   statusLabel,
   toggleReportImageSlot,
   webDisplayImageUrls,
-  countHiddenLocalImages
+  countHiddenLocalImages,
+  isBaoLuGroup,
+  dispatchFilterStatus
 } from "../utils/incidentUtils";
-import { updateReportImageSelection } from "../services/incidentsService";
+import {
+  updateIncidentProgressFields,
+  updateReportImageSelection,
+  updateWordMergeChecked
+} from "../services/incidentsService";
 import { removeIncidentImage } from "../services/incidentPhotoService";
 import IncidentImageGallery from "./IncidentImageGallery";
 
-function DetailField({ label, value }) {
+function displayValue(value) {
+  const s = String(value ?? "").trim();
+  return s || "—";
+}
+
+function BasicItem({ label, children }) {
   return (
-    <p className="incident-drawer-field">
-      <span className="incident-drawer-label">{label}</span> {value || "—"}
-    </p>
+    <div className="incident-detail-basic-item">
+      <span className="incident-detail-basic-label">{label}</span>
+      <div className="incident-detail-basic-value">{children || "—"}</div>
+    </div>
+  );
+}
+
+function AccordionSection({ title, open, onToggle, children, className = "" }) {
+  const sectionRef = useRef(null);
+
+  useEffect(() => {
+    if (!open || !sectionRef.current) return;
+    const id = window.requestAnimationFrame(() => {
+      sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [open]);
+
+  return (
+    <section ref={sectionRef} className={`incident-detail-accordion ${className}`.trim()}>
+      <button
+        type="button"
+        className="incident-detail-accordion-trigger"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        <span>{title}</span>
+        <span className={`incident-detail-accordion-chevron${open ? " is-open" : ""}`} aria-hidden>
+          ▾
+        </span>
+      </button>
+      {open ? <div className="incident-detail-accordion-body">{children}</div> : null}
+    </section>
   );
 }
 
@@ -71,6 +113,9 @@ export default function IncidentDetailDrawer({
   const [saveError, setSaveError] = useState("");
   const [localIncident, setLocalIncident] = useState(incident);
   const [deletingUrl, setDeletingUrl] = useState(null);
+  const [savingMeta, setSavingMeta] = useState(false);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
   const beforeAll = localIncident ? beforeConstructionImages(localIncident) : [];
   const afterAll = localIncident ? afterConstructionImages(localIncident) : [];
@@ -86,6 +131,12 @@ export default function IncidentDetailDrawer({
     setSaveError("");
   }, [incident?.id, open, incident]);
 
+  useEffect(() => {
+    if (!open) return;
+    setIsDetailsOpen(false);
+    setIsHistoryOpen(false);
+  }, [incident?.id, open]);
+
   async function persistReportSlots(nextSlots) {
     if (!localIncident || !uid) return;
     setReportSlots(nextSlots);
@@ -99,6 +150,14 @@ export default function IncidentDetailDrawer({
         selectedBefore,
         selectedAfter
       );
+      if (
+        isBaoLuGroup(localIncident.groupName) &&
+        nextSlots.length > 0 &&
+        !localIncident.wordMergeChecked
+      ) {
+        await updateWordMergeChecked(uid, localIncident.id, true);
+        setLocalIncident((prev) => (prev ? { ...prev, wordMergeChecked: true } : prev));
+      }
       setSaveError("");
     } catch {
       setSaveError("Không lưu được lựa chọn ảnh.");
@@ -122,6 +181,18 @@ export default function IncidentDetailDrawer({
     void persistReportSlots(clearReportImageSlots(reportSlots, kind));
   }
 
+  function handleSelectAllPhotos() {
+    if (!localIncident) return;
+    let next = selectAllReportImageSlots(reportSlots, "before", beforeUrls);
+    next = selectAllReportImageSlots(next, "after", afterUrls);
+    void persistReportSlots(next);
+  }
+
+  function handleClearAllPhotos() {
+    if (!localIncident) return;
+    void persistReportSlots([]);
+  }
+
   function handleOrderChange(kind, url, order) {
     if (!localIncident) return;
     void persistReportSlots(assignReportSlotOrder(reportSlots, kind, url, order));
@@ -138,98 +209,156 @@ export default function IncidentDetailDrawer({
         ...localIncident,
         beforeImages: patch.beforeImages,
         afterImages: patch.afterImages,
+        updates: patch.updates,
         reportImageOrder: patch.reportImageOrder,
         selectedBefore: patch.selectedBefore,
         selectedAfter: patch.selectedAfter
       });
       setReportSlots(patch.slots);
-    } catch {
-      setSaveError("Không xóa được ảnh.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      setSaveError(msg && !msg.includes("Firebase") ? msg : "Không xóa được ảnh.");
     } finally {
       setDeletingUrl(null);
     }
   }
 
+  async function handleProgressChange(raw) {
+    if (!localIncident || !uid || savingMeta) return;
+    const p = clampProgress(raw);
+    setSavingMeta(true);
+    setSaveError("");
+    try {
+      const result = await updateIncidentProgressFields(uid, localIncident.id, {
+        progress: p
+      });
+      setLocalIncident({
+        ...localIncident,
+        progress: result.progress ?? p,
+        status: result.status ?? statusFromProgress(p)
+      });
+    } catch {
+      setSaveError("Không lưu được tiến độ.");
+    } finally {
+      setSavingMeta(false);
+    }
+  }
+
   if (!open || !incident || !localIncident) return null;
 
-  const vol = computeKhoiLuong(localIncident);
-  const volUnit = formatIncidentUnit(localIncident);
   const status = localIncident.status ?? statusFromProgress(localIncident.progress);
+  const filterStatus = dispatchFilterStatus(localIncident);
+  const historyCount = buildIncidentTimelineEvents(localIncident).length;
+  const selectedPhotoCount = reportSlots.length;
+  const totalPhotoCount = beforeUrls.length + afterUrls.length;
+  const geo = splitVolumeByGeology(localIncident);
 
   return (
     <div className="incident-drawer-overlay" onClick={onClose}>
       <div
-        className="incident-drawer"
+        className="incident-drawer incident-drawer--detail"
         role="dialog"
         aria-modal="true"
         aria-labelledby="incident-drawer-title"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="incident-drawer-head">
-          <h3 id="incident-drawer-title">
-            {localIncident.road || "—"} · {localIncident.km || "—"} · {localIncident.type || "—"}
-          </h3>
-          <button type="button" className="incident-drawer-close" onClick={onClose} aria-label="Đóng">
-            ×
-          </button>
+        <div className="incident-drawer-head incident-drawer-head--sticky">
+          <div className="incident-detail-head-main">
+            <h3 id="incident-drawer-title">
+              {displayValue(localIncident.road)} · {displayValue(localIncident.km)}
+            </h3>
+            <p className="incident-detail-head-sub">
+              {displayValue(localIncident.type)}
+              <span className="incident-detail-head-sep" aria-hidden>
+                ·
+              </span>
+              {displayValue(localIncident.groupName)}
+            </p>
+          </div>
+          <div className="incident-detail-head-meta">
+            <span
+              className={`incident-detail-status-badge incident-detail-status-badge--${filterStatus.toLowerCase()}`}
+            >
+              {statusLabel(status)}
+            </span>
+            <span className="incident-detail-progress-pill">
+              {clampProgress(localIncident.progress)}%
+            </span>
+            <button
+              type="button"
+              className="incident-drawer-close"
+              onClick={onClose}
+              aria-label="Đóng"
+            >
+              ×
+            </button>
+          </div>
         </div>
 
-        <div className="incident-drawer-body">
-          <div className="incident-drawer-grid">
-            <DetailField label="Tuyến:" value={localIncident.road} />
-            <DetailField label="Lý trình:" value={localIncident.km} />
-            <DetailField label="Phía:" value={positionLabel(localIncident.position)} />
-            <DetailField label="Loại:" value={localIncident.type} />
-            <DetailField label="Nhóm:" value={localIncident.groupName} />
-            <DetailField label="Kích thước:" value={formatIncidentSize(localIncident)} />
-            <DetailField
-              label="Khối lượng:"
-              value={vol > 0 ? `${formatKhoiLuong(localIncident)} ${volUnit !== "—" ? volUnit : ""}`.trim() : "—"}
-            />
-            <DetailField label="Tiến độ:" value={progressLabelPct(localIncident.progress)} />
-            <DetailField label="Trạng thái:" value={statusLabel(status)} />
-            <DetailField label="Người tạo:" value={localIncident.createdByName} />
-            <DetailField label="Ngày xảy ra:" value={localIncident.date} />
-            <DetailField label="Ngày hoàn thành:" value={localIncident.completedDate} />
-          </div>
+        <div className="incident-drawer-body incident-drawer-body--detail">
+          <section className="incident-detail-basics" aria-label="Thông tin cơ bản">
+            <table className="incident-detail-basics-table">
+              <thead>
+                <tr>
+                  <th scope="col">Phía</th>
+                  <th scope="col">Dài</th>
+                  <th scope="col">Rộng</th>
+                  <th scope="col">Cao</th>
+                  <th scope="col">ĐVT</th>
+                  <th scope="col">KL đất</th>
+                  <th scope="col">KL đá</th>
+                  <th scope="col">KL tổng</th>
+                  <th scope="col">Ngày xảy ra</th>
+                  <th scope="col">Hoàn thành</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>{displayValue(positionLabel(localIncident.position))}</td>
+                  <td className="incident-detail-basics-num">
+                    {formatDimValue(localIncident.dai)}
+                  </td>
+                  <td className="incident-detail-basics-num">
+                    {formatDimValue(localIncident.rong)}
+                  </td>
+                  <td className="incident-detail-basics-num">
+                    {formatDimValue(localIncident.cao)}
+                  </td>
+                  <td>{formatIncidentUnit(localIncident)}</td>
+                  <td className="incident-detail-basics-num">
+                    {geo.soil != null ? formatDimValue(geo.soil) : "—"}
+                  </td>
+                  <td className="incident-detail-basics-num">
+                    {geo.rock != null ? formatDimValue(geo.rock) : "—"}
+                  </td>
+                  <td className="incident-detail-basics-num">
+                    {formatKhoiLuong(localIncident)}
+                  </td>
+                  <td>{displayValue(localIncident.date)}</td>
+                  <td>{displayValue(localIncident.completedDate)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
 
-          {(importNote || suggestedSection) && (
-            <div className="incident-drawer-nk">
-              {suggestedSection && (
-                <p>
-                  <span className="incident-drawer-label">Gợi ý mục NK:</span> {suggestedSection}
-                </p>
-              )}
-              {importNote && (
-                <p className="incident-drawer-import">
-                  <span className="incident-drawer-label">Đã đưa vào nhật ký:</span> {importNote}
-                </p>
-              )}
-            </div>
-          )}
-
-          {localIncident.note && (
-            <p className="incident-drawer-note">
-              <span className="incident-drawer-label">Ghi chú:</span> {localIncident.note}
-            </p>
-          )}
-
-          <p className="incident-drawer-muted incident-drawer-photo-hint">
-            Bấm <span className="incident-drawer-hint-strong">✓</span> chọn ảnh, điền{" "}
-            <span className="incident-drawer-hint-strong">STT</span> ở ô dưới mỗi ảnh (HT / XL xen kẽ
-            tùy STT). Thùng rác ở góc dưới ảnh để xóa.
-          </p>
+          {saveError ? <p className="incident-drawer-error">{saveError}</p> : null}
           {hiddenPhotoCount > 0 ? (
             <p className="incident-drawer-muted incident-drawer-photo-sync-hint">
               {hiddenPhotoCount} ảnh chưa có link cloud (chỉ lưu trên app). Dùng{" "}
               <strong>Khôi phục ảnh cloud</strong> trên trang Hiện trường để bổ sung.
             </p>
           ) : null}
-          {saveError ? <p className="incident-drawer-error">{saveError}</p> : null}
 
           <IncidentImageGallery
             beforeUrls={beforeUrls}
             afterUrls={afterUrls}
+            wordBarTitle="Ảnh dùng trong báo cáo Word"
+            wordBarHint="Chọn ảnh và sắp xếp thứ tự xuất báo cáo."
+            selectedSummary={
+              totalPhotoCount > 0
+                ? `Đã chọn ${selectedPhotoCount}/${totalPhotoCount} ảnh`
+                : "Chưa có ảnh"
+            }
             selection={
               uid
                 ? {
@@ -243,7 +372,9 @@ export default function IncidentDetailDrawer({
                     onOrderChange: handleOrderChange,
                     onToggle: handleToggle,
                     onSelectAll: handleSelectAll,
-                    onClearAll: handleClearAll
+                    onClearAll: handleClearAll,
+                    onSelectAllPhotos: handleSelectAllPhotos,
+                    onClearAllPhotos: handleClearAllPhotos
                   }
                 : undefined
             }
@@ -251,10 +382,67 @@ export default function IncidentDetailDrawer({
             deletingUrl={deletingUrl}
           />
 
-          <div className="incident-drawer-section">
-            <p className="incident-drawer-section-title">Lịch sử</p>
-            <IncidentTimeline incident={localIncident} />
-          </div>
+          <AccordionSection
+            title="Thông tin chi tiết"
+            open={isDetailsOpen}
+            onToggle={() => setIsDetailsOpen((v) => !v)}
+          >
+            <div className="incident-detail-meta-grid">
+              <BasicItem label="Nhóm">{displayValue(localIncident.groupName)}</BasicItem>
+              <BasicItem label="Trạng thái">{displayValue(statusLabel(status))}</BasicItem>
+              <BasicItem label="Tiến độ">
+                {uid ? (
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    className="sidebar-input incident-drawer-date-input"
+                    value={localIncident.progress ?? 0}
+                    disabled={savingMeta}
+                    onChange={(e) => {
+                      const p = clampProgress(e.target.value);
+                      setLocalIncident((prev) =>
+                        prev
+                          ? { ...prev, progress: p, status: statusFromProgress(p) }
+                          : prev
+                      );
+                    }}
+                    onBlur={(e) => void handleProgressChange(e.target.value)}
+                    aria-label="Tiến độ phần trăm"
+                  />
+                ) : (
+                  progressLabelPct(localIncident.progress)
+                )}
+              </BasicItem>
+              {suggestedSection ? (
+                <BasicItem label="Gợi ý mục NK">{displayValue(suggestedSection)}</BasicItem>
+              ) : null}
+              {importNote ? (
+                <BasicItem label="Đã đưa vào nhật ký">{displayValue(importNote)}</BasicItem>
+              ) : null}
+              <BasicItem label="Người tạo">
+                <span className="incident-detail-basic-value--wrap">
+                  {displayValue(localIncident.createdByName)}
+                </span>
+              </BasicItem>
+              <BasicItem label="Ghi chú">
+                <span className="incident-detail-basic-value--wrap">
+                  {displayValue(localIncident.note)}
+                </span>
+              </BasicItem>
+            </div>
+          </AccordionSection>
+
+          <AccordionSection
+            title={`Lịch sử hoạt động (${historyCount})`}
+            open={isHistoryOpen}
+            onToggle={() => setIsHistoryOpen((v) => !v)}
+            className="incident-detail-accordion--history"
+          >
+            <div className="incident-detail-history-scroll">
+              <IncidentTimeline incident={localIncident} />
+            </div>
+          </AccordionSection>
         </div>
       </div>
     </div>

@@ -4,12 +4,18 @@ import {
   congScope,
   loadCongRegistry,
   loadLegacyCongRegistry,
-  setCongRegistry
+  migrateBookCongToFirstRoute,
+  setCongRegistry,
+  writeCongScope,
+  normalizeCongEntry,
+  hasCongRegistryStored
 } from "../utils/congRegistryStore";
+import { filterAssetsForRoute, getRoadRoutes, routeNameLabel, routeRegistryCloudKey } from "../utils/roadsCatalog";
 
 /**
  * Hồ sơ cống đồng bộ lên Firestore của TỪNG user, gom theo TÊN ĐƯỜNG:
- *   users/{uid}/master_data/cong_registry = { byRoad: { "<roadName>": [ {km,type,length} ] } }
+ *   users/{uid}/master_data/cong_registry = { byRoad: { "<roadName>": [ {km,type,length,...} ] } }
+ * Giữ km/type/length để app tuần đường đọc; thêm field chi tiết biểu thống kê.
  */
 function registryRef(uid) {
   return doc(db, "users", uid, "master_data", "cong_registry");
@@ -17,12 +23,57 @@ function registryRef(uid) {
 
 function cleanList(list) {
   return (Array.isArray(list) ? list : [])
-    .map((e) => ({
-      km: String(e?.km || "").trim(),
-      type: String(e?.type || "").trim(),
-      length: String(e?.length ?? "").trim()
-    }))
-    .filter((e) => e.km || e.type || e.length);
+    .map((e) => normalizeCongEntry(e))
+    .filter(
+      (e) =>
+        e.id ||
+        e.km ||
+        e.type ||
+        e.length ||
+        e.aperture ||
+        e.body ||
+        e.lenTron ||
+        e.lenHop ||
+        e.lenBan ||
+        e.lenVom ||
+        e.lenDaKhan ||
+        e.lenKhac
+    );
+}
+
+/**
+ * Khi cloud chưa có id (dữ liệu cũ), giữ lại id local cùng lý trình
+ * để không đổi id mỗi lần hydrate.
+ */
+function prepareCloudCongList(cloudList, localList) {
+  const locals = Array.isArray(localList) ? localList : [];
+  const usedIds = new Set();
+  return (Array.isArray(cloudList) ? cloudList : []).map((raw) => {
+    const existing = String(raw?.id || "").trim();
+    const km = String(raw?.km || "").trim();
+    const match = locals.find((l) => {
+      const lid = String(l?.id || "").trim();
+      if (!lid || usedIds.has(lid)) return false;
+      if (existing && lid === existing) return true;
+      return km && String(l?.km || "").trim() === km;
+    });
+    if (match?.id) usedIds.add(String(match.id).trim());
+    const id = existing || match?.id;
+    // Giữ opStatus (+ chi tiết/KL) local nếu cloud chưa có.
+    const opStatus = String(raw?.opStatus || match?.opStatus || "").trim();
+    const opStatusAt = String(raw?.opStatusAt || match?.opStatusAt || "").trim();
+    const opStatusDetail = String(raw?.opStatusDetail || match?.opStatusDetail || "").trim();
+    const opStatusQuantity = String(
+      raw?.opStatusQuantity || match?.opStatusQuantity || ""
+    ).trim();
+    return normalizeCongEntry({
+      ...raw,
+      ...(id ? { id } : {}),
+      ...(opStatus
+        ? { opStatus, opStatusAt, opStatusDetail, opStatusQuantity }
+        : {})
+    });
+  });
 }
 
 function filledCount(list) {
@@ -51,38 +102,56 @@ function extractQlCode(name) {
 
 function roadCandidates(road) {
   if (!road) return [];
-  return [road.roadName, road.label, road.hat]
-    .map((s) => String(s || "").trim())
-    .filter(Boolean);
+  const names = [road.roadName, road.label, road.hat];
+  if (Array.isArray(road.routes)) {
+    for (const r of road.routes) {
+      if (r?.roadName) names.push(r.roadName);
+    }
+  }
+  return names.map((s) => String(s || "").trim()).filter(Boolean);
 }
 
 /**
  * Ghép list cloud theo tên đường.
  * Cloud thực tế thường có key "QL.37" — khớp exact / fuzzy / mã QL / 1 đường duy nhất.
+ * Sổ nhiều nhánh: gộp list từ mọi tên đường/nhánh.
  */
 export function pickCongListForRoad(cloudByRoad, road, { alone = false } = {}) {
   if (!cloudByRoad || !road) return [];
-  const keys = Object.keys(cloudByRoad).filter((k) => Array.isArray(cloudByRoad[k]) && cloudByRoad[k].length);
+  const keys = Object.keys(cloudByRoad).filter(
+    (k) => Array.isArray(cloudByRoad[k]) && cloudByRoad[k].length
+  );
   if (!keys.length) return [];
 
   const candidates = roadCandidates(road);
+  const collected = [];
+  const seen = new Set();
+
+  function pushList(list) {
+    for (const item of list || []) {
+      const token = `${String(item?.km || "").trim()}|${String(item?.type || "").trim()}|${String(item?.length ?? "").trim()}`;
+      if (seen.has(token)) continue;
+      seen.add(token);
+      collected.push(item);
+    }
+  }
 
   for (const c of candidates) {
-    if (cloudByRoad[c]?.length) return cloudByRoad[c];
+    if (cloudByRoad[c]?.length) pushList(cloudByRoad[c]);
   }
 
   for (const c of candidates) {
     const nc = normalizeRoadKey(c);
     if (!nc) continue;
     const hit = keys.find((k) => normalizeRoadKey(k) === nc);
-    if (hit) return cloudByRoad[hit];
+    if (hit) pushList(cloudByRoad[hit]);
   }
 
   for (const c of candidates) {
     const code = extractQlCode(c);
     if (!code) continue;
     const hit = keys.find((k) => extractQlCode(k) === code || normalizeRoadKey(k) === code);
-    if (hit) return cloudByRoad[hit];
+    if (hit) pushList(cloudByRoad[hit]);
   }
 
   for (const c of candidates) {
@@ -92,8 +161,10 @@ export function pickCongListForRoad(cloudByRoad, road, { alone = false } = {}) {
       const nk = normalizeRoadKey(k);
       return nk.includes(nc) || nc.includes(nk);
     });
-    if (hit) return cloudByRoad[hit];
+    if (hit) pushList(cloudByRoad[hit]);
   }
+
+  if (collected.length) return collected;
 
   // Một hạt đang làm + cloud chỉ có 1 tuyến → lấy luôn
   if (alone && keys.length === 1) return cloudByRoad[keys[0]];
@@ -101,34 +172,103 @@ export function pickCongListForRoad(cloudByRoad, road, { alone = false } = {}) {
   return [];
 }
 
+function cloudListAt(cloudByRoad, key) {
+  const k = String(key || "").trim();
+  if (!k || !cloudByRoad || !Object.prototype.hasOwnProperty.call(cloudByRoad, k)) {
+    return undefined;
+  }
+  return Array.isArray(cloudByRoad[k]) ? cloudByRoad[k] : undefined;
+}
+
+/**
+ * Key cloud đúng nhánh/đường (kể cả mảng rỗng sau «Xoá hết»).
+ * undefined = chưa có key trên cloud — đừng suy từ tuyến khác.
+ */
+export function explicitCloudCongList(cloudByRoad, route, siblingRoutes = []) {
+  if (!cloudByRoad || !route) return undefined;
+  const uniqueKey = routeRegistryCloudKey(route);
+  const unique = cloudListAt(cloudByRoad, uniqueKey);
+  if (unique !== undefined) return unique;
+  const name = routeNameLabel(route);
+  if (!name) return undefined;
+  const sameName = (Array.isArray(siblingRoutes) ? siblingRoutes : []).filter(
+    (r) => routeNameLabel(r) === name
+  );
+  if (sameName.length > 1) return undefined;
+  return cloudListAt(cloudByRoad, name);
+}
+
+export function explicitCloudCongListForRoad(cloudByRoad, road) {
+  if (!cloudByRoad || !road) return undefined;
+  for (const c of roadCandidates(road)) {
+    const hit = cloudListAt(cloudByRoad, c);
+    if (hit !== undefined) return hit;
+  }
+  return undefined;
+}
+
+/**
+ * Ghép list cloud theo đúng 1 nhánh (key tên+km / routeId; legacy: tên nếu không trùng nhánh).
+ */
+export function pickCongListForRoute(cloudByRoad, route, siblingRoutes = []) {
+  const explicit = explicitCloudCongList(cloudByRoad, route, siblingRoutes);
+  if (explicit !== undefined) return explicit;
+  if (!cloudByRoad || !route) return [];
+  const name = routeNameLabel(route);
+  if (!name) return [];
+  return pickCongListForRoad(
+    cloudByRoad,
+    { roadName: name, label: name, routes: [route] },
+    { alone: false }
+  );
+}
+
+/** Cache ngắn để mở lại tab DS cống không chờ Firestore mỗi lần. */
+const CONG_FETCH_TTL_MS = 60_000;
+const congFetchCache = new Map();
+
 /** Đọc toàn bộ hồ sơ cống (mọi đường) của user từ cloud → { "<đường>": [items] }. */
-export async function fetchAllCong(uid) {
+export async function fetchAllCong(uid, { force = false } = {}) {
   if (!uid) return {};
+  const cached = congFetchCache.get(uid);
+  if (!force && cached && Date.now() - cached.at < CONG_FETCH_TTL_MS) {
+    return cached.data;
+  }
   try {
     const snap = await getDoc(registryRef(uid));
-    if (!snap.exists()) return {};
+    if (!snap.exists()) {
+      congFetchCache.set(uid, { at: Date.now(), data: {} });
+      return {};
+    }
     const byRoad = snap.data()?.byRoad ?? {};
     const out = {};
     Object.keys(byRoad).forEach((k) => {
       out[k] = cleanList(byRoad[k]);
     });
+    congFetchCache.set(uid, { at: Date.now(), data: out });
     return out;
   } catch (err) {
     console.warn("Không đọc được hồ sơ cống từ cloud.", err);
-    return {};
+    return cached?.data || {};
   }
 }
 
+/** Xoá cache sau khi push lên cloud để lần hydrate sau lấy bản mới. */
+export function invalidateCongFetchCache(uid) {
+  if (uid) congFetchCache.delete(uid);
+  else congFetchCache.clear();
+}
+
 /**
- * Nạp hồ sơ cống từ cloud vào localStorage theo từng hạt/đường của user.
- * Ưu tiên cloud khi máy trống hoặc cloud nhiều hơn máy.
+ * Nạp hồ sơ cống từ cloud vào localStorage theo từng hạt/đường (và từng nhánh nếu có).
+ * Ưu tiên cloud khi máy trống, cloud ≥ local, hoặc force (browse/readOnly).
  */
 export async function hydrateCongRegistriesFromCloud(uid, roads, { force = false } = {}) {
   if (!uid || !Array.isArray(roads) || !roads.length) {
     return { loadedRoads: 0, total: 0, cloudKeys: [] };
   }
 
-  const cloud = await fetchAllCong(uid);
+  const cloud = await fetchAllCong(uid, { force: true });
   const cloudKeys = Object.keys(cloud).filter((k) => cloud[k]?.length);
   const legacy = loadLegacyCongRegistry();
   const alone = roads.length === 1;
@@ -137,33 +277,77 @@ export async function hydrateCongRegistriesFromCloud(uid, roads, { force = false
 
   for (const road of roads) {
     if (!road?.id) continue;
+    const routes = getRoadRoutes(road);
+
+    if (routes.length > 1) {
+      migrateBookCongToFirstRoute(uid, road.id, routes);
+      for (const route of routes) {
+        if (!route?.id) continue;
+        const scope = writeCongScope(uid, road.id, route.id, routes);
+        const local = loadCongRegistry(scope);
+        const explicit = explicitCloudCongList(cloud, route, routes);
+        if (explicit !== undefined) {
+          const list = filterAssetsForRoute(explicit, route, routes);
+          setCongRegistry(
+            scope,
+            list.length ? prepareCloudCongList(list, local) : []
+          );
+          loadedRoads += 1;
+          total += list.length;
+          continue;
+        }
+        // Chưa có key cloud đúng nhánh: máy trống mới suy từ tuyến khác.
+        if (!force && hasCongRegistryStored(scope)) continue;
+        let list = pickCongListForRoute(cloud, route, routes);
+        if (!list.length) continue;
+        list = filterAssetsForRoute(list, route, routes);
+        if (!list.length) continue;
+        if (!force && filledCount(local) > filledCount(list)) continue;
+        setCongRegistry(scope, prepareCloudCongList(list, local));
+        loadedRoads += 1;
+        total += list.length;
+      }
+      continue;
+    }
+
     const scope = congScope(uid, road.id);
     const local = loadCongRegistry(scope);
-    const localFilled = filledCount(local);
+    const explicit = explicitCloudCongListForRoad(cloud, road);
+    if (explicit !== undefined) {
+      setCongRegistry(
+        scope,
+        explicit.length ? prepareCloudCongList(explicit, local) : []
+      );
+      loadedRoads += 1;
+      total += explicit.length;
+      continue;
+    }
 
     let list = pickCongListForRoad(cloud, road, { alone });
     if (!list.length && alone && legacy.length) list = legacy;
 
     if (!list.length) continue;
+    if (!force && hasCongRegistryStored(scope)) continue;
+    if (!force && filledCount(local) > filledCount(list)) continue;
 
-    const cloudFilled = filledCount(list);
-    if (!force && localFilled > 0 && localFilled >= cloudFilled) continue;
-
-    setCongRegistry(scope, list);
+    setCongRegistry(scope, prepareCloudCongList(list, local));
     loadedRoads += 1;
     total += list.length;
   }
 
-  // Không khớp tên nào nhưng cloud có đúng 1 tuyến + máy có đúng 1 hạt → gán luôn
   if (loadedRoads === 0 && alone && cloudKeys.length === 1) {
     const road = roads[0];
-    const scope = congScope(uid, road.id);
-    const localFilled = filledCount(loadCongRegistry(scope));
-    const list = cloud[cloudKeys[0]];
-    if (list?.length && (force || localFilled === 0 || localFilled < list.length)) {
-      setCongRegistry(scope, list);
-      loadedRoads = 1;
-      total = list.length;
+    const routes = getRoadRoutes(road);
+    if (routes.length <= 1) {
+      const scope = congScope(uid, road.id);
+      const local = loadCongRegistry(scope);
+      const localFilled = filledCount(local);
+      const list = cloud[cloudKeys[0]];
+      if (list?.length && (force || localFilled <= list.length)) {
+        setCongRegistry(scope, prepareCloudCongList(list, local));
+        loadedRoads = 1;
+        total = list.length;
+      }
     }
   }
 
@@ -194,6 +378,7 @@ export async function pushManyCong(uid, updatesByRoad) {
     byRoad[r] = cleanList(updatesByRoad[road]);
   });
   await setDoc(ref, { byRoad, updatedAt: serverTimestamp() }, { merge: true });
+  invalidateCongFetchCache(uid);
 }
 
 /** Đọc danh sách cống của 1 đường từ cloud. */
@@ -228,4 +413,5 @@ export async function pushCongForRoad(uid, roadName, list) {
   }
   byRoad[road] = cleanList(list);
   await setDoc(ref, { byRoad, updatedAt: serverTimestamp() }, { merge: true });
+  invalidateCongFetchCache(uid);
 }

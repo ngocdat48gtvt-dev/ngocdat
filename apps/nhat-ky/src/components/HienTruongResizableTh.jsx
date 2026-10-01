@@ -1,6 +1,13 @@
-export default function HienTruongResizableTh({ colKey, fixed, children, onResizeStart, className = "" }) {
+export default function HienTruongResizableTh({
+  colKey,
+  fixed,
+  children,
+  onResizeStart,
+  className = "",
+  title
+}) {
   return (
-    <th className={className}>
+    <th className={className} title={title}>
       <span className="hientruong-th-label">{children}</span>
       {!fixed ? (
         <div

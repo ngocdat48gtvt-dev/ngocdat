@@ -1,19 +1,18 @@
 /** Cổng Báo cáo — ADMIN xem TK KL chung, không vào sổ hạt trưởng. */
 
-const SESSION_KEY = "nhatky_bao_cao";
+const LEGACY_SESSION_KEY = "nhatky_bao_cao";
 
 export function isBaoCaoMode() {
   try {
     const q = new URLSearchParams(window.location.search || "");
-    if (q.get("bao-cao") === "1" || q.get("mode") === "bao-cao") {
-      sessionStorage.setItem(SESSION_KEY, "1");
-      return true;
-    }
-    if ((window.location.hash || "").toLowerCase().includes("bao-cao")) {
-      sessionStorage.setItem(SESSION_KEY, "1");
-      return true;
-    }
-    return sessionStorage.getItem(SESSION_KEY) === "1";
+    const fromUrl =
+      q.get("bao-cao") === "1" ||
+      q.get("mode") === "bao-cao" ||
+      (window.location.hash || "").toLowerCase().includes("bao-cao");
+
+    // URL là nguồn duy nhất để Báo cáo và Sổ nội nghiệp không bị lẫn chế độ.
+    sessionStorage.removeItem(LEGACY_SESSION_KEY);
+    return fromUrl;
   } catch {
     return false;
   }
@@ -21,7 +20,7 @@ export function isBaoCaoMode() {
 
 export function clearBaoCaoMode() {
   try {
-    sessionStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(LEGACY_SESSION_KEY);
   } catch {
     /* ignore */
   }

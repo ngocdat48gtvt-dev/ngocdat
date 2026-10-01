@@ -2,7 +2,8 @@
  * Migration một lần: bổ sung field điều hành cho incidents cũ (không xóa field cũ).
  *
  * Cách chạy:
- *   cd scripts && npm install && set GOOGLE_APPLICATION_CREDENTIALS=path\to\serviceAccount.json
+ *   gcloud auth application-default login
+ *   cd scripts && npm install && set FIREBASE_PROJECT_ID=quanlysuco-6797e
  *   node migrate-incidents.mjs [--dry-run]
  *
  * Quy tắc suy luận an toàn:
@@ -12,8 +13,7 @@
  *   - updates: chỉ tạo mảng khởi tạo nếu chưa có
  */
 
-import { existsSync, readFileSync } from 'fs'
-import { initializeApp, cert, getApps } from 'firebase-admin/app'
+import { applicationDefault, initializeApp, getApps } from 'firebase-admin/app'
 import { getFirestore, Timestamp, FieldValue } from 'firebase-admin/firestore'
 
 const DRY_RUN = process.argv.includes('--dry-run')
@@ -27,28 +27,14 @@ const ONLY_UID = argValue('--uid')
 const ONLY_EMAIL = argValue('--email').toLowerCase()
 
 function initAdmin() {
-  const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS
-  if (!credPath) {
-    console.error(
-      'Thiếu GOOGLE_APPLICATION_CREDENTIALS.\n' +
-        'CMD:     set GOOGLE_APPLICATION_CREDENTIALS=C:\\duong\\dan\\key.json\n' +
-        'PowerShell: $env:GOOGLE_APPLICATION_CREDENTIALS="C:\\duong\\dan\\key.json"',
-    )
-    process.exit(1)
-  }
-  if (!existsSync(credPath)) {
-    console.error('Không tìm thấy file key:', credPath)
-    process.exit(1)
-  }
-  const serviceAccount = JSON.parse(readFileSync(credPath, 'utf8'))
-  const projectId = process.env.FIREBASE_PROJECT_ID || serviceAccount.project_id
+  const projectId = process.env.FIREBASE_PROJECT_ID
   if (!projectId) {
-    console.error('Không có project_id. Thêm FIREBASE_PROJECT_ID hoặc dùng file service account hợp lệ.')
+    console.error('Thiếu FIREBASE_PROJECT_ID. Đăng nhập ADC bằng gcloud auth application-default login rồi đặt biến project.')
     process.exit(1)
   }
   if (!getApps().length) {
     initializeApp({
-      credential: cert(serviceAccount),
+      credential: applicationDefault(),
       projectId,
     })
   }

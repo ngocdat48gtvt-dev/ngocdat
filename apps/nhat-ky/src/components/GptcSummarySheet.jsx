@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import GptcAutoTextarea from "./GptcAutoTextarea";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import GptcAutoTextarea, { syncGptcAutogrowRows } from "./GptcAutoTextarea";
 import {
   SUMMARY_FIELD_KEYS,
   isPermitRowFilled,
@@ -10,31 +10,17 @@ import {
 function CellInput({ value, onChange, editable, onFocusCell, onPasteCell }) {
   if (!editable) return <span className="gptc-cell-text">{value || ""}</span>;
   return (
-    <input
-      type="text"
-      className="gptc-cell-input"
+    <GptcAutoTextarea
       value={value ?? ""}
-      onChange={(e) => onChange(e.target.value)}
-      onClick={(e) => e.stopPropagation()}
-      onMouseDown={(e) => e.stopPropagation()}
+      onChange={onChange}
       onFocus={onFocusCell}
       onPaste={onPasteCell}
+      className="gptc-cell-input--summary"
     />
   );
 }
 
-function SummaryCell({ editable, value, onChange, onFocusCell, onPasteCell, multiline }) {
-  if (multiline) {
-    return (
-      <GptcAutoTextarea
-        readOnly={!editable}
-        value={value}
-        onChange={onChange}
-        onFocus={onFocusCell}
-        onPaste={onPasteCell}
-      />
-    );
-  }
+function SummaryCell({ editable, value, onChange, onFocusCell, onPasteCell }) {
   return (
     <CellInput
       editable={editable}
@@ -53,21 +39,28 @@ export default function GptcSummarySheet({
   colWidths = [],
   onRowSelect,
   onOpenDetail,
+  onDeletePermit,
   onChangePermit,
   onColWidthsChange,
   onPasteGrid,
   /** Chế độ in: dùng pageRows (đã pad), chiều cao dòng cố định */
   printMode = false,
   pageRows = null,
-  rowHMm = 14
+  rowHMm = 14,
+  rowHeightsMm = null
 }) {
   const focusRef = useRef({ row: 0, col: 1 });
   const resizeRef = useRef(null);
+  const sheetRef = useRef(null);
+  const tableRef = useRef(null);
   const [resizing, setResizing] = useState(false);
+  const [railMetrics, setRailMetrics] = useState({ padTop: 0, rowHs: [] });
 
   const titleRoad = ledger.tenTuyen || "…………………………";
   const year = ledger.year || "…………";
   const widths = colWidths?.length === 9 ? colWidths : ledger.summaryColWidths;
+  const widthSum = widths.reduce((a, b) => a + (Number(b) || 0), 0) || 1;
+  const rows = printMode ? pageRows || [] : ledger.permits || [];
 
   const setFocus = useCallback((row, col) => {
     focusRef.current = { row, col };
@@ -125,9 +118,52 @@ export default function GptcSummarySheet({
     return () => document.body.classList.remove("gptc-col-resizing");
   }, [resizing]);
 
-  return (
+  const measureRail = useCallback(() => {
+    if (printMode) return;
+    const sheet = sheetRef.current;
+    const table = tableRef.current;
+    if (!sheet || !table?.tBodies?.[0]) return;
+    const sheetTop = sheet.getBoundingClientRect().top;
+    const bodyRows = Array.from(table.tBodies[0].rows);
+    const first = bodyRows[0];
+    const padTop = first ? first.getBoundingClientRect().top - sheetTop : 0;
+    const rowHs = bodyRows.map((r) => r.getBoundingClientRect().height);
+    setRailMetrics((prev) => {
+      const same =
+        Math.abs(prev.padTop - padTop) < 0.5 &&
+        prev.rowHs.length === rowHs.length &&
+        prev.rowHs.every((h, i) => Math.abs(h - rowHs[i]) < 0.5);
+      return same ? prev : { padTop, rowHs };
+    });
+  }, [printMode]);
+
+  useLayoutEffect(() => {
+    if (!printMode && tableRef.current) {
+      syncGptcAutogrowRows(tableRef.current);
+    }
+    measureRail();
+  }, [measureRail, printMode, rows, widths, editable, selectedId, ledger?.tenTuyen, ledger?.year]);
+
+  useEffect(() => {
+    if (printMode) return undefined;
+    const table = tableRef.current;
+    if (!table || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(() => measureRail());
+    ro.observe(table);
+    Array.from(table.tBodies?.[0]?.rows || []).forEach((r) => ro.observe(r));
+    window.addEventListener("resize", measureRail);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measureRail);
+    };
+  }, [printMode, measureRail, rows.length]);
+
+  const sheet = (
     <div
-      className={`gptc-sheet gptc-sheet--landscape gptc-sheet--a4-landscape gptc-sheet--summary gptc-print-section${printMode ? " gptc-sheet--print-embed" : ""}`}
+      ref={sheetRef}
+      className={`gptc-sheet gptc-sheet--landscape gptc-sheet--a4-landscape gptc-sheet--summary gptc-print-section${
+        printMode ? " gptc-sheet--print-embed" : ""
+      }`}
       data-print-section="gptc-summary"
       style={printMode ? { "--gptc-summary-row-h": `${rowHMm}mm` } : undefined}
     >
@@ -135,19 +171,23 @@ export default function GptcSummarySheet({
         BẢNG TỔNG HỢP CÔNG TRÌNH ĐƯỢC CẤP PHÉP TUYẾN {titleRoad} NĂM {year}
       </h2>
 
-      {editable && (
-        <p className="gptc-paste-hint no-print">
-          Click ô rồi gõ hoặc Ctrl+V từ Excel (dán đúng cột). Double-click dòng để mở sổ chi tiết.
-        </p>
-      )}
-
       <div className={`gptc-table-scroll${printMode ? " gptc-table-scroll--fill" : ""}`}>
         <table
-          className={`gptc-official-table gptc-summary-table${printMode ? " gptc-summary-table--print" : ""}`}
+          ref={tableRef}
+          className={`gptc-official-table gptc-summary-table${
+            printMode ? " gptc-summary-table--print" : " gptc-summary-table--edit"
+          }`}
         >
           <colgroup>
             {widths.map((w, i) => (
-              <col key={i} style={{ width: `${w}px` }} />
+              <col
+                key={i}
+                style={
+                  printMode
+                    ? { width: `${((Number(w) || 0) / widthSum) * 100}%` }
+                    : { width: `${w}px` }
+                }
+              />
             ))}
           </colgroup>
           <thead>
@@ -204,12 +244,35 @@ export default function GptcSummarySheet({
             </tr>
           </thead>
           <tbody>
-            {(printMode ? pageRows || [] : ledger.permits || []).map((p, rowIndex) => {
+            {rows.map((p, rowIndex) => {
+              const hMm =
+                printMode && Array.isArray(rowHeightsMm) && rowHeightsMm[rowIndex] != null
+                  ? rowHeightsMm[rowIndex]
+                  : printMode
+                    ? rowHMm
+                    : null;
+              const rowStyle =
+                hMm != null
+                  ? { height: `${hMm}mm`, maxHeight: `${hMm}mm` }
+                  : undefined;
+              const cellStyle =
+                hMm != null
+                  ? {
+                      height: `${hMm}mm`,
+                      minHeight: `${hMm}mm`,
+                      maxHeight: `${hMm}mm`
+                    }
+                  : undefined;
+
               if (!p) {
                 return (
-                  <tr key={`pad-${rowIndex}`} className="gptc-summary-row gptc-summary-row--pad">
+                  <tr
+                    key={`pad-${rowIndex}`}
+                    className="gptc-summary-row gptc-summary-row--pad"
+                    style={rowStyle}
+                  >
                     {Array.from({ length: 9 }, (_, i) => (
-                      <td key={i} className="gptc-data-cell">
+                      <td key={i} className="gptc-data-cell" style={cellStyle}>
                         <span className="gptc-cell-text">{"\u00A0"}</span>
                       </td>
                     ))}
@@ -223,12 +286,10 @@ export default function GptcSummarySheet({
 
               function cell(colIndex) {
                 const field = fields[colIndex];
-                const multiline = colIndex === 1 || colIndex === 4 || colIndex === 5 || colIndex === 8;
                 return (
-                  <td key={colIndex} className="gptc-data-cell">
+                  <td key={colIndex} className="gptc-data-cell" style={cellStyle}>
                     <SummaryCell
                       editable={editable && !printMode}
-                      multiline={multiline}
                       value={p[field]}
                       onChange={(v) => onChangePermit?.(p.id, field, v)}
                       onFocusCell={() => setFocus(rowIndex, colIndex)}
@@ -241,22 +302,16 @@ export default function GptcSummarySheet({
               return (
                 <tr
                   key={p.id}
-                  className={`gptc-summary-row${active ? " gptc-summary-row--active" : ""}${filled ? "" : " gptc-summary-row--empty"}`}
+                  className={`gptc-summary-row${active ? " gptc-summary-row--active" : ""}${
+                    filled ? "" : " gptc-summary-row--empty"
+                  }`}
+                  style={rowStyle}
                   onMouseDown={(e) => {
-                    if (printMode || e.target.closest("input, textarea")) return;
+                    if (printMode || e.target.closest("input, textarea, button")) return;
                     onRowSelect?.(p.id);
                   }}
-                  onDoubleClick={(e) => {
-                    if (printMode || e.target.closest("input, textarea")) return;
-                    onOpenDetail?.(p.id);
-                  }}
-                  title={
-                    editable && !printMode
-                      ? "Double-click dòng (không bấm ô) để mở BM02"
-                      : undefined
-                  }
                 >
-                  <td className="gptc-data-cell gptc-td-center gptc-col-stt">
+                  <td className="gptc-data-cell gptc-td-center gptc-col-stt" style={cellStyle}>
                     {filled ? p.stt : "\u00A0"}
                   </td>
                   {cell(1)}
@@ -280,6 +335,55 @@ export default function GptcSummarySheet({
           </tbody>
         </table>
       </div>
+    </div>
+  );
+
+  if (printMode) return sheet;
+
+  return (
+    <div className="gptc-summary-layout">
+      {sheet}
+      <aside className="gptc-summary-rail no-print" aria-label="Chi tiết / xóa công trình">
+        <div className="gptc-summary-rail-pad" style={{ height: `${railMetrics.padTop}px` }} />
+        {rows.map((p, i) => {
+          const h = railMetrics.rowHs[i] || 36;
+          if (!p || !isPermitRowFilled(p)) {
+            return <div key={p?.id || `empty-rail-${i}`} className="gptc-summary-rail-row" style={{ height: h }} />;
+          }
+          return (
+            <div key={p.id} className="gptc-summary-rail-row" style={{ height: h }}>
+              <div className="gptc-summary-rail-actions">
+                <button
+                  type="button"
+                  className="gptc-open-detail-btn"
+                  title="Mở sổ theo dõi chi tiết (BM02)"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRowSelect?.(p.id);
+                    onOpenDetail?.(p.id);
+                  }}
+                >
+                  Xem chi tiết
+                </button>
+                {editable && onDeletePermit ? (
+                  <button
+                    type="button"
+                    className="gptc-delete-permit-btn"
+                    title="Xóa công trình (BM01, BM02 và nhật ký liên quan)"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRowSelect?.(p.id);
+                      onDeletePermit(p.id);
+                    }}
+                  >
+                    Xóa
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </aside>
     </div>
   );
 }

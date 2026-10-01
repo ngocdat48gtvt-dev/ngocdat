@@ -45,7 +45,11 @@ export default function MatDuongTableHead({
   hasUnit = false,
   showExport = true,
   showResolved = true,
-  volumeLabel = "Diện tích hư hỏng (m²)"
+  showBaoLuExport = false,
+  volumeLabel = "Diện tích hư hỏng (m²)",
+  baoLuAllChecked = false,
+  baoLuSomeChecked = false,
+  onToggleAllBaoLu
 }) {
   const isQuick = variant === "quick";
   const sizeSpan = 2 + (hasHeight ? 1 : 0);
@@ -59,7 +63,8 @@ export default function MatDuongTableHead({
     1 +
     (showResolved ? 2 : 0) +
     (showExport ? 1 : 0) +
-    1;
+    1 +
+    (showBaoLuExport ? 1 : 0);
   const nums = Array.from({ length: colCount }, (_, i) => i + 1);
   return (
     <>
@@ -69,8 +74,7 @@ export default function MatDuongTableHead({
         </HeadCell>
         <th colSpan={2}>Vị trí, lý trình hư hỏng</th>
         <HeadCell colKey="md4" rowSpan={2} resizable={resizable} onResizeStart={onResizeStart}>
-          Trái/Phải/Giữa/Cả mặt
-          <span className="matduong-header-side">(T/P/G/M)</span>
+          Phía
         </HeadCell>
         <th colSpan={sizeSpan}>Kích thước</th>
         {hasUnit && (
@@ -93,6 +97,22 @@ export default function MatDuongTableHead({
         <HeadCell colKey="md12" rowSpan={2} resizable={resizable} onResizeStart={onResizeStart}>
           {isQuick ? "Ngày xuất sổ BDTX" : "Ý kiến của tuần kiểm viên"}
         </HeadCell>
+        {showBaoLuExport && (
+          <th rowSpan={2} title="Tick cả / bỏ tick cả — xuất sổ trực ĐBGT (bão lũ)">
+            <label className="baoduong-bao-lu-head">
+              <input
+                type="checkbox"
+                checked={baoLuAllChecked}
+                ref={(el) => {
+                  if (el) el.indeterminate = baoLuSomeChecked && !baoLuAllChecked;
+                }}
+                onChange={(e) => onToggleAllBaoLu?.(e.target.checked)}
+                aria-label="Tick tất cả cột Bão lũ"
+              />
+              <span>Bão lũ</span>
+            </label>
+          </th>
+        )}
       </tr>
       <tr className="matduong-header-sub">
         <HeadCell colKey="md2" resizable={resizable} onResizeStart={onResizeStart}>

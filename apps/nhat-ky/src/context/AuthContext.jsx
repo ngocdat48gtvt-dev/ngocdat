@@ -4,6 +4,7 @@ import { auth } from "../firebase/firebase";
 import { clearBaoCaoMode, isBaoCaoMode, resolvePortalId } from "../lib/baoCaoMode";
 import { clearPortalSession, initPortalAuth } from "../lib/portalAuth";
 import { loadUserProfile } from "../services/authService";
+import { resetQualityCatalogOwnerUid } from "../utils/baoDuongQualityStore";
 
 const AuthContext = createContext(null);
 
@@ -25,6 +26,7 @@ export function AuthProvider({ children }) {
     return onAuthStateChanged(auth, async (u) => {
       setAuthError("");
       if (!u) {
+        resetQualityCatalogOwnerUid();
         setUser(null);
         setProfile(null);
         setLoading(false);
@@ -41,11 +43,6 @@ export function AuthProvider({ children }) {
               ? "Tài khoản chưa kích hoạt hoặc hết hạn license."
               : "Tài khoản chưa kích hoạt, hết hạn license hoặc chưa được cấp quyền Sổ nội nghiệp."
           );
-        } else if (baoCaoMode && p.role !== "ADMIN") {
-          await signOut(auth);
-          setUser(null);
-          setProfile(null);
-          setAuthError("Cổng Báo cáo chỉ dành cho tài khoản ADMIN.");
         } else {
           setUser(u);
           setProfile(p);
@@ -60,15 +57,8 @@ export function AuthProvider({ children }) {
     });
   }, [portalReady, baoCaoMode]);
 
-  useEffect(() => {
-    if (!profile?.uid || baoCaoMode) return;
-    const key = `nhatky_${profile.uid}`;
-    if (!localStorage.getItem(key) && localStorage.getItem("nhatky")) {
-      localStorage.setItem(key, localStorage.getItem("nhatky"));
-    }
-  }, [profile?.uid, baoCaoMode]);
-
   async function logout() {
+    resetQualityCatalogOwnerUid();
     clearPortalSession(portalId);
     if (baoCaoMode) clearBaoCaoMode();
     await signOut(auth);

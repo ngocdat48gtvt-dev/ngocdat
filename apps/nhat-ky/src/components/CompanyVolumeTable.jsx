@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   formatCompanyPercent,
   companyContractKey
 } from "../utils/companyVolumeStats";
 import { formatStatsNumber } from "../utils/volumeStatsFormat";
+import { BAO_DUONG_GROUPS } from "../utils/baoDuongQualityStore";
+import { toRomanUpper } from "../utils/roadsCatalog";
 
 const COL_KEYS = [
   "pick",
@@ -11,7 +13,6 @@ const COL_KEYS = [
   "hat",
   "road",
   "user",
-  "section",
   "work",
   "unit",
   "done",
@@ -27,8 +28,7 @@ const DEFAULT_WIDTHS = {
   hat: 48,
   road: 150,
   user: 100,
-  section: 110,
-  work: 140,
+  work: 160,
   unit: 44,
   done: 58,
   contract: 70,
@@ -43,8 +43,7 @@ const MIN_WIDTHS = {
   hat: 36,
   road: 80,
   user: 64,
-  section: 72,
-  work: 80,
+  work: 90,
   unit: 34,
   done: 44,
   contract: 48,
@@ -56,10 +55,9 @@ const MIN_WIDTHS = {
 const HEADERS = [
   ["pick", "", false],
   ["stt", "STT", true],
-  ["hat", "Hạt", false],
+  ["hat", "Tuần đường", false],
   ["road", "Đường", false],
   ["user", "USER", false],
-  ["section", "Hạng mục", false],
   ["work", "Đầu việc", false],
   ["unit", "ĐVT", true],
   ["done", "Đã làm", true],
@@ -69,7 +67,32 @@ const HEADERS = [
   ["status", "Trạng thái", false]
 ];
 
-const STORAGE_KEY = "nhatky_company_stats_col_widths_v4";
+const STORAGE_KEY = "nhatky_company_stats_col_widths_v5";
+
+/** Gom đầu việc theo hạng mục — tiêu đề I. Mặt đường, II. Nền đường… */
+export function buildCompanySectionBlocks(rows) {
+  const bySection = new Map();
+  for (const r of rows || []) {
+    const sec = String(r.section || "").trim() || "Khác";
+    if (!bySection.has(sec)) bySection.set(sec, []);
+    bySection.get(sec).push(r);
+  }
+
+  const ordered = [];
+  for (const g of BAO_DUONG_GROUPS) {
+    if (bySection.has(g)) ordered.push(g);
+  }
+  for (const g of bySection.keys()) {
+    if (!ordered.includes(g)) ordered.push(g);
+  }
+
+  return ordered.map((section, i) => ({
+    section,
+    roman: toRomanUpper(i + 1),
+    label: `${toRomanUpper(i + 1)}. ${section}`,
+    rows: bySection.get(section) || []
+  }));
+}
 
 function loadWidths() {
   try {
@@ -110,6 +133,8 @@ export default function CompanyVolumeTable({
   const [colWidths, setColWidths] = useState(loadWidths);
   const [drafts, setDrafts] = useState({});
   const resizeRef = useRef(null);
+
+  const sectionBlocks = useMemo(() => buildCompanySectionBlocks(rows), [rows]);
 
   const selectableRows = rows.filter((r) => r.items?.length > 0);
   const selectedSet = new Set(selectedKeys);
@@ -176,6 +201,7 @@ export default function CompanyVolumeTable({
   }
 
   const tableWidth = COL_KEYS.reduce((sum, key) => sum + colWidths[key], 0);
+  const colSpan = COL_KEYS.length;
 
   return (
     <div className="stats-company-table-wrap">
@@ -219,71 +245,79 @@ export default function CompanyVolumeTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => {
-            const key = r.contractKey || companyContractKey(r);
-            const canPick = r.items?.length > 0;
-            const picked = selectedSet.has(r.key);
-            return (
-              <tr
-                key={r.key}
-                className={`${r.contractFromReport ? "is-hd-report" : ""}${picked ? " is-picked" : ""}`}
-              >
-                <td className="center">
-                  {canPick && (
-                    <input
-                      type="checkbox"
-                      className="stats-pick-check"
-                      checked={picked}
-                      onChange={() => onToggleSelect?.(r.key)}
-                      title="Chọn để xem / xuất chi tiết"
-                      aria-label={`Chọn ${r.workType}`}
-                    />
-                  )}
+          {sectionBlocks.map((block) => (
+            <Fragment key={`sec-${block.section}`}>
+              <tr className="stats-company-section-row">
+                <td colSpan={colSpan}>
+                  <span className="stats-company-section-label">{block.label}</span>
                 </td>
-                <td className="num">{i + 1}</td>
-                <td>{r.hat}</td>
-                <td title={roadLabel(r)}>{roadLabel(r)}</td>
-                <td title={r.userName}>{r.userName}</td>
-                <td>{r.section}</td>
-                <td>{r.workType}</td>
-                <td className="center">{r.unitLabel || r.unit}</td>
-                <td className="num">{formatStatsNumber(r.totalDone)}</td>
-                <td className="num stats-company-td-contract">
-                  {editable ? (
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      className="stats-company-hd-input"
-                      value={draftValue(r)}
-                      placeholder="—"
-                      title={
-                        r.contractFromReport
-                          ? "HĐ nhập trên Báo cáo"
-                          : "HĐ từ sổ USER — sửa để ghi đè trên Báo cáo"
-                      }
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setDrafts((prev) => ({ ...prev, [key]: v }));
-                      }}
-                      onBlur={() => commitContract(r)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") e.currentTarget.blur();
-                      }}
-                    />
-                  ) : r.contractQty != null ? (
-                    formatStatsNumber(r.contractQty)
-                  ) : (
-                    ""
-                  )}
-                </td>
-                <td className="num">
-                  {r.remaining != null ? formatStatsNumber(r.remaining) : ""}
-                </td>
-                <td className="num">{formatCompanyPercent(r.percent)}</td>
-                <td>{statusText(r)}</td>
               </tr>
-            );
-          })}
+              {block.rows.map((r, i) => {
+                const key = r.contractKey || companyContractKey(r);
+                const canPick = r.items?.length > 0;
+                const picked = selectedSet.has(r.key);
+                return (
+                  <tr
+                    key={r.key}
+                    className={`${r.contractFromReport ? "is-hd-report" : ""}${picked ? " is-picked" : ""}`}
+                  >
+                    <td className="center">
+                      {canPick && (
+                        <input
+                          type="checkbox"
+                          className="stats-pick-check"
+                          checked={picked}
+                          onChange={() => onToggleSelect?.(r.key)}
+                          title="Chọn để xem / xuất chi tiết"
+                          aria-label={`Chọn ${r.workType}`}
+                        />
+                      )}
+                    </td>
+                    <td className="num">{i + 1}</td>
+                    <td>{r.hat}</td>
+                    <td title={roadLabel(r)}>{roadLabel(r)}</td>
+                    <td title={r.userName}>{r.userName}</td>
+                    <td>{r.workType}</td>
+                    <td className="center">{r.unitLabel || r.unit}</td>
+                    <td className="num">{formatStatsNumber(r.totalDone)}</td>
+                    <td className="num stats-company-td-contract">
+                      {editable ? (
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          className="stats-company-hd-input"
+                          value={draftValue(r)}
+                          placeholder="—"
+                          title={
+                            r.contractFromReport
+                              ? "HĐ nhập trên Báo cáo"
+                              : "HĐ từ sổ USER — sửa để ghi đè trên Báo cáo"
+                          }
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setDrafts((prev) => ({ ...prev, [key]: v }));
+                          }}
+                          onBlur={() => commitContract(r)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") e.currentTarget.blur();
+                          }}
+                        />
+                      ) : r.contractQty != null ? (
+                        formatStatsNumber(r.contractQty)
+                      ) : (
+                        ""
+                      )}
+                    </td>
+                    <td className="num">
+                      {r.remaining != null ? formatStatsNumber(r.remaining) : ""}
+                    </td>
+                    <td className="num">{formatCompanyPercent(r.percent)}</td>
+                    <td>{statusText(r)}</td>
+                  </tr>
+                );
+              })}
+            </Fragment>
+          ))}
         </tbody>
       </table>
     </div>

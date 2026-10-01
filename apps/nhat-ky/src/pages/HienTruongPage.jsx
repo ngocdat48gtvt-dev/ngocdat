@@ -4,8 +4,12 @@ import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
 import ViDateInput from "../components/ViDateInput";
 import {
   fetchMyIncidents,
+  setMyIncidentsDatesBulk,
+  setMyIncidentsDossierRoundBulk,
   softDeleteIncident,
-  subscribeMyIncidents
+  subscribeMyIncidents,
+  updateWordMergeChecked,
+  updateWordMergeCheckedMany
 } from "../services/incidentsService";
 import {
   buildBaoCaoSuCoFilename,
@@ -15,6 +19,7 @@ import {
   formatDimValue,
   formatIncidentUnit,
   formatKhoiLuong,
+  hasExplicitReportSelection,
   isHighVolumeM3,
   positionLabel,
   splitVolumeByGeology,
@@ -50,8 +55,15 @@ const EMPTY_FILTERS = {
   status: "",
   dateFrom: "",
   dateTo: "",
-  chainageQuery: ""
+  chainageQuery: "",
+  dossierRound: ""
 };
+
+function dossierLabel(round) {
+  const n = Number(round);
+  if (!Number.isFinite(n) || n <= 0) return "Chưa trình";
+  return `Lần ${Math.floor(n)}`;
+}
 
 export default function HienTruongPage({ storageTick = 0, onImported }) {
   const { profile } = useAuth();
@@ -65,6 +77,7 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
   const [importMap, setImportMap] = useState({});
   const [importMapLoading, setImportMapLoading] = useState(true);
   const [checkedIds, setCheckedIds] = useState(() => new Set());
+  const [wordSaving, setWordSaving] = useState(false);
   const [importMessage, setImportMessage] = useState("");
   const [showImportModal, setShowImportModal] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState(null);
@@ -74,6 +87,10 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
   const [showTrash, setShowTrash] = useState(false);
   const [recoverOpen, setRecoverOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [bulkRound, setBulkRound] = useState("0");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkDate, setBulkDate] = useState("");
+  const [bulkCompletedDate, setBulkCompletedDate] = useState("");
   const { widths, tableWidth, startColumnResize } = useHienTruongDispatchColWidths();
 
   function openEdit(inc, event) {
@@ -157,6 +174,14 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
   const roads = useMemo(() => [...new Set(items.map((i) => i.road).filter(Boolean))], [items]);
   const groups = useMemo(() => [...new Set(items.map((i) => i.groupName).filter(Boolean))], [items]);
   const types = useMemo(() => [...new Set(items.map((i) => i.type).filter(Boolean))], [items]);
+  const dossierRoundOptions = useMemo(() => {
+    const rounds = new Set();
+    for (const inc of items) {
+      const n = Number(inc.dossierRound);
+      if (Number.isFinite(n) && n > 0) rounds.add(Math.floor(n));
+    }
+    return [...rounds].sort((a, b) => a - b);
+  }, [items]);
 
   const filtered = useMemo(
     () => sortIncidentsByKm(applyDispatchFilters(items, filters)),
@@ -168,15 +193,24 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
   const hasHighVolume = useMemo(() => filtered.some(isHighVolumeM3), [filtered]);
   const hasDuplicate = duplicateKeys.size > 0;
 
-  const importableFiltered = useMemo(
-    () => filtered.filter((inc) => isImportableIncident(inc, importMap)),
-    [filtered, importMap]
+  const selectedForImport = useMemo(
+    () => items.filter((inc) => checkedIds.has(inc.id) && isImportableIncident(inc, importMap)),
+    [items, checkedIds, importMap]
   );
 
-  const selectedForImport = useMemo(
-    () => items.filter((inc) => checkedIds.has(inc.id)),
-    [items, checkedIds]
+  const selectedForWord = useMemo(
+    () => filtered.filter((inc) => Boolean(inc.wordMergeChecked)),
+    [filtered]
   );
+
+  /** Có tick → chỉ xuất các dòng đã tick; không tick → xuất cả danh sách đã lọc (ảnh mặc định HT/XL đầu). */
+  const wordExportItems = useMemo(
+    () => (selectedForWord.length > 0 ? selectedForWord : filtered),
+    [selectedForWord, filtered]
+  );
+
+  const allWordFilteredSelected =
+    filtered.length > 0 && filtered.every((inc) => Boolean(inc.wordMergeChecked));
 
   function setFilter(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));
@@ -196,8 +230,23 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
     });
   }
 
-  function toggleSelectAllImportable() {
-    const ids = importableFiltered.map((inc) => inc.id);
+  async function toggleWordCheck(id, event) {
+    event.stopPropagation();
+    if (!profile?.uid || wordSaving) return;
+    const inc = items.find((x) => x.id === id);
+    if (!inc) return;
+    const next = !inc.wordMergeChecked;
+    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, wordMergeChecked: next } : x)));
+    try {
+      await updateWordMergeChecked(profile.uid, id, next);
+    } catch {
+      setItems((prev) => prev.map((x) => (x.id === id ? { ...x, wordMergeChecked: !next } : x)));
+      window.alert("Không lưu được tick Ghép ảnh Word lên cloud.");
+    }
+  }
+
+  function toggleSelectAllFiltered() {
+    const ids = filtered.map((inc) => inc.id);
     const allSelected = ids.length > 0 && ids.every((id) => checkedIds.has(id));
     if (allSelected) {
       setCheckedIds((prev) => {
@@ -210,9 +259,126 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
     }
   }
 
+  async function handleBulkSetRound() {
+    if (!profile?.uid || checkedIds.size === 0 || bulkBusy) return;
+    const round = Number(bulkRound);
+    if (!Number.isFinite(round) || round < 0) {
+      window.alert("Lần trình hồ sơ không hợp lệ.");
+      return;
+    }
+    const label = dossierLabel(round);
+    if (!window.confirm(`Gán «${label}» cho ${checkedIds.size} sự cố đã chọn?`)) return;
+    setBulkBusy(true);
+    try {
+      const { ok, fail } = await setMyIncidentsDossierRoundBulk(
+        profile.uid,
+        [...checkedIds],
+        round
+      );
+      if (ok > 0) {
+        setItems((prev) =>
+          prev.map((x) => (checkedIds.has(x.id) ? { ...x, dossierRound: round } : x))
+        );
+        setImportMessage(`Đã gán ${label} cho ${ok} sự cố.`);
+        setCheckedIds(new Set());
+      }
+      if (fail > 0) window.alert(`${fail} sự cố cập nhật thất bại.`);
+    } catch {
+      window.alert("Không gán được lần trình hồ sơ.");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function handleBulkApplyDates() {
+    if (!profile?.uid || checkedIds.size === 0 || bulkBusy) return;
+    const hasDate = Boolean(String(bulkDate || "").trim());
+    const hasCompleted = Boolean(String(bulkCompletedDate || "").trim());
+    if (!hasDate && !hasCompleted) {
+      window.alert("Chọn ít nhất một ngày (xảy ra hoặc hoàn thành) rồi bấm Áp dụng.");
+      return;
+    }
+
+    const parts = [];
+    if (hasDate) parts.push(`ngày xảy ra ${formatDisplayDate(bulkDate)}`);
+    if (hasCompleted) {
+      parts.push(`ngày hoàn thành ${formatDisplayDate(bulkCompletedDate)} (tiến độ 100%)`);
+    }
+    if (
+      !window.confirm(
+        `Áp dụng ${parts.join(" và ")} cho ${checkedIds.size} điểm đã chọn?\n\nÔ nào để trống sẽ không đổi.`
+      )
+    ) {
+      return;
+    }
+
+    const patch = {};
+    if (hasDate) patch.date = bulkDate;
+    if (hasCompleted) patch.completedDate = bulkCompletedDate;
+
+    setBulkBusy(true);
+    try {
+      const { ok, fail } = await setMyIncidentsDatesBulk(profile.uid, [...checkedIds], patch);
+      if (ok > 0) {
+        const dateVi = hasDate ? formatDisplayDate(bulkDate) : null;
+        const completedVi = hasCompleted ? formatDisplayDate(bulkCompletedDate) : null;
+        setItems((prev) =>
+          prev.map((x) => {
+            if (!checkedIds.has(x.id)) return x;
+            const next = { ...x };
+            if (dateVi != null) next.date = dateVi;
+            if (completedVi != null) {
+              next.completedDate = completedVi;
+              next.progress = 100;
+              next.status = "DONE";
+            }
+            return next;
+          })
+        );
+        setImportMessage(`Đã cập nhật ngày cho ${ok} sự cố.`);
+        setBulkDate("");
+        setBulkCompletedDate("");
+        setCheckedIds(new Set());
+      }
+      if (fail > 0) window.alert(`${fail} sự cố cập nhật thất bại.`);
+    } catch {
+      window.alert("Không cập nhật được ngày.");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function toggleSelectAllWord() {
+    if (!profile?.uid || wordSaving || filtered.length === 0) return;
+    const ids = filtered.map((inc) => inc.id);
+    const next = !allWordFilteredSelected;
+    setWordSaving(true);
+    setItems((prev) =>
+      prev.map((x) => (ids.includes(x.id) ? { ...x, wordMergeChecked: next } : x))
+    );
+    try {
+      await updateWordMergeCheckedMany(profile.uid, ids, next);
+    } catch {
+      setItems((prev) =>
+        prev.map((x) => (ids.includes(x.id) ? { ...x, wordMergeChecked: !next } : x))
+      );
+      window.alert("Không lưu được tick Ghép ảnh Word lên cloud.");
+    } finally {
+      setWordSaving(false);
+    }
+  }
+
+  function openWordExport() {
+    if (filtered.length === 0) {
+      window.alert("Không có dữ liệu để xuất Word.");
+      return;
+    }
+    setWordOpen(true);
+  }
+
   function openImportModal() {
-    if (checkedIds.size === 0) {
-      window.alert("Chọn ít nhất một sự cố để đưa vào nhật ký.");
+    if (selectedForImport.length === 0) {
+      window.alert("Chọn ít nhất một sự cố chưa vào nhật ký để đưa vào NK.");
       return;
     }
     setShowImportModal(true);
@@ -230,8 +396,13 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
         buildBaoCaoSuCoFilename(filtered, filters),
         { groupFilter: filters.groupName }
       );
-    } catch {
-      window.alert("Không xuất được file Excel.");
+    } catch (err) {
+      console.error("Xuất Excel thất bại:", err);
+      window.alert(
+        err?.message
+          ? `Không xuất được file Excel.\n${err.message}`
+          : "Không xuất được file Excel."
+      );
     } finally {
       setExporting(false);
     }
@@ -325,6 +496,9 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
           </div>
           <p className="hientruong-dispatch-sub">
             <strong>{filtered.length}</strong> sự cố sau lọc · Lý trình tăng dần
+            {filters.dossierRound !== "" && (
+              <> · <strong>{dossierLabel(Number(filters.dossierRound))}</strong></>
+            )}
             {profile?.email && <> · <span>{profile.email}</span></>}
             {lastSyncAt && <> · {lastSyncAt.toLocaleTimeString("vi-VN")}</>}
             {" · "}
@@ -357,9 +531,14 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
             type="button"
             className="btn-secondary btn-primary--compact"
             disabled={filtered.length === 0}
-            onClick={() => setWordOpen(true)}
+            onClick={openWordExport}
+            title={
+              selectedForWord.length
+                ? `Xuất ${selectedForWord.length} sự cố đã tick — ảnh theo lựa chọn trong chi tiết (nếu có), không thì ảnh HT/XL đầu`
+                : `Không tick: xuất ${filtered.length} sự cố đã lọc — mặc định ảnh hiện trạng + xử lý đầu tiên mỗi sự cố`
+            }
           >
-            Xuất Word (ảnh)
+            Xuất Word ({wordExportItems.length})
           </button>
           <button type="button" className="btn-secondary btn-primary--compact" onClick={() => setShowTrash(true)}>
             Thùng rác
@@ -376,10 +555,14 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
             type="button"
             className="btn-primary btn-primary--compact"
             onClick={openImportModal}
-            disabled={checkedIds.size === 0}
-            title={`Đã chọn ${checkedIds.size}`}
+            disabled={selectedForImport.length === 0}
+            title={
+              selectedForImport.length > 0
+                ? `${selectedForImport.length} sự cố chưa vào NK trong số đã chọn`
+                : "Chọn sự cố chưa vào nhật ký để đưa vào NK"
+            }
           >
-            Đưa vào NK ({checkedIds.size})
+            Đưa vào NK ({selectedForImport.length})
           </button>
         </div>
       </header>
@@ -448,6 +631,30 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
             <option value="DONE">Hoàn thành</option>
           </select>
         </label>
+        <label className="hientruong-filter-field">
+          <span className="entry-form-label">Trình hồ sơ</span>
+          <select
+            className="sidebar-input"
+            value={filters.dossierRound}
+            onChange={(e) => setFilter("dossierRound", e.target.value)}
+            aria-label="Lần trình hồ sơ"
+          >
+            <option value="">Tất cả lần</option>
+            <option value="0">Chưa trình</option>
+            {dossierRoundOptions.map((n) => (
+              <option key={n} value={String(n)}>
+                Lần {n}
+              </option>
+            ))}
+            {[1, 2, 3, 4, 5]
+              .filter((n) => !dossierRoundOptions.includes(n))
+              .map((n) => (
+                <option key={`extra-${n}`} value={String(n)}>
+                  Lần {n}
+                </option>
+              ))}
+          </select>
+        </label>
         <div className="hientruong-filter-field hientruong-filter-field--action">
           <span className="entry-form-label" aria-hidden="true">
             &nbsp;
@@ -457,6 +664,87 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
           </button>
         </div>
       </div>
+
+      {checkedIds.size > 0 ? (
+        <div className="hientruong-dossier-bulk">
+          <div className="hientruong-dossier-bulk-top">
+            <span className="hientruong-dossier-bulk-count">Đã chọn {checkedIds.size}</span>
+            <button
+              type="button"
+              className="btn-secondary btn-primary--compact"
+              disabled={bulkBusy}
+              onClick={() => setCheckedIds(new Set())}
+            >
+              Bỏ chọn
+            </button>
+          </div>
+
+          <div className="hientruong-dossier-bulk-group" aria-label="Đổi ngày hàng loạt">
+            <span className="hientruong-dossier-bulk-group-title">Đổi ngày</span>
+            <label className="hientruong-dossier-bulk-field">
+              <span>Xảy ra</span>
+              <ViDateInput
+                className="sidebar-input hientruong-dossier-bulk-date"
+                hideCalendarButton
+                value={bulkDate}
+                onChange={setBulkDate}
+                aria-label="Ngày xảy ra mới"
+              />
+            </label>
+            <label className="hientruong-dossier-bulk-field">
+              <span>Hoàn thành</span>
+              <ViDateInput
+                className="sidebar-input hientruong-dossier-bulk-date"
+                hideCalendarButton
+                value={bulkCompletedDate}
+                onChange={setBulkCompletedDate}
+                aria-label="Ngày hoàn thành mới"
+              />
+            </label>
+            <button
+              type="button"
+              className="btn-primary btn-primary--compact"
+              disabled={
+                bulkBusy ||
+                (!String(bulkDate || "").trim() && !String(bulkCompletedDate || "").trim())
+              }
+              onClick={() => void handleBulkApplyDates()}
+            >
+              Áp dụng
+            </button>
+            <span className="hientruong-dossier-bulk-hint">
+              Chỉ điền ngày cần đổi · có ngày hoàn thành → tiến độ 100%
+            </span>
+          </div>
+
+          <div className="hientruong-dossier-bulk-group" aria-label="Gán lần trình hồ sơ">
+            <span className="hientruong-dossier-bulk-group-title">Lần trình</span>
+            <select
+              className="sidebar-input hientruong-dossier-bulk-select"
+              value={bulkRound}
+              disabled={bulkBusy}
+              aria-label="Chọn lần trình hồ sơ"
+              onChange={(e) => setBulkRound(e.target.value)}
+            >
+              <option value="0">Chưa trình</option>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                <option key={n} value={String(n)}>
+                  Lần {n}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="btn-primary btn-primary--compact"
+              disabled={bulkBusy}
+              onClick={() => void handleBulkSetRound()}
+              title="Gán lần trình hồ sơ — đồng bộ web điều hành"
+            >
+              Gán
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <main className="hientruong-main hientruong-main--dispatch">
         {loading && <p className="section-guide">Đang tải dữ liệu...</p>}
@@ -481,10 +769,10 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
                 <th className="hientruong-col-check">
                   <input
                     type="checkbox"
-                    title="Chọn đưa vào nhật ký"
-                    checked={importableFiltered.length > 0 && importableFiltered.every((inc) => checkedIds.has(inc.id))}
-                    onChange={toggleSelectAllImportable}
-                    disabled={importableFiltered.length === 0}
+                    title="Chọn để sửa ngày / gán lần trình / đưa vào nhật ký"
+                    checked={filtered.length > 0 && filtered.every((inc) => checkedIds.has(inc.id))}
+                    onChange={toggleSelectAllFiltered}
+                    disabled={filtered.length === 0}
                   />
                 </th>
                 <HienTruongResizableTh colKey="road" onResizeStart={startColumnResize}>Tuyến</HienTruongResizableTh>
@@ -497,13 +785,38 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
                 <HienTruongResizableTh colKey="unit" onResizeStart={startColumnResize}>ĐVT</HienTruongResizableTh>
                 <HienTruongResizableTh colKey="volDat" onResizeStart={startColumnResize}>KL đất</HienTruongResizableTh>
                 <HienTruongResizableTh colKey="volDa" onResizeStart={startColumnResize}>KL đá</HienTruongResizableTh>
-                <HienTruongResizableTh colKey="vol" onResizeStart={startColumnResize}>KL</HienTruongResizableTh>
+                <HienTruongResizableTh colKey="vol" onResizeStart={startColumnResize}>KL tổng</HienTruongResizableTh>
                 <HienTruongResizableTh colKey="note" onResizeStart={startColumnResize}>Ghi chú</HienTruongResizableTh>
+                <HienTruongResizableTh colKey="dossier" onResizeStart={startColumnResize}>Trình hồ sơ</HienTruongResizableTh>
                 <HienTruongResizableTh colKey="progress" onResizeStart={startColumnResize}>Tiến độ</HienTruongResizableTh>
                 <HienTruongResizableTh colKey="date" onResizeStart={startColumnResize}>Ngày xảy ra</HienTruongResizableTh>
                 <HienTruongResizableTh colKey="completedDate" onResizeStart={startColumnResize}>Hoàn thành</HienTruongResizableTh>
                 <HienTruongResizableTh colKey="section" onResizeStart={startColumnResize}>Mục NK</HienTruongResizableTh>
                 <HienTruongResizableTh colKey="imported" onResizeStart={startColumnResize}>Đã vào NK</HienTruongResizableTh>
+                <th
+                  className="hientruong-word-th"
+                  title="Không tick: Xuất Word lấy cả danh sách đã lọc (ảnh HT + XL đầu). Có tick: chỉ xuất dòng đã chọn. Chọn ảnh cụ thể trong chi tiết nếu cần."
+                >
+                  <div className="hientruong-word-th-inner">
+                    <input
+                      type="checkbox"
+                      checked={allWordFilteredSelected}
+                      disabled={filtered.length === 0 || wordSaving}
+                      onChange={() => void toggleSelectAllWord()}
+                      aria-label={allWordFilteredSelected ? "Bỏ chọn hết ghép Word" : "Chọn hết ghép Word"}
+                    />
+                    <span className="hientruong-th-label">Ghép ảnh Word</span>
+                    <div
+                      className="col-resize-handle"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        startColumnResize("wordPhotos", e.clientX);
+                      }}
+                      title="Kéo để chỉnh bề rộng cột"
+                    />
+                  </div>
+                </th>
                 <HienTruongResizableTh colKey="actions" fixed onResizeStart={startColumnResize}>Thao tác</HienTruongResizableTh>
               </tr>
             </thead>
@@ -514,12 +827,14 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
                 const canImport = isImportableIncident(inc, importMap);
                 const geo = splitVolumeByGeology(inc);
                 const status = dispatchFilterStatus(inc);
+                const wordPicked = hasExplicitReportSelection(inc);
                 return (
                   <tr
                     key={inc.id}
                     className={[
                       detailOpen && detailIncident?.id === inc.id ? "is-selected" : "",
-                      importRecord ? "is-imported" : ""
+                      importRecord ? "is-imported" : "",
+                      inc.wordMergeChecked ? "is-word-picked" : ""
                     ].filter(Boolean).join(" ")}
                     onClick={(e) => handleRowClick(inc, e)}
                     title="Bấm dòng để xem chi tiết sự cố"
@@ -528,8 +843,8 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
                       <input
                         type="checkbox"
                         checked={checkedIds.has(inc.id)}
-                        disabled={!canImport}
                         onChange={(e) => toggleCheck(inc.id, e)}
+                        title={canImport ? "Chọn để gán lần trình / đưa vào nhật ký" : "Chọn để gán lần trình hồ sơ"}
                       />
                     </td>
                     <td>{inc.road}</td>
@@ -544,6 +859,13 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
                     <td className="hientruong-num">{geo.rock != null ? formatDimValue(geo.rock) : "—"}</td>
                     <td className="hientruong-num">{formatKhoiLuong(inc)}</td>
                     <td className="hientruong-note" title={inc.note}>{inc.note || "—"}</td>
+                    <td className="hientruong-dossier-cell">
+                      {Number(inc.dossierRound) > 0 ? (
+                        <span className="hientruong-dossier-badge">{dossierLabel(inc.dossierRound)}</span>
+                      ) : (
+                        <span className="hientruong-dossier-muted">{dossierLabel(0)}</span>
+                      )}
+                    </td>
                     <td>
                       <span className={`hientruong-status hientruong-status--${status.toLowerCase()}`}>
                         {statusLabel(status)} {inc.progress ?? 0}%
@@ -560,6 +882,23 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
                       ) : (
                         "—"
                       )}
+                    </td>
+                    <td
+                      className="hientruong-word-cell"
+                      onClick={(e) => e.stopPropagation()}
+                      title={
+                        wordPicked
+                          ? "Đã chọn ảnh thủ công trong chi tiết — Word sẽ dùng ảnh đó"
+                          : "Không chọn ảnh: Word mặc định 1 ảnh hiện trạng + 1 ảnh xử lý đầu. Tick cột = giới hạn sự cố khi xuất (để trống = xuất cả danh sách đã lọc)."
+                      }
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(inc.wordMergeChecked)}
+                        disabled={wordSaving}
+                        onChange={(e) => void toggleWordCheck(inc.id, e)}
+                        aria-label={`Ghép ảnh Word ${inc.km || inc.id}`}
+                      />
                     </td>
                     <td className="hientruong-col-actions hientruong-actions" onClick={(e) => e.stopPropagation()}>
                       <button type="button" className="hientruong-row-btn" title="Xem chi tiết" onClick={(e) => { e.stopPropagation(); openDetail(inc); }}>
@@ -621,7 +960,12 @@ export default function HienTruongPage({ storageTick = 0, onImported }) {
 
       <IncidentTrashModal open={showTrash} uid={profile?.uid} onClose={() => setShowTrash(false)} onChanged={() => void reload()} />
 
-      <WordExportDialog open={wordOpen} onClose={() => setWordOpen(false)} items={filtered} filters={filters} />
+      <WordExportDialog
+        open={wordOpen}
+        onClose={() => setWordOpen(false)}
+        items={wordExportItems}
+        filters={filters}
+      />
 
       <RecoverPhotosModal
         open={recoverOpen}

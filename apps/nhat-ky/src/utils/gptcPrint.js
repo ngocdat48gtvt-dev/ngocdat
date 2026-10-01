@@ -4,36 +4,29 @@ import {
   printViaIframe
 } from "./printViaIframe";
 
-/** Nét mảnh đen Excel — chỉ trên/trái (tránh đúp nét bôi đậm). */
-function gptcTableCss(selector) {
+/**
+ * Kẻ khung in GPTC — 1 nét mảnh dùng chung (collapse), không đúp.
+ * Dùng mm (ổn định khi in Chrome/PDF hơn pt/px).
+ */
+export function gptcHairlineTableCss(selector = ".gptc-official-table") {
+  const line = "0.1mm solid #000";
   return `
 ${selector} {
-  border-collapse: separate !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  table-layout: fixed !important;
+  border-collapse: collapse !important;
   border-spacing: 0 !important;
-  border: none !important;
-  border-right: 0.5pt solid #000 !important;
+  border: ${line} !important;
+  empty-cells: show !important;
 }
 ${selector} th,
 ${selector} td {
-  border-top: 0.5pt solid #000 !important;
-  border-left: 0.5pt solid #000 !important;
-  border-right: none !important;
-  border-bottom: none !important;
+  border: ${line} !important;
   background: #fff !important;
-}
-${selector} th:last-child,
-${selector} td:last-child {
-  border-right: none !important;
-}
-${selector} thead tr:last-child th,
-${selector} thead th[rowspan] {
-  border-bottom: none !important;
-}
-${selector} tbody tr:last-child td {
-  border-bottom: 0.5pt solid #000 !important;
+  box-sizing: border-box !important;
 }
 ${selector} th {
-  background: #fff !important;
   font-weight: 700;
   text-align: center;
   font-size: 12pt;
@@ -51,60 +44,93 @@ ${selector} td {
 export function buildGptcPrintCss(margins) {
   return `
 ${landscapePageShellCss(margins)}
+/* Chừa đáy trang — tránh overflow:hidden cắt nét ngang cuối */
+.sheet {
+  overflow: hidden !important;
+}
+.sheet-inner {
+  padding-bottom: 1.5mm !important;
+  box-sizing: border-box !important;
+  overflow: visible !important;
+  height: auto !important;
+  max-height: 100% !important;
+}
 .gptc-sheet-title {
-  margin: 0 0 6px;
+  margin: 0 0 4px;
   text-align: center;
   font-family: "Times New Roman", Times, serif;
   font-size: 13pt;
   font-weight: 700;
   text-transform: uppercase;
-  line-height: 1.35;
+  line-height: 1.3;
 }
 .gptc-detail-project-line {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  margin: 0 0 6px;
+  display: block;
+  margin: 0 0 4px;
   font-family: "Times New Roman", Times, serif;
   font-size: 13pt;
+  font-weight: 700;
+  line-height: 1.3;
 }
-.gptc-detail-project-label { font-weight: 700; flex-shrink: 0; }
 .gptc-detail-project-name,
 .gptc-cell-text {
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
-.gptc-table-scroll { overflow: visible; }
-.gptc-official-table {
-  width: 100%;
-  table-layout: fixed;
-  font-family: "Times New Roman", Times, serif;
-  font-size: 12pt;
+.gptc-sheet,
+.gptc-table-scroll,
+.gptc-table-scroll--fill {
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow: visible !important;
+  flex: 0 0 auto !important;
+  height: auto !important;
 }
-${gptcTableCss(".gptc-official-table")}
+${gptcHairlineTableCss(".gptc-official-table")}
 .gptc-td-center { text-align: center; vertical-align: middle !important; }
 .gptc-empty-row { text-align: center; padding: 8px !important; color: #64748b; }
+.gptc-summary-table--print {
+  width: 100% !important;
+}
 .gptc-summary-table--print tbody tr {
-  height: var(--gptc-summary-row-h, 14mm);
+  height: var(--gptc-summary-row-h, 12mm);
+  max-height: var(--gptc-summary-row-h, 12mm);
 }
 .gptc-summary-table--print tbody td {
-  height: var(--gptc-summary-row-h, 14mm);
-  min-height: var(--gptc-summary-row-h, 14mm);
+  height: var(--gptc-summary-row-h, 12mm);
+  min-height: var(--gptc-summary-row-h, 12mm);
+  max-height: var(--gptc-summary-row-h, 12mm);
   vertical-align: top;
+  overflow: hidden !important;
 }
-.gptc-summary-table--print tbody tr:not(.gptc-summary-row--pad) td {
-  height: auto;
-  min-height: var(--gptc-summary-row-h, 14mm);
+.gptc-summary-table--print .gptc-cell-text {
+  display: block;
+  max-height: 100%;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .gptc-detail-table--excel tbody td {
   height: var(--gptc-row-h, 9mm);
   min-height: var(--gptc-row-h, 9mm);
   max-height: var(--gptc-row-h, 9mm);
+  vertical-align: top;
+  overflow: hidden;
+}
+.gptc-detail-table--print-fit .gptc-cell-text {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: hidden;
+  max-height: 100%;
+  padding: 2px 4px;
+  line-height: 1.25;
 }
 `;
 }
 
-export function printGptcPages(margins) {
+export function printGptcPages(margins, scope = "all") {
   const sheetsHtml = collectPreviewSheets(
     ".gptc-print-stack--preview",
     ".gptc-print-page",
@@ -114,8 +140,14 @@ export function printGptcPages(margins) {
     window.alert("Chưa có tờ xem trước để in. Mở «Xem trước in» trước.");
     return;
   }
+  const title =
+    scope === "summary"
+      ? "BM01 — Bảng tổng hợp cấp phép thi công"
+      : scope === "detail"
+        ? "BM02 — Theo dõi diễn biến thi công"
+        : "Sổ cấp phép thi công";
   printViaIframe({
-    title: "Sổ cấp phép thi công",
+    title,
     css: buildGptcPrintCss(margins),
     sheetsHtml
   });

@@ -5,6 +5,7 @@ import {
 } from "../lib/excelReportBuilder.js";
 import { computeKhoiLuong, resolveIncidentUnit } from "../utils/incidentUtils.js";
 import { buildIncidentWordReport } from "../lib/wordReportBuilder.js";
+import { downloadBlob } from "../utils/downloadBlob.js";
 
 function isoToFileDate(iso) {
   if (!iso?.trim()) return "";
@@ -43,12 +44,8 @@ export async function exportIncidentsExcel(items, filename, options) {
   const blob = new Blob([buffer], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
   });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename.endsWith(".xlsx") ? filename : `${filename}.xlsx`;
-  a.click();
-  URL.revokeObjectURL(url);
+  const name = filename.endsWith(".xlsx") ? filename : `${filename}.xlsx`;
+  await downloadBlob(blob, name);
 }
 
 export function matchesWordVolumeFilter(inc, under100, over100) {
@@ -76,11 +73,7 @@ export function buildBaoCaoAnhFilename(items, filters) {
 /** Xuất Word ghép ảnh hiện trạng + sau xử lý. Trả về số ảnh tải lỗi. */
 export async function exportIncidentsWord(items, filename, options, onProgress) {
   const { blob, failedImages } = await buildIncidentWordReport(items, options, onProgress);
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename.endsWith(".docx") ? filename : `${filename}.docx`;
-  a.click();
-  URL.revokeObjectURL(url);
+  const name = filename.endsWith(".docx") ? filename : `${filename}.docx`;
+  await downloadBlob(blob, name);
   return failedImages;
 }

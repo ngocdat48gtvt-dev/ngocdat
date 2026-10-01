@@ -4,10 +4,12 @@ rules_version = '2';
 // Quản lý sự cố đường bộ — Firestore Security Rules
 // =============================================================================
 //
-// Ba nhóm quyền:
+// Nhóm quyền:
 //   1. isGlobalSeller()     — Bạn (license-admin): toàn quyền users/leads/devices
-//   2. isCompanyAdmin()     — Lãnh đạo công ty (dieu-hanh-web): 1 ADMIN / companyId
+//   2. isCompanyAdmin()     — Lãnh đạo công ty (dieu-hanh-web): ADMIN / companyId
 //   3. isCompanyUser()      — Hạt trưởng (app + web): USER, chỉ dữ liệu của mình
+//   4. isCompanyViewer()    — VIEWER: xem sổ USER trong công ty
+//   5. isSoXd()             — Sở Xây dựng: xem sổ / báo cáo các công ty được chọn
 //
 // KHÔNG dùng role ADMIN trên user doc cho seller — seller chỉ qua email bên dưới.
 //
@@ -100,6 +102,31 @@ service cloud.firestore {
           || authUserDoc().viewerAccess.mode != 'users'
           || userId in authUserDoc().viewerAccess.userUids
         );
+    }
+
+    // Sở Xây dựng — xem sổ / báo cáo các công ty trong soXdAccess.companyIds (chỉ đọc)
+    function isSoXd() {
+      return authUserExists()
+        && authUserDoc().active == true
+        && authUserDoc().role == 'SO_XD'
+        && 'soXdAccess' in authUserDoc()
+        && authUserDoc().soXdAccess.companyIds is list;
+    }
+
+    function soXdCanReadTarget(userId) {
+      return isSoXd()
+        && targetUserExists(userId)
+        && targetUserCompanyId(userId) is string
+        && targetUserCompanyId(userId).size() > 0
+        && targetUserCompanyId(userId) in authUserDoc().soXdAccess.companyIds
+        && (targetUserDoc(userId).role == 'USER' || targetUserDoc(userId).role == 'ADMIN');
+    }
+
+    function soXdCanListCompanyUser() {
+      return isSoXd()
+        && resource.data.companyId is string
+        && resource.data.companyId.size() > 0
+        && resource.data.companyId in authUserDoc().soXdAccess.companyIds;
     }
 
     // ADMIN cùng công ty — ghi danh mục tuyến app (roads) cho USER hiện trường
@@ -291,6 +318,8 @@ service cloud.firestore {
         || sameCompanyPeer(userId)
         || viewerCanReadTarget(userId)
         || viewerCanListCompanyUser()
+        || soXdCanReadTarget(userId)
+        || soXdCanListCompanyUser()
         || isSameCompanyUserDoc()
         || userCanReadCompanyAdminProfile();
 
@@ -329,6 +358,7 @@ service cloud.firestore {
           || isGlobalSeller()
           || sameCompanyAsTarget(userId)
           || viewerCanReadTarget(userId)
+          || soXdCanReadTarget(userId)
           || sameCompanyPeer(userId)
           || (isCompanyAdmin() && userId == request.auth.uid);
 
@@ -345,37 +375,21 @@ service cloud.firestore {
         allow read, write: if isOwner(userId) && licenseOk(userId);
       }
 
-      // ----- office_books — sổ nội nghiệp theo hạt/đường (KHÔNG đụng incidents) -----
-      // users/{uid}/office_books/{roadId} + /days/{yyyy-mm-dd}
-      match /office_books/{roadId} {
+      // ----- office_books — toàn bộ sổ nội nghiệp và module con -----
+      // Wildcard đệ quy áp dụng cho:
+      // /office_books/{roadId}
+      // /office_books/{roadId}/days/{yyyy-mm-dd}
+      // /office_books/{roadId}/modules/{moduleId}
+      // và mọi collection con được bổ sung sau này.
+      match /office_books/{officePath=**} {
         allow read: if (isOwner(userId) && licenseOk(userId))
           || isGlobalSeller()
           || sameCompanyAsTarget(userId)
-          || viewerCanReadTarget(userId);
+          || viewerCanReadTarget(userId)
+          || soXdCanReadTarget(userId);
 
         allow write: if (isOwner(userId) && licenseOk(userId))
           || isGlobalSeller();
-
-        match /days/{dayId} {
-          allow read: if (isOwner(userId) && licenseOk(userId))
-            || isGlobalSeller()
-            || sameCompanyAsTarget(userId)
-            || viewerCanReadTarget(userId);
-
-          allow write: if (isOwner(userId) && licenseOk(userId))
-            || isGlobalSeller();
-        }
-
-        // modules/{key} — gptc, dem_xe, …
-        match /modules/{moduleId} {
-          allow read: if (isOwner(userId) && licenseOk(userId))
-            || isGlobalSeller()
-            || sameCompanyAsTarget(userId)
-            || viewerCanReadTarget(userId);
-
-          allow write: if (isOwner(userId) && licenseOk(userId))
-            || isGlobalSeller();
-        }
       }
     }
 

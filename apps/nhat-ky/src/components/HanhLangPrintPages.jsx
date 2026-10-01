@@ -1,19 +1,26 @@
-import { useMemo } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   entryToHanhLangRow,
   formatHanhLangKmLine,
   formatHanhLangMonthTitle,
-  computeHanhLangPadRows,
   packHanhLangPages,
-  estimateHanhLangDataRowMm
+  computeHanhLangPadRows,
+  estimateHanhLangDataRowMm,
+  HANH_LANG_SHEET_LAYOUT
 } from "../utils/hanhLangFormat";
 import {
   HANH_LANG_COLS,
   getHanhLangColWidths,
   sumHanhLangCols
 } from "../hooks/useHanhLangColWidths";
+import {
+  useOrderedEntriesByRoute,
+  useRouteDisplayBlocks
+} from "../hooks/useRouteDisplayBlocks";
+import { blocksForPackedEntries } from "../utils/roadsCatalog";
 import HanhLangTableHead from "./HanhLangTableHead";
 import NhatKyMarginGuides from "./NhatKyMarginGuides";
+import RouteHeaderRow from "./RouteHeaderRow";
 
 function emptyRows(count, rowHeightMm) {
   if (count <= 0) return null;
@@ -29,16 +36,22 @@ function emptyRows(count, rowHeightMm) {
   ));
 }
 
-function DataRows({ entries, sttOffset }) {
-  return entries.map((entry, idx) => {
-    const r = entryToHanhLangRow(entry, sttOffset + idx);
-    const h = estimateHanhLangDataRowMm(entry);
+function BlockRows({ blocks }) {
+  return (blocks || []).map((block) => {
+    if (block.kind === "routeHeader") {
+      return (
+        <RouteHeaderRow
+          key={block.key}
+          heading={block.heading}
+          colSpan={HANH_LANG_COLS.length}
+        />
+      );
+    }
+    const r = entryToHanhLangRow(block.entry, Math.max(0, (block.stt || 1) - 1));
+    r.tt = block.stt;
+    const h = estimateHanhLangDataRowMm(block.entry);
     return (
-      <tr
-        key={`${entry.date}-${entry.kmFrom}-${sttOffset + idx}`}
-        className="hanh-lang-data-row"
-        style={{ height: `${h}mm` }}
-      >
+      <tr key={block.key} className="hanh-lang-data-row" style={{ height: `${h}mm` }}>
         <td className="hanh-lang-col-tt">{r.tt}</td>
         <td>{r.recorder}</td>
         <td>{r.violator}</td>
@@ -61,7 +74,9 @@ function SheetHeader({ reportMeta, yearMonth }) {
     <div className="hanh-lang-sheet-top">
       <div className="hanh-lang-sheet-head">
         <div className="hanh-lang-head-left">
-          <div className="hanh-lang-head-line">{reportMeta.company}</div>
+          <div className="hanh-lang-head-line hanh-lang-head-line--company">
+            {reportMeta.company}
+          </div>
           <div className="hanh-lang-head-line">Tên Hạt: {reportMeta.hat}</div>
           <div className="hanh-lang-head-line">Tên đường: {reportMeta.roadName}</div>
         </div>
@@ -73,7 +88,7 @@ function SheetHeader({ reportMeta, yearMonth }) {
       <h1 className="hanh-lang-title">
         TỔNG HỢP VI PHẠM HÀNH LANG AN TOÀN GIAO THÔNG {monthLabel}
       </h1>
-      <p className="hanh-lang-km-range">{kmLine || "Lý trình: … Đến …/tuyến …"}</p>
+      <p className="hanh-lang-km-range">{kmLine || "… đoạn Km… - Km…"}</p>
     </div>
   );
 }
@@ -81,18 +96,23 @@ function SheetHeader({ reportMeta, yearMonth }) {
 function HanhLangPrintPage({
   yearMonth,
   reportMeta,
+  blocks,
   entries,
-  sttOffset,
   margins,
   widths,
   showGuides,
   onMarginsChange,
-  showFooter,
+  onRowOverflow,
   pageIndex,
-  pageCount
+  pageCount,
+  showFooter
 }) {
+  const pageRef = useRef(null);
   const total = sumHanhLangCols(widths) || 1;
-  const { count: padCount, rowHeightMm } = computeHanhLangPadRows(entries, margins);
+  const { count: padCount, rowHeightMm } = useMemo(
+    () => computeHanhLangPadRows(entries, margins),
+    [entries, margins]
+  );
   const pad = {
     paddingTop: `${margins.top}mm`,
     paddingRight: `${margins.right}mm`,
@@ -100,8 +120,29 @@ function HanhLangPrintPage({
     paddingLeft: `${margins.left}mm`
   };
 
+  useLayoutEffect(() => {
+    const page = pageRef.current;
+    const dataRows = page?.querySelectorAll(
+      "tbody tr.hanh-lang-data-row:not(.hanh-lang-data-row--empty)"
+    );
+    const lastRow = dataRows?.[dataRows.length - 1];
+    const lastEntry = entries?.[entries.length - 1];
+    if (!page || !lastRow || !lastEntry) return;
+
+    const pageRect = page.getBoundingClientRect();
+    const pxPerMm = pageRect.height / HANH_LANG_SHEET_LAYOUT.sheetHeightMm;
+    const bottomLimit =
+      pageRect.bottom -
+      ((Number(margins.bottom) || 0) + HANH_LANG_SHEET_LAYOUT.safetyMm) * pxPerMm;
+
+    if (lastRow.getBoundingClientRect().bottom > bottomLimit + 0.5) {
+      onRowOverflow?.(pageIndex, lastEntry);
+    }
+  }, [entries, margins.bottom, onRowOverflow, pageIndex, widths, showFooter]);
+
   return (
     <section
+      ref={pageRef}
       className="hanh-lang-print-page landscape-print-page"
       style={pad}
       data-print-page={pageIndex + 1}
@@ -133,7 +174,7 @@ function HanhLangPrintPage({
               <HanhLangTableHead />
             </thead>
             <tbody>
-              <DataRows entries={entries} sttOffset={sttOffset} />
+              <BlockRows blocks={blocks} />
               {emptyRows(padCount, rowHeightMm)}
               {showFooter ? (
                 <tr className="hanh-lang-footer-row">
@@ -151,44 +192,72 @@ function HanhLangPrintPage({
   );
 }
 
-/** Xem trước / in sổ hành lang — A4 ngang, chia tờ + kéo lề như sổ mặt đường. */
+/** Xem trước / in sổ hành lang — A4 ngang; gộp đường thì tách tiêu đề nhánh. */
 export default function HanhLangPrintPages({
   yearMonth,
   reportMeta,
   entries,
   margins = { top: 8, right: 10, bottom: 8, left: 10 },
   onMarginsChange,
-  widths: widthsProp
+  widths: widthsProp,
+  showGuides = true,
+  screenMode = false
 }) {
   const widths = widthsProp || getHanhLangColWidths();
-  const chunks = useMemo(() => packHanhLangPages(entries, margins), [entries, margins]);
+  const allBlocks = useRouteDisplayBlocks(entries, "Vi phạm khác");
+  const ordered = useOrderedEntriesByRoute(entries, "Vi phạm khác");
+  const estimatedChunks = useMemo(
+    () => packHanhLangPages(ordered, margins),
+    [ordered, margins]
+  );
+  const [chunks, setChunks] = useState(estimatedChunks);
 
-  let sttOffset = 0;
+  useLayoutEffect(() => {
+    setChunks(estimatedChunks);
+  }, [estimatedChunks]);
+
+  const moveOverflowRow = useCallback((pageIndex, expectedLastEntry) => {
+    setChunks((current) => {
+      const source = current[pageIndex];
+      if (
+        !source ||
+        source.length <= 1 ||
+        source[source.length - 1] !== expectedLastEntry
+      ) {
+        return current;
+      }
+      const next = current.map((chunk) => [...chunk]);
+      const moved = next[pageIndex].pop();
+      if (next[pageIndex + 1]) next[pageIndex + 1].unshift(moved);
+      else next.push([moved]);
+      return next;
+    });
+  }, []);
+
   return (
     <div
-      className="hanh-lang-print-stack hanh-lang-print-stack--preview landscape-print-stack--preview"
+      className={`hanh-lang-print-stack hanh-lang-print-stack--preview landscape-print-stack--preview${
+        screenMode ? " hanh-lang-print-stack--screen" : ""
+      }`}
       data-page-count={chunks.length}
     >
-      {chunks.map((chunk, i) => {
-        const offset = sttOffset;
-        sttOffset += chunk.length;
-        return (
-          <HanhLangPrintPage
-            key={`hl-p${i}`}
-            yearMonth={yearMonth}
-            reportMeta={reportMeta}
-            entries={chunk}
-            sttOffset={offset}
-            margins={margins}
-            widths={widths}
-            showGuides={i === 0}
-            onMarginsChange={onMarginsChange}
-            showFooter={i === chunks.length - 1}
-            pageIndex={i}
-            pageCount={chunks.length}
-          />
-        );
-      })}
+      {chunks.map((chunk, i) => (
+        <HanhLangPrintPage
+          key={`hl-p${i}`}
+          yearMonth={yearMonth}
+          reportMeta={reportMeta}
+          blocks={blocksForPackedEntries(allBlocks, chunk)}
+          entries={chunk}
+          margins={margins}
+          widths={widths}
+          showGuides={showGuides && i === 0}
+          onMarginsChange={onMarginsChange}
+          onRowOverflow={moveOverflowRow}
+          pageIndex={i}
+          pageCount={chunks.length}
+          showFooter={i === chunks.length - 1}
+        />
+      ))}
     </div>
   );
 }

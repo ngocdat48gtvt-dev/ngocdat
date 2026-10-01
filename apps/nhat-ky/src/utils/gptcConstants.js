@@ -7,6 +7,8 @@ export const EMPTY_PERMIT_ENTRY = {
 
 export const EMPTY_PERMIT = {
   tenCongTrinh: "",
+  /** Tên trên BM02 — độc lập cột 2 BM01 */
+  tenCongTrinhBm02: "",
   soNgayCapPhep: "",
   ngayBanGiao: "",
   donViDuocCap: "",
@@ -22,5 +24,9 @@ export const EMPTY_GPTC_LEDGER = {
   tenTuyen: "",
   summaryColWidths: null,
   detailColWidths: null,
-  permits: []
+  permits: [],
+  /** Id công trình đã xóa — merge đa máy không được hồi sinh. */
+  deletedPermitIds: [],
+  /** Id dòng BM02 đã xóa. */
+  deletedEntryIds: []
 };

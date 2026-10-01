@@ -15,15 +15,17 @@ export const HIEN_TRUONG_DISPATCH_COLS = [
   { key: "volDa", defaultWidth: 68, min: 52, max: 110 },
   { key: "vol", defaultWidth: 76, min: 56, max: 120 },
   { key: "note", defaultWidth: 140, min: 72, max: 360 },
+  { key: "dossier", defaultWidth: 88, min: 64, max: 140 },
   { key: "progress", defaultWidth: 112, min: 88, max: 180 },
   { key: "date", defaultWidth: 92, min: 76, max: 130 },
   { key: "completedDate", defaultWidth: 92, min: 76, max: 130 },
   { key: "section", defaultWidth: 108, min: 72, max: 200 },
   { key: "imported", defaultWidth: 92, min: 72, max: 140 },
+  { key: "wordPhotos", defaultWidth: 108, min: 88, max: 160 },
   { key: "actions", defaultWidth: 108, min: 96, max: 150, fixed: true }
 ];
 
-const STORAGE_KEY = "hientruong-dispatch-col-widths-v1";
+const STORAGE_KEY = "hientruong-dispatch-col-widths-v5";
 
 function defaultWidths() {
   return Object.fromEntries(HIEN_TRUONG_DISPATCH_COLS.map((c) => [c.key, c.defaultWidth]));

@@ -16,6 +16,7 @@ import {
 } from 'docx'
 
 import { reportImageSlotsForExport } from "../utils/incidentUtils";
+import { resolveDisplayImageUrl } from "../services/imageUrlService";
 import { formatKmDisplay } from "@quanlysuco/shared";
 
 const FONT = 'Times New Roman'
@@ -64,7 +65,13 @@ async function fetchImageBlob(url) {
 async function prepareImage(url) {
   let objectUrl = null;
   try {
-    const blob = await fetchImageBlob(url)
+    const resolved = await resolveDisplayImageUrl(url)
+    let blob = resolved.url ? await fetchImageBlob(resolved.url) : null
+    // Download URL Firebase cũ có thể hết hiệu lực: làm mới token rồi thử lại một lần.
+    if (!blob && resolved.url) {
+      const refreshed = await resolveDisplayImageUrl(url, { forceRefresh: true })
+      if (refreshed.url) blob = await fetchImageBlob(refreshed.url)
+    }
     if (!blob) return null
     objectUrl = URL.createObjectURL(blob)
     const img = await loadImage(objectUrl)

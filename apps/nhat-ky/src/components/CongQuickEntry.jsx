@@ -7,25 +7,28 @@ import {
 import {
   parseDecimalNumber,
   normalizeDecimalString,
-  normalizeSide,
   makeEmptyQuickRows
 } from "../utils/bulkMatDuongImport";
 import {
-  BAO_DUONG_UNITS,
   getUnitForType,
+  formatUnitLabel,
+  normalizeUnitValue,
   isCountUnit,
   needMaintenanceForType
 } from "../utils/baoDuongQualityStore";
-import { loadCongRegistry, congScope, CONG_REGISTRY_EVENT } from "../utils/congRegistryStore";
+import { loadCongRegistryForRoute, resolveCongScope, CONG_REGISTRY_EVENT, formatCongTypeLabel, resolveCongLength } from "../utils/congRegistryStore";
 import { hydrateCongRegistriesFromCloud } from "../services/congRegistryService";
 import { formatKmCell } from "../utils/matDuongFormat";
 import { useAuth } from "../context/AuthContext";
 import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
+import { getRoadRoutes, pickActiveRoute } from "../utils/roadsCatalog";
 import WorkTypeCombo from "./WorkTypeCombo";
 import CongCombo from "./CongCombo";
 import ViDateInput from "./ViDateInput";
-
-const SIDE_OPTIONS = ["", "T", "P", "G", "M"];
+import {
+  CONG_EXPORT_STATUS_OPTIONS,
+  normalizeExportCongStatus
+} from "../utils/congDiaryStatus";
 
 function round2(n) {
   return Math.round(n * 100) / 100;
@@ -33,17 +36,19 @@ function round2(n) {
 
 function calcRowQuantity(row) {
   const unit = row?.unit || "";
+  const manual = parseDecimalNumber(row?.quantity);
+  const hasManual = !Number.isNaN(manual) && manual > 0;
   if (isCountUnit(unit)) {
-    const q = parseDecimalNumber(row?.quantity);
-    return Number.isNaN(q) ? "" : q;
+    return hasManual ? manual : "";
   }
   const l = parseDecimalNumber(row?.length) || 0;
   const w = parseDecimalNumber(row?.width) || 0;
   const h = parseDecimalNumber(row?.height) || 0;
-  if (unit === "m") return l || "";
-  if (unit === "m2") return l && w ? round2(l * w) : "";
-  if (unit === "m3") return l && w && h ? round2(l * w * h) : "";
-  return "";
+  if (unit === "m") return l || (hasManual ? manual : "");
+  // m2/m3: ưu tiên Dài×Rộng(×Cao); thiếu kích thước thì dùng khối lượng gõ tay.
+  if (unit === "m2") return l && w ? round2(l * w) : hasManual ? manual : "";
+  if (unit === "m3") return l && w && h ? round2(l * w * h) : hasManual ? manual : "";
+  return hasManual ? manual : "";
 }
 
 function rowIsValid(row) {
@@ -60,7 +65,7 @@ function applyCongMeasureDefaults(row, { type, congLength, resolveUnit } = {}) {
   if (type !== undefined) next.type = type;
 
   const unitFn = typeof resolveUnit === "function" ? resolveUnit : getUnitForType;
-  let unit = unitFn(resolvedType);
+  let unit = normalizeUnitValue(unitFn(resolvedType));
   if (!unit && resolvedType) unit = "cái";
   if (unit) next.unit = unit;
 
@@ -69,7 +74,8 @@ function applyCongMeasureDefaults(row, { type, congLength, resolveUnit } = {}) {
       ? String(congLength ?? "").trim()
       : String(next.congLength ?? "").trim();
 
-  if ((unit === "m" || unit === "m2" || unit === "m3") && len && !String(next.length || "").trim()) {
+  // Chỉ đơn vị m lấy chiều dài hồ sơ cống; m2/m3 nhập kích thước hư hỏng (hoặc KL tay).
+  if (unit === "m" && len && !String(next.length || "").trim()) {
     next.length = len;
   }
   if (isCountUnit(unit) && !String(next.quantity ?? "").trim()) {
@@ -79,9 +85,11 @@ function applyCongMeasureDefaults(row, { type, congLength, resolveUnit } = {}) {
 }
 
 /** Dựng entry nhật ký từ các dòng nhập nhanh hạng mục Cống (1 lý trình). */
-export function buildCongEntries(rows, { section, date }) {
+export function buildCongEntries(rows, { section, date, routeId = "", roadName = "" }) {
   const errors = [];
   const entries = [];
+  const defaultRouteId = String(routeId || "").trim();
+  const defaultRoadName = String(roadName || "").trim();
   (rows || []).forEach((row, i) => {
     const km = normalizeKmInput(row?.kmFrom);
     const type = String(row?.type || "").trim();
@@ -94,10 +102,15 @@ export function buildCongEntries(rows, { section, date }) {
       errors.push(`Dòng ${i + 1}: chưa chọn công việc.`);
       return;
     }
-    const unit = row?.unit || getUnitForType(type) || "cái";
+    const unit =
+      normalizeUnitValue(row?.unit) ||
+      normalizeUnitValue(getUnitForType(type)) ||
+      "cái";
     const quantity = calcRowQuantity({ ...row, unit });
     if (!quantity || Number(quantity) <= 0) {
-      errors.push(`Dòng ${i + 1}: thiếu khối lượng.`);
+      errors.push(
+        `Dòng ${i + 1}: thiếu khối lượng (đơn vị ${formatUnitLabel(unit)}: nhập Dài/Rộng/Cao hoặc gõ Khối lượng).`
+      );
       return;
     }
     const need = needMaintenanceForType(type);
@@ -105,6 +118,10 @@ export function buildCongEntries(rows, { section, date }) {
     if (!need) plannedRepairDate = "";
     else if (!plannedRepairDate) plannedRepairDate = plannedRepairDateForType(date, type);
     const congType = String(row?.congType || "").trim();
+    const congId = String(row?.congId || "").trim();
+    // Nhánh đang chọn trên form là nguồn đúng khi thêm/sửa; không để routeId cũ của dòng ghi đè.
+    const rowRouteId = String(defaultRouteId || row?.routeId || "").trim();
+    const rowRoadName = String(defaultRoadName || row?.roadName || "").trim();
     const entry = {
       section,
       date,
@@ -112,14 +129,22 @@ export function buildCongEntries(rows, { section, date }) {
       unit,
       kmFrom: km,
       kmTo: km,
-      side: normalizeSide(row?.side, "P"),
+      side: "",
       length: normalizeDecimalString(row?.length),
       width: normalizeDecimalString(row?.width),
       height: normalizeDecimalString(row?.height),
       quantity,
       content: "",
       viTriNote: congType,
-      plannedRepairDate
+      plannedRepairDate,
+      // "" = không xuất; hu_hong | sua_chua | bo_sung → lịch sử DS cống.
+      exportCongStatus: normalizeExportCongStatus(row?.exportCongStatus),
+      exportTrafficDuty: row?.exportTrafficDuty === true,
+      ...(congId
+        ? { congId, assetType: "culvert", assetId: congId }
+        : {}),
+      ...(rowRouteId ? { routeId: rowRouteId } : {}),
+      ...(rowRoadName ? { roadName: rowRoadName } : {})
     };
     if (Number.isInteger(row?._editIndex)) entry._editIndex = row._editIndex;
     entries.push(entry);
@@ -150,44 +175,90 @@ export default function CongQuickEntry({
 }) {
   const displayDate = formatDisplayDate(date);
   const { profile } = useAuth();
-  const { activeRoadId, activeRoad, ownerUid } = useRoadWorkspace();
+  const { activeRoadId, activeRoad, ownerUid, catalogRoad, activeRouteId, routes } =
+    useRoadWorkspace();
+  const routeList = routes?.length ? routes : getRoadRoutes(catalogRoad || activeRoad);
+  const activeRoute = pickActiveRoute(routeList, activeRouteId);
   const uid = ownerUid || profile?.uid || "";
-  const scope = congScope(uid, activeRoadId);
-  const [registry, setRegistry] = useState(() => loadCongRegistry(scope));
+  const scope = resolveCongScope(
+    uid,
+    activeRoadId,
+    activeRoute?.id || activeRouteId,
+    routeList
+  );
+
+  function readRegistry() {
+    return loadCongRegistryForRoute(uid, activeRoadId, activeRoute, routeList);
+  }
+
+  const [registry, setRegistry] = useState(() => readRegistry());
 
   useEffect(() => {
     let cancelled = false;
+    setRegistry([...readRegistry()]);
     async function refresh() {
       if (uid && activeRoad) {
-        await hydrateCongRegistriesFromCloud(uid, [activeRoad], { force: false });
+        try {
+          await hydrateCongRegistriesFromCloud(uid, [activeRoad], { force: false });
+        } catch {
+          /* giữ local */
+        }
       }
-      if (cancelled) return;
-      setRegistry([...loadCongRegistry(scope)]);
+      if (!cancelled) setRegistry([...readRegistry()]);
     }
     void refresh();
     const onChange = () => {
-      if (!cancelled) setRegistry([...loadCongRegistry(scope)]);
+      if (!cancelled) setRegistry([...readRegistry()]);
     };
     window.addEventListener(CONG_REGISTRY_EVENT, onChange);
     return () => {
       cancelled = true;
       window.removeEventListener(CONG_REGISTRY_EVENT, onChange);
     };
-  }, [scope, uid, activeRoad?.id, activeRoad?.roadName, activeRoad?.label]);
+  }, [scope, uid, activeRoad, activeRoute?.id, activeRoadId, routeList]);
 
   const validCount = useMemo(() => rows.filter(rowIsValid).length, [rows]);
   const editCount = useMemo(
     () => rows.filter((r) => Number.isInteger(r._editIndex) && rowIsValid(r)).length,
     [rows]
   );
+  const baoLuAllChecked = useMemo(
+    () => rows.length > 0 && rows.every((r) => r.exportTrafficDuty === true),
+    [rows]
+  );
+  const baoLuSomeChecked = useMemo(
+    () => rows.some((r) => r.exportTrafficDuty === true),
+    [rows]
+  );
 
   function resolveUnit(type) {
     const key = String(type || "").trim();
-    return (key && unitByType[key]) || getUnitForType(key) || "cái";
+    return normalizeUnitValue(getUnitForType(key) || (key && unitByType[key]) || "cái");
   }
 
   function updateRow(index, patch) {
-    onRowsChange(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+    onRowsChange(
+      rows.map((row, i) => {
+        if (i !== index) return row;
+        const next = { ...row, ...patch };
+        const unit =
+          normalizeUnitValue(next.unit) || resolveUnit(next.type) || "";
+        // Đồng bộ KL khi đủ kích thước (tránh ô KL trống dù đã có Dài×Rộng).
+        if (
+          !("quantity" in patch) &&
+          !isCountUnit(unit) &&
+          (unit === "m2" || unit === "m3" || unit === "m")
+        ) {
+          const q = calcRowQuantity({ ...next, unit });
+          if (q !== "" && q != null) next.quantity = String(q);
+        }
+        return next;
+      })
+    );
+  }
+
+  function toggleAllBaoLu(checked) {
+    onRowsChange(rows.map((row) => ({ ...row, exportTrafficDuty: checked })));
   }
 
   function handleCongChange(index, congId) {
@@ -196,11 +267,11 @@ export default function CongQuickEntry({
     let patch = { congId };
     if (cong) {
       patch.kmFrom = normalizeKmInput(cong.km) || String(cong.km || "").trim();
-      patch.congType = cong.type;
-      patch.congLength = cong.length;
+      patch.congType = formatCongTypeLabel(cong);
+      patch.congLength = resolveCongLength(cong);
       patch = applyCongMeasureDefaults(
         { ...row, ...patch },
-        { congLength: cong.length, resolveUnit }
+        { congLength: patch.congLength, resolveUnit }
       );
       if (patch.type && needMaintenanceForType(patch.type) && !patch.plannedRepairDate) {
         patch.plannedRepairDate = plannedRepairDateForType(date, patch.type);
@@ -233,7 +304,12 @@ export default function CongQuickEntry({
   }
 
   function handleImport() {
-    const { entries, errors } = buildCongEntries(rows, { section, date });
+    const { entries, errors } = buildCongEntries(rows, {
+      section,
+      date,
+      routeId: activeRoute?.id || "",
+      roadName: activeRoute?.roadName || ""
+    });
     onImport(entries, errors);
   }
 
@@ -268,53 +344,71 @@ export default function CongQuickEntry({
       ) : (
         <p className="section-guide section-guide--compact matduong-quick-hint">
           Gõ <strong>lý trình</strong> để lọc cống; chọn cống + công việc. Đơn vị đếm (cái…)
-          mặc định khối lượng <strong>1</strong>; đơn vị m lấy chiều dài từ hồ sơ cống. Ghi
-          vào nhật ký ngày {displayDate || "—"}.
+          mặc định khối lượng <strong>1</strong>; đơn vị m lấy chiều dài từ hồ sơ cống; m²/m³
+          nhập Dài×Rộng(×Cao) hoặc gõ thẳng Khối lượng. Cột <strong>Xuất DS cống</strong>:
+          chọn Hư hỏng / Sửa chữa / Bổ sung mới ghi lịch sử (mặc định không xuất). Tick cột{" "}
+          <strong>Bão lũ</strong> để xuất sang <strong>sổ trực ĐBGT</strong>. Ghi nhật ký ngày{" "}
+          {displayDate || "—"}.
         </p>
       )}
 
       <div className="matduong-quick-sheet-scroll">
         <table className="matduong-table matduong-table--entry matduong-table--quick baoduong-quick-table">
           <colgroup>
-            <col style={{ width: "82px" }} />
-            <col style={{ width: "200px" }} />
-            <col style={{ width: "110px" }} />
-            <col style={{ width: "150px" }} />
-            <col style={{ width: "70px" }} />
-            <col style={{ width: "50px" }} />
-            <col style={{ width: "180px" }} />
-            <col style={{ width: "64px" }} />
-            <col style={{ width: "56px" }} />
-            <col style={{ width: "56px" }} />
-            <col style={{ width: "56px" }} />
-            <col style={{ width: "76px" }} />
+            <col style={{ width: "72px" }} />
             <col style={{ width: "140px" }} />
+            <col style={{ width: "100px" }} />
+            <col style={{ width: "64px" }} />
+            <col style={{ width: "240px" }} />
+            <col style={{ width: "56px" }} />
+            <col style={{ width: "52px" }} />
+            <col style={{ width: "52px" }} />
+            <col style={{ width: "52px" }} />
+            <col style={{ width: "70px" }} />
+            <col style={{ width: "110px" }} />
+            <col style={{ width: "130px" }} />
+            <col style={{ width: "52px" }} />
           </colgroup>
           <thead>
             <tr>
               <th>Ngày</th>
               <th>Cống (hồ sơ)</th>
               <th>Lý trình</th>
-              <th>Loại cống</th>
               <th>Chiều dài (m)</th>
-              <th>Phía</th>
               <th>Loại công việc</th>
               <th>Đơn vị</th>
               <th>Dài</th>
               <th>Rộng</th>
               <th>Cao</th>
               <th>Khối lượng</th>
+              <th title="Chọn trạng thái mới xuất sang danh sách cống">Xuất DS cống</th>
               <th>Ngày dự kiến sửa (BDTX)</th>
+              <th title="Tick cả / bỏ tick cả — xuất sổ trực ĐBGT (bão lũ)">
+                <label className="baoduong-bao-lu-head">
+                  <input
+                    type="checkbox"
+                    checked={baoLuAllChecked}
+                    ref={(el) => {
+                      if (el) el.indeterminate = baoLuSomeChecked && !baoLuAllChecked;
+                    }}
+                    onChange={(e) => toggleAllBaoLu(e.target.checked)}
+                    aria-label="Tick tất cả cột Bão lũ"
+                  />
+                  <span>Bão lũ</span>
+                </label>
+              </th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row, idx) => {
-              const unit = row.unit || "";
+              const unit =
+                normalizeUnitValue(row.unit) ||
+                resolveUnit(row.type) ||
+                "";
               const count = isCountUnit(unit);
               const useWidth = unit === "m2" || unit === "m3";
               const useHeight = unit === "m3";
               const useLength = unit === "m" || unit === "m2" || unit === "m3";
-              const quantity = calcRowQuantity(row);
               const km = normalizeKmInput(row.kmFrom);
               const isEdit = Number.isInteger(row._editIndex);
               return (
@@ -333,22 +427,7 @@ export default function CongQuickEntry({
                     />
                   </td>
                   <td className="matduong-cell-readonly">{km ? formatKmCell(km) : ""}</td>
-                  <td className="matduong-cell-readonly">{row.congType || ""}</td>
                   <td className="matduong-cell-readonly">{row.congLength || ""}</td>
-                  <td>
-                    <select
-                      value={row.side || "P"}
-                      onChange={(e) => updateRow(idx, { side: e.target.value })}
-                      className="matduong-excel-cell matduong-excel-cell--side"
-                      aria-label={`Phía dòng ${idx + 1}`}
-                    >
-                      {SIDE_OPTIONS.map((v) => (
-                        <option key={v || "default"} value={v}>
-                          {v || "—"}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
                   <td className="matduong-col-type">
                     <WorkTypeCombo
                       value={row.type || ""}
@@ -358,20 +437,8 @@ export default function CongQuickEntry({
                       ariaLabel={`Loại công việc dòng ${idx + 1}`}
                     />
                   </td>
-                  <td>
-                    <select
-                      value={unit}
-                      onChange={(e) => updateRow(idx, { unit: e.target.value })}
-                      className="matduong-excel-cell matduong-excel-cell--side"
-                      aria-label={`Đơn vị dòng ${idx + 1}`}
-                    >
-                      <option value="">—</option>
-                      {BAO_DUONG_UNITS.map((u) => (
-                        <option key={u.value} value={u.value}>
-                          {u.label}
-                        </option>
-                      ))}
-                    </select>
+                  <td className="matduong-cell-readonly" title="Đơn vị theo MASTER DATA">
+                    {formatUnitLabel(unit)}
                   </td>
                   <td>
                     <input
@@ -401,18 +468,34 @@ export default function CongQuickEntry({
                     />
                   </td>
                   <td>
-                    {count ? (
-                      <input
-                        value={row.quantity ?? ""}
-                        onChange={(e) => updateRow(idx, { quantity: e.target.value })}
-                        className="matduong-excel-cell matduong-excel-cell--num"
-                        aria-label={`Khối lượng dòng ${idx + 1}`}
-                      />
-                    ) : (
-                      <span className="matduong-cell-readonly matduong-quick-qty">
-                        {quantity || ""}
-                      </span>
-                    )}
+                    <input
+                      value={row.quantity ?? ""}
+                      onChange={(e) => updateRow(idx, { quantity: e.target.value })}
+                      className="matduong-excel-cell matduong-excel-cell--num"
+                      aria-label={`Khối lượng dòng ${idx + 1}`}
+                      title={
+                        count
+                          ? "Khối lượng (đếm)"
+                          : "Tự tính từ Dài×Rộng(×Cao); hoặc gõ trực tiếp"
+                      }
+                    />
+                  </td>
+                  <td className="matduong-col-export">
+                    <select
+                      value={normalizeExportCongStatus(row.exportCongStatus)}
+                      onChange={(e) =>
+                        updateRow(idx, { exportCongStatus: e.target.value })
+                      }
+                      className="matduong-excel-cell matduong-excel-cell--type"
+                      aria-label={`Xuất sang danh sách cống dòng ${idx + 1}`}
+                      title="Chọn trạng thái xuất sang danh sách cống (mặc định không xuất)"
+                    >
+                      {CONG_EXPORT_STATUS_OPTIONS.map((opt) => (
+                        <option key={opt.value || "none"} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
                   </td>
                   <td>
                     <ViDateInput
@@ -422,6 +505,17 @@ export default function CongQuickEntry({
                       onChange={(iso) => updateRow(idx, { plannedRepairDate: iso || "" })}
                       className="matduong-excel-cell matduong-excel-cell--date"
                       aria-label={`Ngày dự kiến sửa dòng ${idx + 1}`}
+                    />
+                  </td>
+                  <td className="matduong-col-export">
+                    <input
+                      type="checkbox"
+                      checked={row.exportTrafficDuty === true}
+                      onChange={(e) =>
+                        updateRow(idx, { exportTrafficDuty: e.target.checked })
+                      }
+                      aria-label={`Xuất sổ bão lũ dòng ${idx + 1}`}
+                      title="Xuất sang sổ trực ĐBGT (thiệt hại bão lũ)"
                     />
                   </td>
                 </tr>

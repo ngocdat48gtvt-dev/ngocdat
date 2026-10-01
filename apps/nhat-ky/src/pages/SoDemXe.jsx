@@ -6,6 +6,7 @@ import DemXeQuarterPrintPages from "../components/DemXeQuarterPrintPages";
 import { useAuth } from "../context/AuthContext";
 import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
 import { useOfficePermissions } from "../hooks/useOfficePermissions";
+import EntryRoutePicker from "../components/EntryRoutePicker";
 import { useDemXeSync } from "../hooks/useDemXeSync";
 import { DocumentViewService } from "../officeBooks/DocumentViewService";
 import { ensureDayDirections, makeEmptyDirection } from "../utils/demXeStore";
@@ -19,9 +20,11 @@ import {
 } from "../utils/demXeQuarters";
 import { quarterPrintPageCount } from "../utils/demXeQuarterPrint";
 import { printDemXeQuarterPages } from "../utils/demXePrint";
-import { formatDisplayDate } from "../utils/nhatKyFormat";
+import { formatDisplayDate, safeSetLocalStorage } from "../utils/nhatKyFormat";
+import { findRoute, getRoadRoutes, withActiveRoute } from "../utils/roadsCatalog";
 
-const SIDEBAR_WIDTH = 300;
+import SidebarResizer from "../components/SidebarResizer";
+import { useResizableSidebar } from "../hooks/useResizableSidebar";
 const MARGIN_KEY = "demxe-print-margins-v1";
 const DEFAULT_MARGINS = { top: 12, right: 12, bottom: 12, left: 14 };
 const TABS = [
@@ -56,21 +59,49 @@ function todayIso() {
 
 export default function SoDemXe({ readOnly = false }) {
   const { profile } = useAuth();
-  const { activeRoad, activeRoadId, storageKey, ownerUid, browseMode } = useRoadWorkspace();
+  const {
+    activeRoad,
+    activeRoadId,
+    storageKey,
+    ownerUid,
+    browseMode,
+    offlineMode,
+    activeRouteId,
+    routes,
+    catalogRoad
+  } = useRoadWorkspace();
+  const { sidebarStyle, onResizeStart } = useResizableSidebar({ defaultWidth: 300 });
   const { canEditOfficeData } = useOfficePermissions();
-  const roadName = (activeRoad?.roadName || activeRoad?.label || "").trim();
+  const routeList = useMemo(
+    () => (routes?.length ? routes : getRoadRoutes(catalogRoad || activeRoad)),
+    [routes, catalogRoad, activeRoad]
+  );
+  const activeRoute = useMemo(
+    () => findRoute(catalogRoad || activeRoad, activeRouteId) || routeList[0] || null,
+    [catalogRoad, activeRoad, activeRouteId, routeList]
+  );
+  const routeRoad = useMemo(
+    () =>
+      withActiveRoute(catalogRoad || activeRoad, activeRoute?.id || activeRouteId) ||
+      activeRoad,
+    [catalogRoad, activeRoad, activeRoute?.id, activeRouteId]
+  );
+  const roadName = (routeRoad?.roadName || routeRoad?.label || "").trim();
   const uid = ownerUid || profile?.uid || "";
-  const canPush = canEditOfficeData && !browseMode && !readOnly;
+  const canPush = canEditOfficeData && !browseMode && !offlineMode && !readOnly;
 
   const { ledger, setLedger, ready, flushPush } = useDemXeSync({
     uid,
     roadId: activeRoadId,
     roadName,
-    activeRoad,
+    activeRoad: routeRoad,
     storageKey,
+    routeId: activeRoute?.id || activeRouteId || "",
+    routes: routeList,
     enabled: !!activeRoadId && !!uid,
     canPush,
-    browseMode
+    browseMode,
+    offlineMode
   });
 
   const [tab, setTab] = useState("entry");
@@ -126,18 +157,20 @@ export default function SoDemXe({ readOnly = false }) {
   }, [ready, bookYear, setLedger]);
 
   useEffect(() => {
-    localStorage.setItem(MARGIN_KEY, JSON.stringify(margins));
+    safeSetLocalStorage(MARGIN_KEY, margins);
   }, [margins]);
 
   useEffect(() => {
-    if (!ready || !ledger || !activeRoad) return;
-    const company = (activeRoad.company || "").trim();
-    const tenDuong = (activeRoad.roadName || activeRoad.label || "").trim();
-    const tenHat = (activeRoad.hat || "").trim();
+    if (!ready || !ledger || !routeRoad) return;
+    const company = (routeRoad.company || "").trim();
+    const tenDuong = (routeRoad.roadName || routeRoad.label || "").trim();
+    const tenHat = (routeRoad.hat || "").trim();
+    const lyTrinh = String(routeRoad.kmRange || "").trim();
     const patch = {};
     if (company && ledger.cover?.donVi !== company) patch.donVi = company;
-    if (tenDuong && !String(ledger.cover?.tenDuong || "").trim()) patch.tenDuong = tenDuong;
-    if (tenHat && !String(ledger.cover?.tenHat || "").trim()) patch.tenHat = tenHat;
+    if (tenHat && ledger.cover?.tenHat !== tenHat) patch.tenHat = tenHat;
+    if (tenDuong && ledger.cover?.tenDuong !== tenDuong) patch.tenDuong = tenDuong;
+    if (lyTrinh && ledger.cover?.lyTrinhQuanLy !== lyTrinh) patch.lyTrinhQuanLy = lyTrinh;
     if (!Object.keys(patch).length) return;
     setLedger((prev) => ({
       ...prev,
@@ -145,16 +178,26 @@ export default function SoDemXe({ readOnly = false }) {
     }));
   }, [
     ready,
-    activeRoad?.id,
-    activeRoad?.company,
-    activeRoad?.roadName,
-    activeRoad?.label,
-    activeRoad?.hat,
+    routeRoad?.id,
+    routeRoad?.company,
+    routeRoad?.roadName,
+    routeRoad?.label,
+    routeRoad?.hat,
+    routeRoad?.kmRange,
+    routeRoad?.activeRouteId,
     ledger?.cover?.donVi,
     ledger?.cover?.tenDuong,
     ledger?.cover?.tenHat,
+    ledger?.cover?.lyTrinhQuanLy,
     setLedger
   ]);
+
+  useEffect(() => {
+    // Đổi nhánh / sổ → nạp lại draft phiếu đếm + lịch quý
+    entryNavRef.current = { date: "", dirId: "" };
+    quartersInitRef.current = false;
+    setEntryDirty(false);
+  }, [activeRoute?.id, activeRoadId]);
 
   useEffect(() => {
     if (!quarters.length) return;
@@ -352,14 +395,11 @@ export default function SoDemXe({ readOnly = false }) {
     >
       <aside
         className="nhaplieu-sidebar sonhatky-sidebar demxe-sidebar no-print"
-        style={{
-          width: SIDEBAR_WIDTH,
-          minWidth: SIDEBAR_WIDTH,
-          maxWidth: SIDEBAR_WIDTH
-        }}
+        style={sidebarStyle}
       >
         <div className="sidebar-sticky-head demxe-sidebar-head">
           <h2 className="sidebar-title">Sổ đếm xe</h2>
+          <EntryRoutePicker label="Đường / nhánh" />
           <p className="demxe-sidebar-meta">
             Năm <strong>{bookYear}</strong>
             <span aria-hidden="true"> · </span>
@@ -501,6 +541,8 @@ export default function SoDemXe({ readOnly = false }) {
           </div>
         </div>
       </aside>
+
+      <SidebarResizer onMouseDown={onResizeStart} />
 
       <main className="nhaplieu-review-pane demxe-main">
         {!printOpen ? (

@@ -57,6 +57,25 @@ html, body {
   text-align: inherit;
   padding: 0;
 }
+.demxe-info-meta-table td.demxe-info-cell { width: 50%; }
+.demxe-info-cell__inner {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+.demxe-info-cell__label { flex: 0 0 auto; white-space: nowrap; }
+.demxe-info-cell__edit { flex: 1 1 auto; min-width: 0; }
+.demxe-info-meta-table .demxe-xcell-input--inline {
+  display: block !important;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+}
 .demxe-summary-page,
 .demxe-count-sheet--a4 {
   width: 100%;
@@ -149,8 +168,15 @@ html, body {
 .demxe-info-cell { font-size: 12pt; }
 .demxe-count-data-table { margin-top: 5mm; }
 .demxe-count-data-table th { font-weight: 700; text-align: center; text-transform: uppercase; }
-.demxe-col-type { text-align: left; }
-.demxe-col-count, .demxe-col-sum { text-align: center; }
+.demxe-col-type { text-align: left; width: 38%; }
+.demxe-col-count { text-align: center; width: 52%; }
+.demxe-col-sum { text-align: center; width: 10%; }
+.demxe-col-count--tally { height: auto !important; padding: 2px 3px !important; }
+.demxe-count-cell { position: relative; min-height: 18px; }
+.demxe-tally { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.demxe-tally-row { display: flex; flex-wrap: nowrap; gap: 1.5px; justify-content: flex-start; }
+.demxe-tally-box { stroke: #000; stroke-width: 1.5; fill: none; }
+.demxe-count-num-input { display: none !important; }
 .demxe-quarter-print-kicker { display: none !important; }
 `;
 }

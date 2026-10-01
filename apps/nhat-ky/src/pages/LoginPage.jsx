@@ -34,9 +34,9 @@ export default function LoginPage() {
             ? "Tài khoản chưa kích hoạt hoặc hết hạn license."
             : "Tài khoản chưa kích hoạt, hết hạn hoặc chưa được cấp quyền Sổ nội nghiệp."
         );
-      } else if (baoCao && profile.role !== "ADMIN") {
+      } else if (baoCao && profile.role !== "ADMIN" && profile.role !== "SO_XD") {
         await signOut(auth);
-        setError("Cổng Báo cáo chỉ dành cho tài khoản ADMIN (lãnh đạo).");
+        setError("Cổng Báo cáo chỉ dành cho ADMIN hoặc Sở Xây dựng.");
       } else {
         markPortalLogin(portalId, email);
       }
@@ -53,8 +53,8 @@ export default function LoginPage() {
         <h1>{baoCao ? "Báo cáo khối lượng" : "Sổ nội nghiệp"}</h1>
         <p className="nhatky-login-sub">
           {baoCao
-            ? "Đăng nhập ADMIN để xem thống kê khối lượng chung toàn công ty (theo hạt / đường)."
-            : "Đăng nhập bằng tài khoản USER. Phiên đăng nhập tách riêng với cổng điều hành (ADMIN)."}
+            ? "Đăng nhập ADMIN hoặc Sở Xây dựng để xem thống kê khối lượng (theo hạt / đường)."
+            : "Đăng nhập sổ nội nghiệp. Sở Xây dựng / VIEWER chỉ xem, không sửa."
         </p>
         <form className="nhatky-login-form" onSubmit={handleSubmit}>
           <label className="entry-form-label" htmlFor="nhat-ky-login-email">
@@ -88,7 +88,7 @@ export default function LoginPage() {
             {submitting ? "Đang đăng nhập..." : "Đăng nhập"}
           </button>
         </form>
-        <a href="/san-pham" className="nhatky-login-home">
+        <a href="/quan-ly-duong-bo.html" className="nhatky-login-home">
           ← Về trang chủ
         </a>
       </div>

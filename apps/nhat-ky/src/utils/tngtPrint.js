@@ -51,7 +51,12 @@ ${excelThinTableCss(".tngt-table")}
   overflow-wrap: anywhere;
 }
 .tngt-table th { font-weight: 700; font-size: 12pt; }
-.tngt-col-num { display: block; font-weight: 600; font-size: 12pt; }
+.tngt-header-num th {
+  font-weight: 600;
+  font-size: 11pt;
+  font-style: italic;
+  border-top: none !important;
+}
 .tngt-col-note { text-align: left; white-space: pre-wrap; }
 .tngt-col-mark { font-weight: 700; }
 `;

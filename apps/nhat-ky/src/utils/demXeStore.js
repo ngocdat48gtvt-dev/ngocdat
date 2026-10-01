@@ -15,11 +15,47 @@ function nextId() {
   return `dx_${Date.now().toString(36)}_${idSeq}`;
 }
 
-export function demXeScope(uid, roadId) {
+export function demXeScope(uid, roadId, routeId = "") {
   const u = String(uid || "").trim();
   const r = String(roadId || "").trim();
+  const rt = String(routeId || "").trim();
   if (!u || !r) return "";
-  return `${u}__${r}`;
+  return rt ? `${u}__${r}__rt_${rt}` : `${u}__${r}`;
+}
+
+function ledgerHasContent(ledger) {
+  if (!ledger || typeof ledger !== "object") return false;
+  if (Object.keys(ledger.days || {}).length > 0) return true;
+  return Object.values(ledger.cover || {}).some((v) => String(v || "").trim());
+}
+
+/**
+ * Scope đọc: nhiều nhánh → theo routeId; 1 nhánh → key sổ cũ.
+ * Fallback sổ cũ chỉ cho nhánh đầu nếu scope nhánh còn trống.
+ */
+export function resolveDemXeScope(uid, roadId, routeId, routes = []) {
+  const list = Array.isArray(routes) ? routes : [];
+  const multi = list.length > 1;
+  const rid = String(routeId || list[0]?.id || "").trim();
+  if (multi && rid) {
+    const routeScope = demXeScope(uid, roadId, rid);
+    if (ledgerHasContent(loadDemXeLedger(routeScope))) return routeScope;
+    const bookScope = demXeScope(uid, roadId);
+    if (ledgerHasContent(loadDemXeLedger(bookScope)) && list[0]?.id === rid) {
+      return bookScope;
+    }
+    return routeScope;
+  }
+  return demXeScope(uid, roadId);
+}
+
+/** Scope ghi (luôn theo nhánh khi ≥2 đường). */
+export function writeDemXeScope(uid, roadId, routeId, routes = []) {
+  const list = Array.isArray(routes) ? routes : [];
+  const multi = list.length > 1;
+  const rid = String(routeId || list[0]?.id || "").trim();
+  if (multi && rid) return demXeScope(uid, roadId, rid);
+  return demXeScope(uid, roadId);
 }
 
 function storageKeyFor(scope) {

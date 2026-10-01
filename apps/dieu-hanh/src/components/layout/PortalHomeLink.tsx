@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils'
 
-/** Khớp nhật ký tuần đường — `/san-pham` trên Vercel. */
-export const PORTAL_HOME_URL = '/san-pham'
+/** Trang tổng quan tập trung của các cổng quản lý đường bộ. */
+export const PORTAL_HOME_URL = '/quan-ly-duong-bo.html'
 
 type PortalHomeLinkProps = {
   className?: string
@@ -21,8 +21,8 @@ export function PortalHomeLink({ className, variant = 'square' }: PortalHomeLink
           : 'h-11 w-11 rounded-lg',
         className,
       )}
-      title="Trang chủ"
-      aria-label="Trang chủ"
+      title="Về trung tâm quản lý đường bộ"
+      aria-label="Về trung tâm quản lý đường bộ"
     >
       <svg
         viewBox="0 0 24 24"

@@ -1,16 +1,28 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { resolveDisplayImageUrl } from "../services/imageUrlService";
 
 function useResolvedImageUrl(raw) {
-  const [displayUrl, setDisplayUrl] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const trimmed = String(raw || "").trim();
+  const httpReady = trimmed.startsWith("http");
+  const [displayUrl, setDisplayUrl] = useState(httpReady ? trimmed : null);
+  const [loading, setLoading] = useState(!httpReady);
   const [errorKind, setErrorKind] = useState(null);
+  const refreshTried = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    refreshTried.current = false;
+    const next = String(raw || "").trim();
+    const ready = next.startsWith("http");
     setErrorKind(null);
-    setDisplayUrl(null);
+    if (ready) {
+      setDisplayUrl(next);
+      setLoading(false);
+    } else {
+      setDisplayUrl(null);
+      setLoading(true);
+    }
     void resolveDisplayImageUrl(raw).then(({ url, errorKind: kind }) => {
       if (cancelled) return;
       setDisplayUrl(url);
@@ -22,7 +34,20 @@ function useResolvedImageUrl(raw) {
     };
   }, [raw]);
 
-  return { displayUrl, loading, errorKind };
+  const refreshOnError = useCallback(async () => {
+    if (refreshTried.current) return false;
+    refreshTried.current = true;
+    setLoading(true);
+    const { url, errorKind: kind } = await resolveDisplayImageUrl(raw, {
+      forceRefresh: true
+    });
+    setDisplayUrl(url);
+    setErrorKind(kind);
+    setLoading(false);
+    return !!url;
+  }, [raw]);
+
+  return { displayUrl, loading, errorKind, refreshOnError };
 }
 
 function errorMessage(errorKind) {
@@ -43,7 +68,7 @@ function TrashIcon() {
 }
 
 function ImageThumb({ url, index, title, onOpen, selected, onToggle, mergeOrder, onOrderChange, onDelete, deleting }) {
-  const { displayUrl, loading, errorKind } = useResolvedImageUrl(url);
+  const { displayUrl, loading, errorKind, refreshOnError } = useResolvedImageUrl(url);
   const [error, setError] = useState(false);
   const [orderDraft, setOrderDraft] = useState(mergeOrder != null ? String(mergeOrder) : "");
 
@@ -76,20 +101,26 @@ function ImageThumb({ url, index, title, onOpen, selected, onToggle, mergeOrder,
           onClick={onOpen}
           aria-label={`${title} — ảnh ${index + 1}`}
         >
-          {loading ? (
+          {loading && !displayUrl ? (
             <span className="incident-gallery-thumb-loading">Đang tải…</span>
-          ) : error || errorKind || !displayUrl ? (
+          ) : null}
+          {!loading && (error || errorKind || !displayUrl) ? (
             <span className="incident-gallery-thumb-error">
               {errorMessage(errorKind)}
             </span>
-          ) : (
+          ) : null}
+          {displayUrl && !error ? (
             <img
               src={displayUrl}
               alt={`${title} ${index + 1}`}
               loading="lazy"
-              onError={() => setError(true)}
+              onError={() => {
+                void refreshOnError().then((ok) => {
+                  if (!ok) setError(true);
+                });
+              }}
             />
-          )}
+          ) : null}
         </button>
 
         {onToggle ? (
@@ -156,8 +187,8 @@ function ImageThumb({ url, index, title, onOpen, selected, onToggle, mergeOrder,
       </div>
       {selected && onOrderChange ? (
         <div className="incident-gallery-order-row" onClick={(e) => e.stopPropagation()}>
-          <label className="incident-gallery-order-label" htmlFor={`stt-${url.slice(-12)}-${index}`}>
-            STT
+            <label className="incident-gallery-order-label" htmlFor={`stt-${url.slice(-12)}-${index}`}>
+            Thứ tự Word
           </label>
           <input
             id={`stt-${url.slice(-12)}-${index}`}
@@ -186,7 +217,12 @@ function ImageThumb({ url, index, title, onOpen, selected, onToggle, mergeOrder,
 function ImageLightbox({ state, onClose, onIndexChange }) {
   const { urls, index, title } = state;
   const rawUrl = urls[index];
-  const { displayUrl, loading, errorKind } = useResolvedImageUrl(rawUrl);
+  const { displayUrl, loading, errorKind, refreshOnError } = useResolvedImageUrl(rawUrl);
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [rawUrl, displayUrl]);
 
   useEffect(() => {
     function onKey(e) {
@@ -210,7 +246,9 @@ function ImageLightbox({ state, onClose, onIndexChange }) {
     };
   }, []);
 
-  return (
+  const showError = !loading && (imgError || errorKind || !displayUrl);
+
+  return createPortal(
     <div className="incident-lightbox" role="dialog" aria-modal="true" aria-label={`Xem ảnh — ${title}`}>
       <div className="incident-lightbox-head">
         <p>
@@ -231,11 +269,21 @@ function ImageLightbox({ state, onClose, onIndexChange }) {
             ‹
           </button>
         )}
-        {!loading && displayUrl ? (
-          <img src={displayUrl} alt="" className="incident-lightbox-img" />
+        {displayUrl && !imgError ? (
+          <img
+            key={displayUrl}
+            src={displayUrl}
+            alt=""
+            className="incident-lightbox-img"
+            onError={() => {
+              void refreshOnError().then((ok) => {
+                if (!ok) setImgError(true);
+              });
+            }}
+          />
         ) : null}
         {loading ? <p className="incident-lightbox-status">Đang tải…</p> : null}
-        {!loading && (!displayUrl || errorKind) ? (
+        {showError ? (
           <p className="incident-lightbox-status">{errorMessage(errorKind)}</p>
         ) : null}
         {urls.length > 1 && (
@@ -254,7 +302,8 @@ function ImageLightbox({ state, onClose, onIndexChange }) {
           Mở ảnh gốc
         </a>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -279,22 +328,31 @@ function ImageSection({
       <div className="incident-gallery-head">
         <p className="incident-gallery-title">
           {title}
-          {urls.length > 0 && <span className="incident-gallery-count">({urls.length})</span>}
+          <span className="incident-gallery-count">({urls.length})</span>
+          {urls.length > 0 ? (
+            <span className="incident-gallery-selected-count">
+              · Đã chọn {selected.length}/{urls.length}
+            </span>
+          ) : null}
         </p>
         {onSelectAll && urls.length > 0 ? (
           <div className="incident-gallery-actions">
             <button
               type="button"
               className="incident-gallery-select-all"
-              onClick={allSelected ? onClearAll : onSelectAll}
+              onClick={onSelectAll}
+              disabled={allSelected}
             >
-              {allSelected ? "Bỏ chọn tất" : "Chọn tất"}
+              Chọn tất cả
             </button>
-            {selected.length > 0 ? (
-              <span className="incident-gallery-selected-count">
-                Đã chọn {selected.length}/{urls.length}
-              </span>
-            ) : null}
+            <button
+              type="button"
+              className="incident-gallery-select-all incident-gallery-select-all--clear"
+              onClick={onClearAll}
+              disabled={selected.length === 0}
+            >
+              Bỏ chọn
+            </button>
           </div>
         ) : null}
       </div>
@@ -334,7 +392,10 @@ export default function IncidentImageGallery({
   afterTitle = "Sau xử lý",
   selection,
   onDeletePhoto,
-  deletingUrl
+  deletingUrl,
+  wordBarTitle = "Ảnh dùng trong báo cáo Word",
+  wordBarHint = "Chọn ảnh và sắp xếp thứ tự xuất báo cáo.",
+  selectedSummary
 }) {
   const [lightbox, setLightbox] = useState(null);
 
@@ -342,9 +403,65 @@ export default function IncidentImageGallery({
     setLightbox({ title, urls, index });
   }
 
+  const hasAnyPhoto = beforeUrls.length > 0 || afterUrls.length > 0;
+  const selectedCount =
+    (selection?.beforeUrls?.length || 0) + (selection?.afterUrls?.length || 0);
+  const totalCount = beforeUrls.length + afterUrls.length;
+  const allPhotosSelected = totalCount > 0 && selectedCount >= totalCount;
+  const summaryText =
+    selectedSummary ||
+    (totalCount > 0
+      ? `Đã chọn ${selectedCount}/${totalCount} ảnh`
+      : "Chưa có ảnh");
+
   return (
     <>
       <div className="incident-gallery">
+        {selection ? (
+          <div className="incident-gallery-global-actions">
+            <div className="incident-gallery-global-text">
+              <span className="incident-gallery-global-label">{wordBarTitle}</span>
+              <span className="incident-gallery-selected-count">{summaryText}</span>
+              {wordBarHint ? (
+                <span className="incident-gallery-global-hint" title={wordBarHint}>
+                  {wordBarHint}
+                </span>
+              ) : null}
+            </div>
+            {hasAnyPhoto ? (
+              <div className="incident-gallery-actions">
+                <button
+                  type="button"
+                  className="incident-gallery-select-all"
+                  disabled={allPhotosSelected}
+                  onClick={() => {
+                    if (selection.onSelectAllPhotos) selection.onSelectAllPhotos();
+                    else {
+                      selection.onSelectAll("before");
+                      selection.onSelectAll("after");
+                    }
+                  }}
+                >
+                  Chọn tất cả
+                </button>
+                <button
+                  type="button"
+                  className="incident-gallery-select-all incident-gallery-select-all--clear"
+                  disabled={selectedCount === 0}
+                  onClick={() => {
+                    if (selection.onClearAllPhotos) selection.onClearAllPhotos();
+                    else {
+                      selection.onClearAll("before");
+                      selection.onClearAll("after");
+                    }
+                  }}
+                >
+                  Bỏ chọn
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <ImageSection
           title={beforeTitle}
           urls={beforeUrls}

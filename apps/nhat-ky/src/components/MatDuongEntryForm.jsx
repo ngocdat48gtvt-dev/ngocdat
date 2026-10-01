@@ -10,7 +10,6 @@ import {
 import { formatDisplayDate } from "../utils/nhatKyFormat";
 import {
   calcAreaM2,
-  defaultExportMatDuong,
   entryToMatDuongRow,
   formatKmCell,
   resolveEntryKmTo
@@ -19,10 +18,13 @@ import {
   BAO_DUONG_MAX_DAYS,
   maxPlannedRepairDate
 } from "../utils/baoDuongFormat";
+import { needMaintenanceForType, normalizeUnitValue } from "../utils/baoDuongQualityStore";
 
 const SIDE_OPTIONS = [
+  { value: "", label: "" },
   { value: "T", label: "T" },
   { value: "P", label: "P" },
+  { value: "T+P", label: "T+P" },
   { value: "G", label: "G" },
   { value: "M", label: "M" },
   { value: "C", label: "C" }
@@ -40,14 +42,30 @@ function EntryCell({ children, synced = false, className = "" }) {
   );
 }
 
-/** Form mặt đường: nhật ký 4 cột + sổ theo dõi 12 cột (Phụ lục 09 QL37). */
+/** Form mặt đường: nhật ký 4 cột + sổ theo dõi (có thêm Cao khi nhập). */
 export default function MatDuongEntryForm({ form, onChange, date, types }) {
   const syncedDate = formatDisplayDate(date);
   const entryWidths = matDuongEntryColWidths();
-  const tableMinWidth = matDuongEntryTableMinWidth();
+  const tableMinWidth = matDuongEntryTableMinWidth() + 58;
   const preview = entryToMatDuongRow({ ...form, date });
   const area = calcAreaM2(form);
-  const kmToDisplay = formatKmCell(resolveEntryKmTo(form)) || "—";
+  const kmToDisplay = formatKmCell(resolveEntryKmTo(form)) || "";
+  const unit = normalizeUnitValue(form.unit) || "m2";
+  const lockWidth = unit === "m";
+  const lockHeight = unit === "m" || unit === "m2";
+  const colSpecs = (() => {
+    const specs = MAT_DUONG_ENTRY_COLS.map((col) => ({
+      key: col.key,
+      width: entryWidths[col.key]
+    }));
+    const idx = specs.findIndex((c) => c.key === "md6");
+    specs.splice(idx + 1, 0, { key: "mdH", width: 58 });
+    return specs;
+  })();
+
+  function handleDimChange(e) {
+    onChange(e);
+  }
 
   return (
     <div className="tngt-entry-form">
@@ -60,12 +78,12 @@ export default function MatDuongEntryForm({ form, onChange, date, types }) {
             style={{ minWidth: `${tableMinWidth}px` }}
           >
             <colgroup>
-              {MAT_DUONG_ENTRY_COLS.map((col) => (
-                <col key={col.key} style={{ width: `${entryWidths[col.key]}px` }} />
+              {colSpecs.map((col) => (
+                <col key={col.key} style={{ width: `${col.width}px` }} />
               ))}
             </colgroup>
             <thead>
-              <MatDuongTableHead />
+              <MatDuongTableHead hasHeight />
             </thead>
             <tbody>
               <tr className="tngt-entry-data-row matduong-entry-data-row">
@@ -88,13 +106,13 @@ export default function MatDuongEntryForm({ form, onChange, date, types }) {
                 <EntryCell>
                   <select
                     name="side"
-                    value={form.side || "P"}
+                    value={form.side ?? ""}
                     onChange={onChange}
                     className="nhatky-cell-input nhatky-cell-input--single"
                     aria-label="T/P/G/M"
                   >
                     {SIDE_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
+                      <option key={opt.value || "empty"} value={opt.value}>
                         {opt.label}
                       </option>
                     ))}
@@ -105,7 +123,7 @@ export default function MatDuongEntryForm({ form, onChange, date, types }) {
                     name="length"
                     placeholder="Dài"
                     value={form.length}
-                    onChange={onChange}
+                    onChange={handleDimChange}
                     rows={1}
                     className="hanh-lang-entry-auto--num"
                   />
@@ -114,14 +132,26 @@ export default function MatDuongEntryForm({ form, onChange, date, types }) {
                   <HanhLangAutoTextarea
                     name="width"
                     placeholder="Rộng"
-                    value={form.width}
-                    onChange={onChange}
+                    value={lockWidth ? "" : form.width}
+                    onChange={handleDimChange}
                     rows={1}
                     className="hanh-lang-entry-auto--num"
+                    readOnly={lockWidth}
+                  />
+                </EntryCell>
+                <EntryCell>
+                  <HanhLangAutoTextarea
+                    name="height"
+                    placeholder="Cao"
+                    value={lockHeight ? "" : form.height || ""}
+                    onChange={handleDimChange}
+                    rows={1}
+                    className="hanh-lang-entry-auto--num"
+                    readOnly={lockHeight}
                   />
                 </EntryCell>
                 <EntryCell synced>
-                  {area || preview.area || "—"}
+                  {area || preview.area || ""}
                 </EntryCell>
                 <EntryCell className="matduong-sync-damage">
                   <WorkTypeCombo
@@ -192,11 +222,12 @@ export default function MatDuongEntryForm({ form, onChange, date, types }) {
         </label>
       </section>
 
-      {form.exportMatDuong && defaultExportMatDuong(form.type) && (
+      {needMaintenanceForType(form.type) && (
         <section className="matduong-baoduong-section">
           <h3 className="tngt-entry-block-title">Sổ bảo dưỡng thường xuyên</h3>
           <p className="section-guide section-guide--compact">
-            Ngày dự kiến sửa chữa (tối đa {BAO_DUONG_MAX_DAYS} ngày sau phát hiện).
+            Độc lập với tick xuất sổ mặt đường. Ngày dự kiến sửa chữa (tối đa{" "}
+            {BAO_DUONG_MAX_DAYS} ngày sau phát hiện).
           </p>
           <div className="entry-form-grid">
             <div className="entry-form-field">

@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   VI_MONTHS,
@@ -144,6 +144,8 @@ export default function ViDateInput({
   disabled = false,
   placeholder = "dd/mm/yyyy",
   hideCalendarButton = false,
+  /** Ngày ISO chưa nhập liệu → tô đỏ trên lịch (Set hoặc mảng). */
+  missingDates = null,
   "aria-label": ariaLabel = "Chọn ngày"
 }) {
   const listId = useId();
@@ -152,6 +154,13 @@ export default function ViDateInput({
   const [open, setOpen] = useState(false);
   const [text, setText] = useState(() => isoToDisplay(value));
   const [view, setView] = useState(() => clampView(value, min, max));
+
+  const missingSet = useMemo(() => {
+    if (!missingDates) return null;
+    if (missingDates instanceof Set) return missingDates.size ? missingDates : null;
+    const arr = Array.isArray(missingDates) ? missingDates : [];
+    return arr.length ? new Set(arr) : null;
+  }, [missingDates]);
 
   useEffect(() => {
     setText(isoToDisplay(value));
@@ -297,12 +306,18 @@ export default function ViDateInput({
               const isSel =
                 selected && d === selected.d && view.m === selected.m && view.y === selected.y;
               const off = d && isDisabledDay(view.y, view.m, d);
+              const iso = d ? partsToIso(view.y, view.m, d) : "";
+              const isMissing = Boolean(iso && missingSet?.has(iso));
               return (
                 <button
                   key={i}
                   type="button"
-                  className={`vi-date-day${!d ? " vi-date-day--empty" : ""}${isSel ? " vi-date-day--selected" : ""}${off ? " vi-date-day--disabled" : ""}`}
+                  className={`vi-date-day${!d ? " vi-date-day--empty" : ""}${isSel ? " vi-date-day--selected" : ""}${off ? " vi-date-day--disabled" : ""}${isMissing ? " vi-date-day--missing" : ""}`}
                   disabled={!d || off}
+                  title={isMissing ? "Chưa nhập dữ liệu sổ" : undefined}
+                  aria-label={
+                    isMissing ? `${d} — chưa nhập dữ liệu` : d ? String(d) : undefined
+                  }
                   onClick={() => pickDay(d)}
                 >
                   {d || ""}
@@ -310,6 +325,11 @@ export default function ViDateInput({
               );
             })}
           </div>
+          {missingSet ? (
+            <p className="vi-date-missing-hint">
+              Đỏ = chưa nhập liệu (từ đầu năm → hôm nay)
+            </p>
+          ) : null}
           <div className="vi-date-popover-actions">
             <button
               type="button"

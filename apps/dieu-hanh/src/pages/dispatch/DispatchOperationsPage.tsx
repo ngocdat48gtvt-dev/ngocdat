@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
+import { Loader2, MapPin } from 'lucide-react'
 import { useDispatch } from '@/context/DispatchContext'
+import { useAuth } from '@/hooks'
 import { isHighVolumeM3 } from '@/lib/incidentUtils'
 import { hasReworkRequest } from '@/lib/reworkUtils'
 import { buildDuplicateChainageKeySet } from '@quanlysuco/shared'
@@ -14,17 +16,31 @@ import {
   buildBaoCaoSuCoFilename,
   exportIncidentsExcel,
 } from '@/services/incidentExportService'
+import {
+  countIncidentsNeedingMetadataRecovery,
+  recoverAllMissingMetadata,
+} from '@/services/incidentMetadataRecoveryService'
 
 export function DispatchOperationsPage() {
-  const { sorted, filters, summary, isCompanyAdmin, reload } = useDispatch()
+  const { items, sorted, filters, summary, isCompanyAdmin, reload } = useDispatch()
+  const { user } = useAuth()
   const hasDuplicateChainage = useMemo(
     () => buildDuplicateChainageKeySet(sorted).size > 0,
     [sorted],
   )
   const hasHighVolume = useMemo(() => sorted.some(isHighVolumeM3), [sorted])
   const hasRework = useMemo(() => sorted.some(hasReworkRequest), [sorted])
+  const missingKmRecoverCount = useMemo(
+    () =>
+      countIncidentsNeedingMetadataRecovery(items, {
+        ownerUid: user?.uid,
+        isCompanyAdmin,
+      }),
+    [items, user?.uid, isCompanyAdmin],
+  )
   const [wordOpen, setWordOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const [metadataRecovering, setMetadataRecovering] = useState(false)
 
   function openWordExport() {
     if (sorted.length === 0) {
@@ -46,6 +62,47 @@ export function DispatchOperationsPage() {
       toast.success('Đã xuất Excel')
     } catch {
       toast.error('Không xuất được file Excel')
+    }
+  }
+
+  async function handleRecoverMetadata() {
+    if (!user?.uid || metadataRecovering) return
+    if (missingKmRecoverCount === 0) {
+      toast.info('Không có sự cố nào thiếu lý trình mà suy ra được từ mã sự cố/ảnh')
+      return
+    }
+
+    setMetadataRecovering(true)
+    const toastId = toast.loading(
+      `Đang khôi phục lý trình (${missingKmRecoverCount} sự cố)…`,
+    )
+    try {
+      let totalRecovered = 0
+      for (let round = 0; round < 50; round++) {
+        const { recovered } = await recoverAllMissingMetadata(items, {
+          ownerUid: user.uid,
+          isCompanyAdmin,
+          onProgress: ({ recovered: done }) => {
+            toast.loading(`Đang khôi phục… ${done} sự cố`, { id: toastId })
+          },
+        })
+        if (recovered === 0) break
+        totalRecovered += recovered
+        if (recovered < 80) break
+      }
+      if (totalRecovered > 0) {
+        reload()
+        toast.success(
+          `Đã ghi lý trình (và tuyến/loại nếu trống) cho ${totalRecovered} sự cố — kích thước bạn tự nhập sau`,
+          { id: toastId },
+        )
+      } else {
+        toast.info('Không khôi phục được lý trình', { id: toastId })
+      }
+    } catch {
+      toast.error('Khôi phục lý trình thất bại', { id: toastId })
+    } finally {
+      setMetadataRecovering(false)
     }
   }
 
@@ -118,6 +175,27 @@ export function DispatchOperationsPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-1.5">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={metadataRecovering || missingKmRecoverCount === 0}
+              onClick={() => void handleRecoverMetadata()}
+              title={
+                missingKmRecoverCount > 0
+                  ? `${missingKmRecoverCount} sự cố thiếu lý trình — suy từ mã sự cố hoặc thư mục ảnh`
+                  : 'Không có sự cố thiếu lý trình khôi phục được'
+              }
+            >
+              {metadataRecovering ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <MapPin className="h-3.5 w-3.5" />
+              )}
+              Khôi phục lý trình
+              {missingKmRecoverCount > 0 ? ` (${missingKmRecoverCount})` : ''}
+            </Button>
             <Button type="button" variant="outline" size="sm" onClick={() => reload()}>
               Tải lại
             </Button>

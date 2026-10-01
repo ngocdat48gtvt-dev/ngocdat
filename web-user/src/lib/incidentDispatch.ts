@@ -1,5 +1,4 @@
 import type { IncidentRecord, IncidentStatus, IncidentUpdate } from '@/types/incident'
-import { parseViDate } from '@/lib/incidentFilters'
 import { clampProgress, todayViDateString } from '@/lib/incidentUtils'
 
 export const LOCK_MS = 24 * 60 * 60 * 1000

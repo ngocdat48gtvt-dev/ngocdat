@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DemXeRepository } from "../officeBooks/repositories/DemXeRepository";
 import { loadStorage } from "../utils/nhatKyFormat";
 
 const PUSH_DEBOUNCE_MS = 1800;
+const EMPTY_CLOUD_OPTS = Object.freeze({});
 
 export function useDemXeSync({
   uid,
@@ -10,22 +11,60 @@ export function useDemXeSync({
   roadName,
   activeRoad,
   storageKey,
+  routeId = "",
+  routes = [],
   enabled = true,
   canPush = true,
-  browseMode = false
+  browseMode = false,
+  offlineMode = false
 }) {
-  const scope = DemXeRepository.scope(uid, roadId);
-  const [ledger, setLedger] = useState(() => (scope ? DemXeRepository.load(scope) : null));
+  const routeList = Array.isArray(routes) ? routes : [];
+  const rid = String(routeId || "").trim();
+  const multi = routeList.length > 1;
+  const isFirstRoute = multi ? String(routeList[0]?.id || "") === rid : true;
+  const routesKey = routeList.map((r) => String(r.id || "")).join("|");
+
+  const readScope = useMemo(
+    () => DemXeRepository.resolveScope(uid, roadId, rid, routeList),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [uid, roadId, rid, routesKey]
+  );
+  const writeScope = useMemo(
+    () => DemXeRepository.writeScope(uid, roadId, rid, routeList),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [uid, roadId, rid, routesKey]
+  );
+  const cloudOpts = useMemo(
+    () => (multi && rid ? { routeId: rid, isFirstRoute } : EMPTY_CLOUD_OPTS),
+    [multi, rid, isFirstRoute]
+  );
+
+  // Chỉ lấy field ổn định — tránh object activeRoad đổi reference mỗi render
+  const coverSeedKey = [
+    activeRoad?.id || "",
+    activeRoad?.roadName || activeRoad?.label || "",
+    activeRoad?.hat || "",
+    activeRoad?.company || "",
+    activeRoad?.kmRange || "",
+    activeRoad?.kmFrom || "",
+    activeRoad?.kmTo || ""
+  ].join("|");
+
+  const [ledger, setLedger] = useState(() =>
+    readScope ? DemXeRepository.load(readScope) : null
+  );
   const [ready, setReady] = useState(false);
   const pushTimer = useRef(null);
   const localDirty = useRef(false);
   const hydratingRef = useRef(false);
+  const activeRoadRef = useRef(activeRoad);
+  activeRoadRef.current = activeRoad;
 
   const flushPush = useCallback(async () => {
-    if (!canPush || !uid || !roadId || !scope) return;
-    const current = DemXeRepository.load(scope);
-    await DemXeRepository.pushRemote(uid, roadId, current, roadName);
-  }, [canPush, uid, roadId, roadName, scope]);
+    if (!canPush || !uid || !roadId || !writeScope) return;
+    const current = DemXeRepository.load(writeScope);
+    await DemXeRepository.pushRemote(uid, roadId, current, roadName, cloudOpts);
+  }, [canPush, uid, roadId, roadName, writeScope, cloudOpts]);
 
   const schedulePush = useCallback(() => {
     if (!canPush || hydratingRef.current) return;
@@ -38,7 +77,7 @@ export function useDemXeSync({
   }, [canPush, flushPush]);
 
   useEffect(() => {
-    if (!enabled || !scope) {
+    if (!enabled || !readScope || !writeScope) {
       setLedger(null);
       setReady(true);
       return undefined;
@@ -50,28 +89,52 @@ export function useDemXeSync({
     async function hydrate() {
       hydratingRef.current = true;
       try {
-        let local = DemXeRepository.load(scope);
+        let local = DemXeRepository.load(readScope);
+        const localDays = Object.keys(local.days || {}).length;
         const hasLocal =
-          Object.keys(local.days || {}).length > 0 ||
+          localDays > 0 ||
           Object.values(local.cover || {}).some((v) => String(v || "").trim());
 
-        if (uid && roadId) {
-          const remote = await DemXeRepository.fetchRemote(uid, roadId, roadName);
+        if (uid && roadId && !offlineMode) {
+          const remote = await DemXeRepository.fetchRemote(
+            uid,
+            roadId,
+            roadName,
+            cloudOpts
+          );
           if (cancelled) return;
-          if (remote && (browseMode || !hasLocal || !localDirty.current)) {
-            if (browseMode || !hasLocal || JSON.stringify(remote) !== JSON.stringify(local)) {
-              local = DemXeRepository.replace(scope, remote);
+          if (remote) {
+            const remoteDays = Object.keys(remote.days || {}).length;
+            const hasRemote =
+              remoteDays > 0 ||
+              Object.values(remote.cover || {}).some((v) => String(v || "").trim());
+            const takeRemote =
+              hasRemote &&
+              (browseMode ||
+                !hasLocal ||
+                (!localDirty.current && remoteDays >= localDays));
+            if (takeRemote && JSON.stringify(remote) !== JSON.stringify(local)) {
+              local = DemXeRepository.replace(writeScope, remote);
+            } else if (!hasRemote && hasLocal && canPush) {
+              if (readScope !== writeScope) {
+                local = DemXeRepository.replace(writeScope, local);
+              }
+              await DemXeRepository.pushRemote(uid, roadId, local, roadName, cloudOpts);
             }
-          } else if (!remote && hasLocal && canPush) {
-            await DemXeRepository.pushRemote(uid, roadId, local, roadName);
+          } else if (hasLocal && canPush) {
+            if (readScope !== writeScope) {
+              local = DemXeRepository.replace(writeScope, local);
+            }
+            await DemXeRepository.pushRemote(uid, roadId, local, roadName, cloudOpts);
           }
         }
 
-        if (!hasLocal && activeRoad) {
+        const road = activeRoadRef.current;
+        if (!hasLocal && road) {
           const { reportMeta } = loadStorage(storageKey || `nhatky_${uid}_${roadId}`);
-          const cover = DemXeRepository.coverFromRoad(activeRoad, reportMeta);
+          const cover = DemXeRepository.coverFromRoad(road, reportMeta);
           local = { ...local, cover: { ...cover, ...local.cover } };
-          DemXeRepository.save(scope, local);
+          DemXeRepository.save(writeScope, local);
         }
 
         if (!cancelled) {
@@ -81,7 +144,7 @@ export function useDemXeSync({
       } catch (err) {
         console.warn("Không hydrate được sổ đếm xe.", err);
         if (!cancelled) {
-          setLedger(DemXeRepository.load(scope));
+          setLedger(DemXeRepository.load(writeScope));
           setReady(true);
         }
       } finally {
@@ -95,21 +158,34 @@ export function useDemXeSync({
       cancelled = true;
       hydratingRef.current = false;
     };
-  }, [enabled, scope, uid, roadId, roadName, activeRoad, storageKey, canPush, browseMode]);
+  }, [
+    enabled,
+    readScope,
+    writeScope,
+    uid,
+    roadId,
+    roadName,
+    coverSeedKey,
+    storageKey,
+    canPush,
+    browseMode,
+    offlineMode,
+    cloudOpts
+  ]);
 
   const updateLedger = useCallback(
     (updater) => {
-      if (!scope || !canPush) return;
+      if (!writeScope || (!canPush && !offlineMode)) return;
       setLedger((prev) => {
-        const base = prev || DemXeRepository.load(scope);
+        const base = prev || DemXeRepository.load(writeScope);
         const next = typeof updater === "function" ? updater(base) : updater;
-        const saved = DemXeRepository.save(scope, next);
+        const saved = DemXeRepository.save(writeScope, next);
         localDirty.current = true;
         schedulePush();
         return saved;
       });
     },
-    [scope, canPush, schedulePush]
+    [writeScope, canPush, offlineMode, schedulePush]
   );
 
   useEffect(
@@ -119,5 +195,5 @@ export function useDemXeSync({
     []
   );
 
-  return { ledger, setLedger: updateLedger, ready, scope, flushPush };
+  return { ledger, setLedger: updateLedger, ready, scope: writeScope, flushPush };
 }

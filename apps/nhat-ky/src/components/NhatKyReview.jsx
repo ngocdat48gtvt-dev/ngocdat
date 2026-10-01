@@ -16,11 +16,12 @@ import {
   formatDisplayDate,
   displayDayWeather,
   OFFICIAL_HEADERS,
-  SECTIONS,
+  VISIBLE_SECTIONS,
   compareEntriesByTypeAndKm,
   formatSectionHeading
 } from "../utils/nhatKyFormat";
 import WeatherQuickPicker from "./WeatherQuickPicker";
+import { annotateDeferredLeaderNotes } from "../utils/baoDuongFormat";
 
 const DATA_HEADERS = ["col1", "col2", "col3", "col4", "col5", "col6"];
 
@@ -283,6 +284,7 @@ export default function NhatKyReview({
       }
     });
 
+    let leaderPlaced = false;
     for (const block of bodyBlocks) {
       const sectionTitle = block.section.title;
       const label = formatSectionHeading(block.section);
@@ -333,10 +335,15 @@ export default function NhatKyReview({
         continue;
       }
 
+      const { anns, placed } = annotateDeferredLeaderNotes(block.rows, {
+        alreadyPlaced: leaderPlaced
+      });
+      leaderPlaced = placed;
+
       block.rows.forEach((item, i) => {
         const draftClass = item._draft ? "nhatky-draft-row" : "";
         const resolved = item.resolved || item.solution || "";
-        const leaderNote = item.leaderNote || "";
+        const leaderNote = anns[i]?.note || item.leaderNote || "";
         const note = item.inspectorNote || item.note || "";
         const rowClickable = canOpenForm && !item._draft;
 
@@ -409,7 +416,7 @@ export default function NhatKyReview({
     return rows;
   }
 
-  const bodyBlocks = SECTIONS.map((section) => ({
+  const bodyBlocks = VISIBLE_SECTIONS.map((section) => ({
     type: "section",
     key: section.key,
     section,

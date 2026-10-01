@@ -1,4 +1,5 @@
 import { getUnitForType, isCountUnit } from "./baoDuongQualityStore";
+import { formatBookDecimal } from "./bookNumberFormat";
 
 export function clampProgress(progress) {
   const p = progress ?? 0;
@@ -123,19 +124,12 @@ export function resolveEntryQuantity(entry) {
 }
 
 function formatQtyNumber(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) return "";
-  if (Math.abs(n - Math.round(n)) < 0.001) return String(Math.round(n));
-  return n.toLocaleString("vi-VN", { maximumFractionDigits: 2 });
+  return formatBookDecimal(value);
 }
 
-/** Số thập phân dấu chấm (0.4) — dùng khi ghi sổ cột 3. */
+/** Số thập phân trên sổ (2,50) — cột 3 nhật ký / KT. */
 function formatQtyNumberDot(value) {
-  const n = Number(String(value).replace(",", "."));
-  if (!Number.isFinite(n) || n <= 0) return "";
-  if (Math.abs(n - Math.round(n)) < 0.001) return String(Math.round(n));
-  const s = String(Math.round(n * 100) / 100);
-  return s.replace(/(\.\d*?[1-9])0+$/u, "$1").replace(/\.$/u, "");
+  return formatBookDecimal(value);
 }
 
 /** Đơn vị ASCII trên sổ: m3 / m2 (không superscript). */
@@ -152,13 +146,14 @@ export const COT_MOC_SECTION = "Cột mốc GP mặt bằng, lộ giới";
 /** Form đơn giản: không Dài/Rộng/Cao, có Ghi chú, lý trình cuối tùy chọn. */
 export const NOTE_QTY_DIARY_SECTIONS = new Set([ATGT_SECTION, COT_MOC_SECTION]);
 
-/** Cống / ngầm / mốc / ATGT / mặt·nền·lề — cột 3 ghi loại + KT + khối lượng. */
+/** Cống / ngầm / cầu / mốc / ATGT / mặt·nền·lề — cột 3 ghi loại + KT + khối lượng (cùng dòng). */
 export const MEASURE_DIARY_SECTIONS = new Set([
   "Mặt đường",
   "Nền đường",
   "Lề đường",
   "Cống, rãnh thoát nước",
   "Ngầm, tràn (lũ, ngập)",
+  "Công trình cầu",
   COT_MOC_SECTION,
   ATGT_SECTION
 ]);
@@ -234,7 +229,7 @@ function defaultUnitLabel(entry, unit) {
  * - Không còn dạng «Phát sinh …» cho mặt/nền/lề.
  */
 export function formatPhatSinhDiaryContent(entry) {
-  const typeLabel = String(entry?.sourceIncidentType || entry?.type || "").trim();
+  const typeLabel = String(entry?.type || entry?.sourceIncidentType || "").trim();
 
   if (isNoteQtyDiarySection(entry?.section)) {
     const note = String(entry?.content || entry?.note || "").trim();
@@ -282,7 +277,7 @@ export function formatEntryVolumeLine(entry) {
     !dimPositive(entry?.height);
   const dims = [entry?.length, entry?.width, entry?.height]
     .filter((v) => dimPositive(v))
-    .map((v) => formatQtyNumberDot(v) || String(v).replace(",", "."));
+    .map((v) => formatQtyNumberDot(v) || String(v).trim());
   const qtyStr = formatQtyNumberDot(qty);
   const unitLabel = formatUnitDiary(unit);
   const qtyWithUnit = qtyStr
@@ -639,12 +634,26 @@ export function photoToken(ref) {
   return s;
 }
 
-/** Cùng một ảnh (URL trùng hoặc cùng photoToken). */
+/** Path Storage trong URL Firebase (/o/...) — cùng file khác token tải vẫn khớp. */
+function firebaseStoragePath(url) {
+  const match = /\/o\/([^?]+)/.exec(String(url || ""));
+  if (!match) return "";
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
+/** Cùng một ảnh (URL trùng, cùng path Storage, hoặc cùng photoToken). */
 export function isSamePhotoUrl(a, b) {
   const x = String(a ?? "").trim();
   const y = String(b ?? "").trim();
   if (!x || !y) return false;
   if (x === y) return true;
+  const px = firebaseStoragePath(x);
+  const py = firebaseStoragePath(y);
+  if (px && py && px === py) return true;
   const tx = photoToken(x);
   const ty = photoToken(y);
   return tx !== "" && tx === ty;
@@ -658,6 +667,24 @@ export function removeReportImageSlotByUrl(slots, kind, url) {
   return slots.filter((s) => !(s.kind === kind && isSamePhotoUrl(s.url, url)));
 }
 
+function removeUrlFromUpdates(updates, url) {
+  let changed = false;
+  const next = (updates || []).map((u) => {
+    const imgs = Array.isArray(u?.images) ? u.images : [];
+    if (!imgs.length) return u;
+    const filtered = removeUrlFromImagePool(imgs, url);
+    if (filtered.length === imgs.length) return u;
+    changed = true;
+    return { ...u, images: filtered };
+  });
+  return { updates: next, changed };
+}
+
+/**
+ * Gỡ 1 ảnh khỏi sự cố.
+ * Lưu ý: ảnh «sau xử lý» có thể nằm ở afterImages VÀ/HOẶC updates[].images
+ * (ảnh hoàn thành 100%) — phải gỡ cả hai, nếu không UI vẫn hiện lại.
+ */
 export function computeRemoveIncidentImagePatch(inc, kind, url) {
   const beforeImages =
     kind === "before"
@@ -667,18 +694,39 @@ export function computeRemoveIncidentImagePatch(inc, kind, url) {
     kind === "after"
       ? removeUrlFromImagePool(inc.afterImages || [], url)
       : [...(inc.afterImages || [])];
-  const slots = removeReportImageSlotByUrl(reportImageSlots(inc), kind, url);
+
+  // Ảnh hoàn thành / cập nhật tiến độ — thường gắn «sau xử lý»
+  const { updates, changed: updatesChanged } =
+    kind === "after"
+      ? removeUrlFromUpdates(inc.updates, url)
+      : { updates: [...(inc.updates || [])], changed: false };
+
+  const nextInc = { ...inc, beforeImages, afterImages, updates };
+  const slots = removeReportImageSlotByUrl(reportImageSlots(nextInc), kind, url);
   const { selectedBefore, selectedAfter } = legacyRefsFromReportSlots(slots);
-  const sourcePool = kind === "before" ? inc.beforeImages || [] : inc.afterImages || [];
+
+  const sourcePool = [
+    ...(inc.beforeImages || []),
+    ...(inc.afterImages || []),
+    ...(inc.updates || []).flatMap((u) => u.images || [])
+  ];
   const removedUrl = sourcePool.find((u) => isSamePhotoUrl(u, url)) ?? url;
+
+  const removed =
+    beforeImages.length < (inc.beforeImages || []).length ||
+    afterImages.length < (inc.afterImages || []).length ||
+    updatesChanged;
+
   return {
     beforeImages,
     afterImages,
+    updates,
     reportImageOrder: encodeReportImageOrder(slots),
     selectedBefore,
     selectedAfter,
     slots,
-    removedUrl
+    removedUrl,
+    removed
   };
 }
 
@@ -801,7 +849,8 @@ export function reportImageSlots(inc) {
   return [...before, ...after];
 }
 
-function hasExplicitReportSelection(inc) {
+/** Người dùng đã chọn ảnh ghép Word (không dùng mặc định 1 HT + 1 XL). */
+export function hasExplicitReportSelection(inc) {
   return Boolean(
     (inc.reportImageOrder ?? "").trim() ||
       (inc.selectedBefore ?? "").trim() ||

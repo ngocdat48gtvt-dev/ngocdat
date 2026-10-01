@@ -3,6 +3,7 @@ import { parseViDate } from '@/lib/incidentFilters'
 import { sortIncidentsByKm } from '@/lib/kmUtils'
 import { beforeConstructionImages, afterConstructionImages } from '@/lib/incidentUtils'
 import type { WordPhotoSelection } from '@/lib/wordPhotoSelection'
+import { fetchImageBlob } from '@/lib/fetchImageBlob'
 
 const WORD_IMAGE_MAX_SIDE = 1200
 const WORD_JPEG_QUALITY = 0.82
@@ -116,9 +117,8 @@ export async function prepareImageForWord(
   url: string,
 ): Promise<{ data: Uint8Array; width: number; height: number } | null> {
   try {
-    const res = await fetch(url)
-    if (!res.ok) return null
-    const blob = await res.blob()
+    const blob = await fetchImageBlob(url)
+    if (!blob) return null
     const bitmap = await createImageBitmap(blob)
     const maxSide = WORD_IMAGE_MAX_SIDE
     const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height))

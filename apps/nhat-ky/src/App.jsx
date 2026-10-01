@@ -1,14 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { RoadWorkspaceProvider, useRoadWorkspace } from "./context/RoadWorkspaceContext";
 import { OfficeBrowseProvider, useOfficeBrowse } from "./context/OfficeBrowseContext";
-import LoginPage from "./pages/LoginPage";
 import RoadSelectPage from "./pages/RoadSelectPage";
 import OfficeBrowseSelectPage from "./pages/OfficeBrowseSelectPage";
 import NhapLieuPage from "./pages/NhapLieuPage";
 import SoNhatKy from "./pages/SoNhatKy";
 import SoMatDuong from "./pages/SoMatDuong";
 import SoBaoDuong from "./pages/SoBaoDuong";
+import SoNghiemThu from "./pages/SoNghiemThu";
 import SoTrafficDuty from "./pages/SoTrafficDuty";
 import SoTngt from "./pages/SoTngt";
 import SoHanhLang from "./pages/SoHanhLang";
@@ -28,38 +29,153 @@ import { useCauInspectionSync } from "./hooks/useCauInspectionSync";
 import { useCongRegistryHydrate } from "./hooks/useCongRegistryHydrate";
 import { useOfficePermissions } from "./hooks/useOfficePermissions";
 import { formatKmDisplay, roadDisplayLabel } from "./utils/roadsCatalog";
+import OfficeBackupDialog from "./components/OfficeBackupDialog";
+import { disposeOfficeBackup, downloadEditedOfficeBackup, materializeOfficeBackup, overwriteEditedOfficeBackup, purgeStaleOfficeBackupStorage, readOfficeBackup } from "./services/officeBackupService";
 
-const HOME_URL = "/san-pham";
+const HOME_URL = "/quan-ly-duong-bo.html";
 
-function RoadWorkspaceNav({ road, onChangeRoad, browseUserName }) {
+function RoadWorkspaceNav({ road, browseUserName, onChangeRoad }) {
   if (!road) return null;
 
   const roadName = road.roadName || road.label || "";
   const kmFrom = formatKmDisplay(road.kmFrom);
   const kmTo = formatKmDisplay(road.kmTo);
   const kmText =
-    kmFrom && kmTo
-      ? `${kmFrom} → ${kmTo}`
-      : road.kmRange
-        ? road.kmRange.replace(/\s*[-–—]\s*/g, " → ")
-        : "";
+    road.routesViewMode === "merged" && road.kmRange
+      ? road.kmRange
+      : kmFrom && kmTo
+        ? `${kmFrom} → ${kmTo}`
+        : road.kmRange
+          ? road.kmRange.replace(/\s*[-–—]\s*/g, " → ")
+          : "";
 
   return (
     <div className="road-workspace-nav" title={roadDisplayLabel(road)}>
       {browseUserName && (
         <span className="road-workspace-nav-browse-user">Xem: {browseUserName}</span>
       )}
-      {roadName && <span className="road-workspace-nav-road">{roadName}</span>}
-      {road.hat && <span className="road-workspace-nav-hat">Hạt {road.hat}</span>}
-      {kmText && <span className="road-workspace-nav-km">{kmText}</span>}
+      {road.hat && <span className="road-workspace-nav-hat">{road.hat}</span>}
+      {roadName && (
+        <span
+          className={`road-workspace-nav-road${
+            road.routesViewMode === "merged" ? " road-workspace-nav-road--merged" : ""
+          }`}
+          title={roadName}
+        >
+          {roadName}
+        </span>
+      )}
+      {kmText && (
+        <span className="road-workspace-nav-km" title={kmText}>
+          {kmText}
+        </span>
+      )}
       <button type="button" className="road-workspace-nav-switch" onClick={onChangeRoad}>
-        {browseUserName ? "Đổi người / hạt" : "Đổi hạt"}
+        {browseUserName ? "Đổi người / sổ" : "Đổi sổ"}
       </button>
     </div>
   );
 }
 
+function OfficeSyncStatus({ sync }) {
+  if (!sync || sync.status === "idle" || sync.status === "readonly") return null;
+  const labels = {
+    checking: "Đang đối chiếu dữ liệu",
+    pending: "Đang chờ đồng bộ",
+    syncing: "Đang đồng bộ",
+    synced: "Đã đồng bộ",
+    error: "Chưa đồng bộ – bấm thử lại"
+  };
+  const isError = sync.status === "error";
+  return (
+    <button
+      type="button"
+      className={`office-sync-chip office-sync-chip--${sync.status}`}
+      disabled={!isError}
+      onClick={isError ? () => void sync.retry() : undefined}
+      title={isError ? sync.error || "Bấm để thử đồng bộ lại" : labels[sync.status]}
+    >
+      <span className="office-sync-chip-dot" aria-hidden />
+      {labels[sync.status] || "Đang đồng bộ"}
+    </button>
+  );
+}
+
 function NhatKySubNav({ page, setPage, canEditOfficeData }) {
+  const [hosoOpen, setHosoOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState(null);
+  const hosoRef = useRef(null);
+  const menuRef = useRef(null);
+  const hosoPages = ["hosocong", "danhsachcau"];
+  const hosoActive = hosoPages.includes(page);
+
+  useEffect(() => {
+    if (!hosoOpen) return undefined;
+    const updatePos = () => {
+      const el = hosoRef.current?.querySelector("button");
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setMenuPos({
+        top: r.bottom,
+        left: Math.min(r.left, window.innerWidth - 220)
+      });
+    };
+    updatePos();
+    const onDown = (e) => {
+      if (hosoRef.current?.contains(e.target)) return;
+      if (menuRef.current?.contains(e.target)) return;
+      setHosoOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setHosoOpen(false);
+    };
+    window.addEventListener("resize", updatePos);
+    window.addEventListener("scroll", updatePos, true);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("resize", updatePos);
+      window.removeEventListener("scroll", updatePos, true);
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [hosoOpen]);
+
+  function goHoso(nextPage) {
+    setPage(nextPage);
+    setHosoOpen(false);
+  }
+
+  const hosoMenu =
+    hosoOpen && menuPos
+      ? createPortal(
+          <div
+            ref={menuRef}
+            className="nhat-ky-nav-dd-menu"
+            role="menu"
+            style={{ top: menuPos.top, left: menuPos.left }}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              className={page === "hosocong" ? "is-active" : ""}
+              onClick={() => goHoso("hosocong")}
+            >
+              Danh sách cống
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className={page === "danhsachcau" ? "is-active" : ""}
+              onClick={() => goHoso("danhsachcau")}
+            >
+              Danh sách cầu
+            </button>
+          </div>,
+          document.body
+        )
+      : null;
+
   return (
     <div className="nhat-ky-nav nhat-ky-nav--sub nhat-ky-nav--sub-inline">
       {canEditOfficeData && (
@@ -91,6 +207,13 @@ function NhatKySubNav({ page, setPage, canEditOfficeData }) {
         onClick={() => setPage("sobaoduong")}
       >
         SỔ BẢO DƯỠNG
+      </button>
+      <button
+        type="button"
+        className={page === "songhiemthu" ? "nav-active" : ""}
+        onClick={() => setPage("songhiemthu")}
+      >
+        BB NGHIỆM THU
       </button>
       <button
         type="button"
@@ -146,22 +269,34 @@ function NhatKySubNav({ page, setPage, canEditOfficeData }) {
         className={page === "baoduongdata" ? "nav-active" : ""}
         onClick={() => setPage("baoduongdata")}
       >
-        MASTER DATA
+        DANH MỤC CÔNG VIỆC
       </button>
-      <button
-        type="button"
-        className={page === "hosocong" ? "nav-active" : ""}
-        onClick={() => setPage("hosocong")}
+      <div
+        className={`nhat-ky-nav-dd${hosoActive ? " is-active" : ""}${hosoOpen ? " is-open" : ""}`}
+        ref={hosoRef}
       >
-        DANH SÁCH CỐNG
-      </button>
-      <button
-        type="button"
-        className={page === "danhsachcau" ? "nav-active" : ""}
-        onClick={() => setPage("danhsachcau")}
-      >
-        DANH SÁCH CẦU
-      </button>
+        <button
+          type="button"
+          className={hosoActive ? "nav-active" : ""}
+          aria-expanded={hosoOpen}
+          aria-haspopup="true"
+          onClick={(e) => {
+            if (hosoOpen) {
+              setHosoOpen(false);
+              return;
+            }
+            const r = e.currentTarget.getBoundingClientRect();
+            setMenuPos({
+              top: r.bottom,
+              left: Math.min(r.left, window.innerWidth - 220)
+            });
+            setHosoOpen(true);
+          }}
+        >
+          TÀI SẢN ĐƯỜNG BỘ ▾
+        </button>
+        {hosoMenu}
+      </div>
     </div>
   );
 }
@@ -178,6 +313,9 @@ function NhatKyWorkspace({
   nhapLieuBootSection = "",
   onNhapLieuBootSection,
   onNhapLieuBootSectionConsumed,
+  gptcBoot = null,
+  onGptcBoot,
+  onGptcBootConsumed,
   officeReadOnly,
   canEditOfficeData
 }) {
@@ -189,6 +327,16 @@ function NhatKyWorkspace({
         setPage("nhaplieu");
       }
     : undefined;
+
+  const openGptcDetail = (item) => {
+    const permitId = String(item?.sourceGptcPermitId || "").trim();
+    if (!permitId) return;
+    onGptcBoot?.({
+      permitId,
+      entryId: String(item?.sourceGptcEntryId || "").trim()
+    });
+    setPage("sogptc");
+  };
 
   return (
     <div className="nhat-ky-workspace">
@@ -202,6 +350,7 @@ function NhatKyWorkspace({
           onMatDuongQuickBootConsumed={onMatDuongQuickBootConsumed}
           bootSection={nhapLieuBootSection}
           onBootSectionConsumed={onNhapLieuBootSectionConsumed}
+          onOpenGptcDetail={openGptcDetail}
           readOnly={officeReadOnly}
         />
       )}
@@ -210,6 +359,7 @@ function NhatKyWorkspace({
           date={workspaceDate}
           onDateChange={setWorkspaceDate}
           onGoEdit={goEdit}
+          onOpenGptcDetail={openGptcDetail}
           storageTick={storageTick}
           readOnly={officeReadOnly}
         />
@@ -232,6 +382,15 @@ function NhatKyWorkspace({
           readOnly={officeReadOnly}
         />
       )}
+      {page === "songhiemthu" && (
+        <SoNghiemThu
+          date={workspaceDate}
+          onDateChange={setWorkspaceDate}
+          onGoEdit={goEdit}
+          storageTick={storageTick}
+          readOnly={officeReadOnly}
+        />
+      )}
       {page === "sotructraffic" && (
         <SoTrafficDuty
           onGoEdit={goEdit}
@@ -243,15 +402,28 @@ function NhatKyWorkspace({
         <SoTngt onGoEdit={goEdit} storageTick={storageTick} readOnly={officeReadOnly} />
       )}
       {page === "sohanhlang" && (
-        <SoHanhLang onGoEdit={goEdit} storageTick={storageTick} readOnly={officeReadOnly} />
+        <SoHanhLang
+          onGoEdit={goEdit}
+          storageTick={storageTick}
+          readOnly={officeReadOnly}
+          onStorageChange={onStorageChange}
+        />
       )}
       {page === "sodemxe" && <SoDemXe readOnly={officeReadOnly} />}
-      {page === "sogptc" && <SoCapPhepThiCong readOnly={officeReadOnly} />}
+      {page === "sogptc" && (
+        <SoCapPhepThiCong
+          readOnly={officeReadOnly}
+          bootTarget={gptcBoot}
+          onBootConsumed={onGptcBootConsumed}
+        />
+      )}
       {page === "thongke" && (
         <ThongKeKhoiLuong storageTick={storageTick} readOnly={officeReadOnly} />
       )}
       {page === "baoduongdata" && <DanhMucBaoDuong />}
-      {page === "hosocong" && <HoSoCong readOnly={officeReadOnly} />}
+      {page === "hosocong" && (
+        <HoSoCong readOnly={officeReadOnly} storageTick={storageTick} />
+      )}
       {page === "danhsachcau" && <DanhSachCau readOnly={officeReadOnly} />}
       {page === "phieucau" && (
         <PhieuKiemTraCau readOnly={officeReadOnly} storageTick={storageTick} />
@@ -260,13 +432,24 @@ function NhatKyWorkspace({
   );
 }
 
-function AppContent() {
+function AppContent({ offlineSession, onOpenBackup, onEnableBackupEdit, onCloseBackup }) {
   const { canAccess, profile, logout } = useAuth();
   const { canEditOfficeData, canUseFieldApp, isOfficeReadOnly, needsBrowsePicker } =
     useOfficePermissions();
   const browse = useOfficeBrowse();
-  const { ready, roadSelected, storageKey, activeRoad, activeRoadId, ownerUid, browseMode, clearRoad, roads } =
-    useRoadWorkspace();
+  const {
+    ready,
+    roadSelected,
+    storageKey,
+    activeRoad,
+    activeRoadId,
+    routesViewMode,
+    ownerUid,
+    browseMode,
+    offlineMode,
+    clearRoad,
+    roads
+  } = useRoadWorkspace();
   const [portal, setPortal] = useState("nhatky");
   const [page, setPage] = useState(() => (needsBrowsePicker ? "sonhatky" : "nhaplieu"));
   const [storageTick, setStorageTick] = useState(0);
@@ -275,6 +458,9 @@ function AppContent() {
   );
   const [matDuongQuickBoot, setMatDuongQuickBoot] = useState(false);
   const [nhapLieuBootSection, setNhapLieuBootSection] = useState("");
+  const [gptcBoot, setGptcBoot] = useState(null);
+  const [backupOpen, setBackupOpen] = useState(false);
+  const [backupSaving, setBackupSaving] = useState(false);
 
   useEffect(() => {
     if (needsBrowsePicker && page === "nhaplieu") {
@@ -282,7 +468,30 @@ function AppContent() {
     }
   }, [needsBrowsePicker, page]);
 
-  const workspaceOpen = needsBrowsePicker ? browse.browseActive : roadSelected;
+  const browseWorkspaceReady = browse.browseActive && ready && roadSelected;
+  const workspaceOpen = offlineMode
+    ? roadSelected
+    : needsBrowsePicker
+      ? browseWorkspaceReady
+      : roadSelected;
+  const backupEditable = Boolean(offlineMode && offlineSession?.editable);
+  const effectiveCanEdit = offlineMode ? backupEditable : canEditOfficeData;
+
+  async function handleSaveEditedBackup() {
+    const overwrite = Boolean(offlineSession?.fileHandle?.createWritable);
+    if (overwrite && !window.confirm("Ghi đè trực tiếp lên file backup cũ? Thao tác này thay thế nội dung file hiện tại.")) return;
+    setBackupSaving(true);
+    try {
+      const filename = overwrite
+        ? await overwriteEditedOfficeBackup(offlineSession)
+        : await downloadEditedOfficeBackup(offlineSession);
+      window.alert(overwrite ? `Đã ghi đè file backup: ${filename}` : `Đã lưu bản sao mới: ${filename}`);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Không lưu được file backup mới.");
+    } finally {
+      setBackupSaving(false);
+    }
+  }
 
   useEffect(() => {
     if (!canUseFieldApp && portal === "hientruong") {
@@ -290,23 +499,34 @@ function AppContent() {
     }
   }, [canUseFieldApp, portal]);
 
+  useEffect(() => {
+    const onLocal = () => setStorageTick((t) => t + 1);
+    window.addEventListener("nhatky-local-changed", onLocal);
+    return () => window.removeEventListener("nhatky-local-changed", onLocal);
+  }, []);
+
+  useEffect(() => {
+    setStorageTick((t) => t + 1);
+  }, [routesViewMode, activeRoad?.roadName, activeRoad?.kmRange, activeRoad?.titleRouteIds]);
+
   useIncidentSync({
     uid: profile?.uid,
     storageKey,
-    enabled: canAccess && roadSelected && !needsBrowsePicker,
+    enabled: !offlineMode && canAccess && roadSelected && !needsBrowsePicker,
     onUpdated: () => setStorageTick((t) => t + 1)
   });
 
   useDataNoiNghiepSync({
     profile,
-    enabled: canAccess
+    enabled: !offlineMode && canAccess
   });
 
-  useOfficeBooksSync({
+  const officeSync = useOfficeBooksSync({
     uid: ownerUid,
     roadId: activeRoadId,
     storageKey,
-    enabled: canAccess && !!ownerUid && !!activeRoadId && !!storageKey && workspaceOpen,
+    focusDate: workspaceDate,
+    enabled: !offlineMode && canAccess && !!ownerUid && !!activeRoadId && !!storageKey && workspaceOpen,
     canPush: canEditOfficeData && !browseMode,
     browseMode,
     catalogRoad: activeRoad,
@@ -316,7 +536,7 @@ function AppContent() {
   useCauInspectionSync({
     uid: ownerUid,
     roadId: activeRoadId,
-    enabled: canAccess && !!ownerUid && !!activeRoadId && workspaceOpen,
+    enabled: !offlineMode && canAccess && !!ownerUid && !!activeRoadId && workspaceOpen,
     canPush: canEditOfficeData && !browseMode,
     browseMode,
     onHydrated: () => setStorageTick((t) => t + 1)
@@ -326,7 +546,7 @@ function AppContent() {
     uid: ownerUid,
     roads,
     ready: ready && !!ownerUid && workspaceOpen,
-    enabled: canAccess
+    enabled: !offlineMode && canAccess
   });
 
   function handleImported(nhatKyDate) {
@@ -335,6 +555,10 @@ function AppContent() {
   }
 
   function handleChangeRoad() {
+    if (offlineMode) {
+      clearRoad();
+      return;
+    }
     if (needsBrowsePicker) {
       browse.clearAll();
     } else {
@@ -343,7 +567,9 @@ function AppContent() {
     }
   }
 
-  if (!ready) {
+  const showBrowsePicker = needsBrowsePicker && !offlineMode && !browseWorkspaceReady;
+
+  if (!ready && !showBrowsePicker) {
     return (
       <div className="nhatky-login">
         <p className="section-guide">Đang tải danh sách đường...</p>
@@ -355,7 +581,7 @@ function AppContent() {
     <div className="nhat-ky-app">
       <header className="nhat-ky-header">
         <div className="nhat-ky-nav nhat-ky-nav--portal">
-          <a href={HOME_URL} className="nhat-ky-home-link" title="Trang chủ" aria-label="Trang chủ">
+          <a href={HOME_URL} className="nhat-ky-home-link" title="Về trung tâm quản lý đường bộ" aria-label="Về trung tâm quản lý đường bộ">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M3 10.5 12 3l9 7.5" />
               <path d="M5 9.5V20h14V9.5" />
@@ -375,19 +601,32 @@ function AppContent() {
             type="button"
             className={portal === "hientruong" ? "nav-active" : ""}
             onClick={() => setPortal("hientruong")}
-            disabled={!canUseFieldApp}
-            title={!canUseFieldApp ? "Chỉ tài khoản USER được dùng App hiện trường" : undefined}
+            disabled={!canUseFieldApp || offlineMode}
+            title={offlineMode ? "Backup offline không mở App hiện trường" : !canUseFieldApp ? "Chỉ tài khoản USER được dùng App hiện trường" : undefined}
           >
             APP HIỆN TRƯỜNG
           </button>
 
           <div className="nhat-ky-nav-right">
+            {offlineMode && <span className="backup-mode-chip">{backupEditable ? "BACKUP ĐANG SỬA" : "BACKUP CHỈ ĐỌC"}</span>}
             {workspaceOpen && (
               <RoadWorkspaceNav
                 road={activeRoad}
                 onChangeRoad={handleChangeRoad}
                 browseUserName={needsBrowsePicker ? browse.selectedUser?.displayName : ""}
               />
+            )}
+            {workspaceOpen && canEditOfficeData && !browseMode && (
+              <OfficeSyncStatus sync={officeSync} />
+            )}
+            {offlineMode ? (
+              <>
+                {!backupEditable && <button type="button" className="nhat-ky-backup-btn" onClick={() => { if (window.confirm("Chỉ sửa bản sao offline và không ghi lên Firebase. Tiếp tục?")) onEnableBackupEdit(); }}>Cho phép sửa</button>}
+                {backupEditable && <button type="button" className="nhat-ky-backup-btn" disabled={backupSaving} onClick={() => void handleSaveEditedBackup()}>{backupSaving ? "Đang lưu..." : offlineSession?.fileHandle ? "Ghi đè file backup" : "Lưu bản sao mới"}</button>}
+                <button type="button" className="nhat-ky-backup-btn" onClick={() => { if (!backupEditable || window.confirm("Đóng backup? Thay đổi chưa lưu thành file mới sẽ bị mất.")) onCloseBackup(); }}>Đóng backup</button>
+              </>
+            ) : (
+              <button type="button" className="nhat-ky-backup-btn" onClick={() => setBackupOpen(true)}>Sao lưu</button>
             )}
             <span className="nhat-ky-user-chip" title={profile?.email || ""}>
               {profile?.displayName || profile?.email}
@@ -403,7 +642,7 @@ function AppContent() {
             <NhatKySubNav
               page={page}
               setPage={setPage}
-              canEditOfficeData={canEditOfficeData}
+              canEditOfficeData={effectiveCanEdit}
             />
           </div>
         )}
@@ -421,7 +660,7 @@ function AppContent() {
             </button>
           </div>
         )
-      ) : needsBrowsePicker && !browse.browseActive ? (
+      ) : showBrowsePicker ? (
         <OfficeBrowseSelectPage />
       ) : !needsBrowsePicker && !roadSelected ? (
         <RoadSelectPage />
@@ -438,11 +677,15 @@ function AppContent() {
           nhapLieuBootSection={nhapLieuBootSection}
           onNhapLieuBootSection={setNhapLieuBootSection}
           onNhapLieuBootSectionConsumed={() => setNhapLieuBootSection("")}
-          officeReadOnly={isOfficeReadOnly}
-          canEditOfficeData={canEditOfficeData}
+          gptcBoot={gptcBoot}
+          onGptcBoot={setGptcBoot}
+          onGptcBootConsumed={() => setGptcBoot(null)}
+          officeReadOnly={offlineMode ? !backupEditable : isOfficeReadOnly}
+          canEditOfficeData={effectiveCanEdit}
         />
       )}
       </div>
+      {backupOpen && <OfficeBackupDialog profile={profile} onClose={() => setBackupOpen(false)} onOpenInWebsite={(session) => { setBackupOpen(false); onOpenBackup(session); }} />}
     </div>
   );
 }
@@ -458,14 +701,14 @@ function BaoCaoApp() {
     <div className="nhat-ky-app nhat-ky-app--bao-cao">
       <header className="nhat-ky-header">
         <div className="nhat-ky-nav nhat-ky-nav--portal">
-          <a href={HOME_URL} className="nhat-ky-home-link" title="Trang chủ" aria-label="Trang chủ">
+          <a href={HOME_URL} className="nhat-ky-home-link" title="Về trung tâm quản lý đường bộ" aria-label="Về trung tâm quản lý đường bộ">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M3 10.5 12 3l9 7.5" />
               <path d="M5 9.5V20h14V9.5" />
               <path d="M10 20v-6h4v6" />
             </svg>
           </a>
-          <span className="nav-active" style={{ pointerEvents: "none" }}>
+          <span className="nhat-ky-portal-title">
             BÁO CÁO
           </span>
           <div className="nhat-ky-nav-right">
@@ -487,7 +730,11 @@ function BaoCaoApp() {
 
 function AppShell() {
   const { loading, canAccess, profile, baoCaoMode } = useAuth();
-  const { needsBrowsePicker, isAdmin } = useOfficePermissions();
+  const { needsBrowsePicker, isAdmin, isSoXd } = useOfficePermissions();
+
+  if (new URLSearchParams(window.location.search).get("backup") === "1") {
+    return <PublicBackupApp />;
+  }
 
   if (loading) {
     return (
@@ -498,22 +745,14 @@ function AppShell() {
   }
 
   if (!canAccess) {
-    return <LoginPage />;
+    window.location.replace(`${HOME_URL}?login=1&next=${encodeURIComponent(window.location.href)}`);
+    return null;
   }
 
   if (baoCaoMode) {
-    if (!isAdmin) {
-      return (
-        <div className="nhatky-login">
-          <div className="nhatky-login-card">
-            <h1>Báo cáo khối lượng</h1>
-            <p className="nhatky-login-error">Cổng này chỉ dành cho ADMIN.</p>
-            <a href="/san-pham" className="nhatky-login-home">
-              ← Về trang chủ
-            </a>
-          </div>
-        </div>
-      );
+    if (!isAdmin && !isSoXd) {
+      window.location.replace(`${HOME_URL}?denied=bao-cao`);
+      return null;
     }
     return <BaoCaoApp />;
   }
@@ -525,24 +764,138 @@ function AppShell() {
   );
 }
 
+function PublicBackupApp() {
+  const [session, setSession] = useState(null);
+  if (!session) {
+    return <PublicBackupPicker onOpen={(opened) => setSession({ ...opened, editable: false })} />;
+  }
+  return (
+    <OfficeBrowseProvider>
+      <RoadWorkspaceProvider
+        uid={session.offlineUid}
+        browseMode={false}
+        catalogLocked
+        offlineMode
+      >
+        <AppContent
+          offlineSession={session}
+          onOpenBackup={(opened) => setSession({ ...opened, editable: false })}
+          onEnableBackupEdit={() =>
+            setSession((current) => (current ? { ...current, editable: true } : current))
+          }
+          onCloseBackup={() =>
+            setSession((current) => {
+              disposeOfficeBackup(current);
+              return null;
+            })
+          }
+        />
+      </RoadWorkspaceProvider>
+    </OfficeBrowseProvider>
+  );
+}
+
+function PublicBackupPicker({ onOpen }) {
+  const fileRef = useRef(null);
+  const autoOpenedRef = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function openFile(file, fileHandle = null) {
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    try {
+      const payload = await readOfficeBackup(file);
+      onOpen({ ...materializeOfficeBackup(payload), fileHandle });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Không mở được file backup.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function chooseFile() {
+    if (busy) return;
+    if (typeof window.showOpenFilePicker !== "function") {
+      fileRef.current?.click();
+      return;
+    }
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        multiple: false,
+        types: [{ description: "Backup Nhật ký", accept: { "application/json": [".qldbackup"] } }]
+      });
+      if (handle) await openFile(await handle.getFile(), handle);
+    } catch (err) {
+      if (err instanceof Error && (err.name === "AbortError" || err.name === "NotAllowedError" || err.name === "SecurityError")) return;
+      setError(err instanceof Error ? err.message : "Không mở được file backup.");
+    }
+  }
+
+  useEffect(() => {
+    if (autoOpenedRef.current) return;
+    autoOpenedRef.current = true;
+    void chooseFile();
+  }, []);
+
+  return (
+    <div className="public-backup-picker">
+      <div className="public-backup-picker-card">
+        <span className="public-backup-picker-icon" aria-hidden="true">▣</span>
+        <h1>Mở dữ liệu backup</h1>
+        <p>Chọn file <strong>.qldbackup</strong> đã lưu trên máy tính.</p>
+        <button type="button" className="btn-primary" disabled={busy} onClick={() => void chooseFile()}>
+          {busy ? "Đang kiểm tra file..." : "Chọn file backup"}
+        </button>
+        <input
+          ref={fileRef}
+          hidden
+          type="file"
+          accept=".qldbackup,application/json"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            void openFile(file);
+          }}
+        />
+        {error && <p className="public-backup-picker-error">{error}</p>}
+        <a href={HOME_URL}>← Về Quản lý đường bộ</a>
+      </div>
+    </div>
+  );
+}
+
 function AppWithRoadWorkspace({ profile, needsBrowsePicker }) {
   const browse = useOfficeBrowse();
   const { canManageOfficeCatalog } = useOfficePermissions();
-  const dataOwnerUid = needsBrowsePicker ? browse.selectedUser?.uid : profile?.uid;
+  const [offlineSession, setOfflineSession] = useState(null);
+  const browseReady = needsBrowsePicker && browse.browseActive;
+  const dataOwnerUid =
+    offlineSession?.offlineUid ||
+    (needsBrowsePicker ? (browseReady ? browse.selectedUser?.uid : "") : profile?.uid);
 
   return (
     <RoadWorkspaceProvider
       uid={dataOwnerUid}
-      browseMode={needsBrowsePicker && !!browse.selectedUser}
+      browseMode={!offlineSession && browseReady}
       initialRoadId={browse.selectedRoadId}
+      initialRouteId={browse.selectedRouteId}
       catalogLocked={!canManageOfficeCatalog}
+      offlineMode={!!offlineSession}
     >
-      <AppContent />
+      <AppContent
+        offlineSession={offlineSession}
+        onOpenBackup={(session) => setOfflineSession({ ...session, editable: false })}
+        onEnableBackupEdit={() => setOfflineSession((session) => session ? { ...session, editable: true } : session)}
+        onCloseBackup={() => setOfflineSession((session) => { disposeOfficeBackup(session); return null; })}
+      />
     </RoadWorkspaceProvider>
   );
 }
 
 function App() {
+  useState(() => purgeStaleOfficeBackupStorage());
   return (
     <AuthProvider>
       <AppShell />

@@ -118,12 +118,50 @@ export function splitCongRanhTypes(allTypes = []) {
   return { cong, ranh };
 }
 
+export function cacheCatalogOwnerUid(companyId, ownerUid) {
+  const company = String(companyId || "").trim();
+  const owner = String(ownerUid || "").trim();
+  if (!company || !owner) return;
+  try {
+    localStorage.setItem(`nhatky_catalog_owner_${company}`, owner);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readCachedCatalogOwnerUid(companyId) {
+  const company = String(companyId || "").trim();
+  if (!company) return "";
+  try {
+    return String(localStorage.getItem(`nhatky_catalog_owner_${company}`) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * ADMIN chính của công ty = nơi lưu danh mục công việc (data_noi_nghiep).
+ * USER/VIEWER luôn đọc catalog của admin, không dùng uid của chính họ.
+ */
 export function getCatalogOwnerUid(profile) {
   const fromEnv = import.meta.env.VITE_CATALOG_UID?.trim();
   if (fromEnv) return fromEnv;
-  if (profile?.catalogOwnerUid) return profile.catalogOwnerUid;
-  if (profile?.role === "ADMIN") return profile.uid;
-  return profile?.uid || "";
+  const self = String(profile?.uid || "").trim();
+  const explicit = String(profile?.catalogOwnerUid || "").trim();
+  const companyCached = readCachedCatalogOwnerUid(profile?.companyId);
+
+  if (explicit && explicit !== self) {
+    cacheCatalogOwnerUid(profile.companyId, explicit);
+    return explicit;
+  }
+  if (profile?.role === "ADMIN") {
+    const owner = explicit || self;
+    if (owner) cacheCatalogOwnerUid(profile.companyId, owner);
+    return owner;
+  }
+  if (companyCached) return companyCached;
+  if (explicit) return explicit;
+  return self;
 }
 
 export async function fetchMasterData(ownerUid) {

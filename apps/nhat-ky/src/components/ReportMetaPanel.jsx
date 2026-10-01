@@ -7,10 +7,12 @@ export default function ReportMetaPanel({ reportMeta, onChange }) {
     <div className="report-meta-form">
       <label className="report-meta-field">
         <span>Tên công ty</span>
-        <input
-          className="sidebar-input"
+        <textarea
+          className="sidebar-input sidebar-input--company"
+          rows={3}
           value={reportMeta.company}
           onChange={(e) => setField("company", e.target.value)}
+          placeholder={"Enter để xuống dòng trên sổ"}
         />
       </label>
       <label className="report-meta-field">

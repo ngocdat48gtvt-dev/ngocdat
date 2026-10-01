@@ -2,30 +2,60 @@ import { useEffect, useMemo, useState } from "react";
 import BaoDuongSheet from "../components/BaoDuongSheet";
 import BaoDuongPrintPages from "../components/BaoDuongPrintPages";
 import ViDateInput from "../components/ViDateInput";
-import { loadStorage, formatDisplayDate } from "../utils/nhatKyFormat";
+import { loadStorage, formatDisplayDate, safeSetLocalStorage } from "../utils/nhatKyFormat";
 import {
   filterBaoDuongEntries,
   filterBaoDuongEntriesInRange,
   groupBaoDuongEntriesByExecDay,
   collectBaoDuongWorkTypes,
   isBaoDuongSection,
-  BAO_DUONG_MAX_DAYS,
   packBaoDuongPages
 } from "../utils/baoDuongFormat";
 import {
   BAO_DUONG_QUALITY_EVENT,
   hasQualityForType,
+  isQualityTypeHidden,
   upsertQualityTypes,
   DEFAULT_QUALITY_FALLBACK
 } from "../utils/baoDuongQualityStore";
 import { eachIsoDateInclusive } from "../utils/nhatKyPrintRows";
 import { printBaoDuongPages } from "../utils/baoDuongPrint";
+import { parsePrintPageStart } from "../utils/printFolio";
+import { exportBaoDuongExcel } from "../utils/baoDuongExcel";
+import { exportBaoDuongWord } from "../lib/baoDuongWordBuilder";
 import { getBaoDuongColWidths } from "../hooks/useBaoDuongColWidths";
 import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
+import RoutesViewSidebarControls from "../components/RoutesViewSidebarControls";
 
-const SIDEBAR_WIDTH = 300;
+import SidebarResizer from "../components/SidebarResizer";
+import { useResizableSidebar } from "../hooks/useResizableSidebar";
+import {
+  HAT_SIGN_ROLES,
+  HAT_SIGN_ROLE_HAT_TRUONG,
+  normalizeHatSignRole,
+  resolveHatSignRoleLabel
+} from "../utils/nhatKySignNames";
+
 const MARGIN_KEY = "baoduong-print-margins-v1";
+const CHIEF_NAME_KEY = "baoduong-chief-name-v1";
+const CHIEF_ROLE_KEY = "baoduong-chief-role-v1";
 const DEFAULT_MARGINS = { top: 12, right: 12, bottom: 12, left: 14 };
+
+function loadChiefName() {
+  try {
+    return String(localStorage.getItem(CHIEF_NAME_KEY) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function loadChiefRole() {
+  try {
+    return normalizeHatSignRole(localStorage.getItem(CHIEF_ROLE_KEY));
+  } catch {
+    return HAT_SIGN_ROLE_HAT_TRUONG;
+  }
+}
 
 function loadMargins() {
   try {
@@ -49,7 +79,18 @@ function clampMm(v, fallback) {
 }
 
 export default function SoBaoDuong({ date, onDateChange, onGoEdit, storageTick = 0, readOnly = false }) {
-  const { storageKey } = useRoadWorkspace();
+  const { storageKey, filterByRouteView, catalogRoad, routesViewMode, activeRouteId, titleRouteIds } =
+    useRoadWorkspace();
+  const routeViewCtx = useMemo(
+    () => ({
+      road: catalogRoad,
+      routesViewMode,
+      activeRouteId,
+      titleRouteIds
+    }),
+    [catalogRoad, routesViewMode, activeRouteId, titleRouteIds]
+  );
+  const { sidebarStyle, onResizeStart } = useResizableSidebar({ defaultWidth: 300 });
   const [catalogTick, setCatalogTick] = useState(0);
   const [drafts, setDrafts] = useState({});
   const [printOpen, setPrintOpen] = useState(false);
@@ -57,7 +98,14 @@ export default function SoBaoDuong({ date, onDateChange, onGoEdit, storageTick =
   const [rangeFrom, setRangeFrom] = useState(date);
   const [rangeTo, setRangeTo] = useState(date);
   const [margins, setMargins] = useState(loadMargins);
+  const [chiefName, setChiefName] = useState(loadChiefName);
+  const [chiefRole, setChiefRole] = useState(loadChiefRole);
   const [colWidths, setColWidths] = useState(getBaoDuongColWidths);
+  const [exportingExcel, setExportingExcel] = useState(false);
+  const [exportingWord, setExportingWord] = useState(false);
+  const [pageStartInput, setPageStartInput] = useState("");
+  const pageStart = parsePrintPageStart(pageStartInput);
+  const chiefRoleLabel = resolveHatSignRoleLabel(chiefRole);
 
   const { entries } = useMemo(
     () => loadStorage(storageKey),
@@ -76,16 +124,24 @@ export default function SoBaoDuong({ date, onDateChange, onGoEdit, storageTick =
   }, [date]);
 
   useEffect(() => {
-    localStorage.setItem(MARGIN_KEY, JSON.stringify(margins));
+    safeSetLocalStorage(MARGIN_KEY, margins);
   }, [margins]);
+
+  useEffect(() => {
+    safeSetLocalStorage(CHIEF_NAME_KEY, chiefName);
+  }, [chiefName]);
+
+  useEffect(() => {
+    safeSetLocalStorage(CHIEF_ROLE_KEY, chiefRole);
+  }, [chiefRole]);
 
   useEffect(() => {
     if (printOpen) setColWidths(getBaoDuongColWidths());
   }, [printOpen]);
 
   const data = useMemo(
-    () => filterBaoDuongEntries(entries, date),
-    [entries, date, catalogTick]
+    () => filterByRouteView(filterBaoDuongEntries(entries, date)),
+    [entries, date, catalogTick, filterByRouteView]
   );
 
   const rangeDates = useMemo(
@@ -94,29 +150,42 @@ export default function SoBaoDuong({ date, onDateChange, onGoEdit, storageTick =
   );
 
   const printEntries = useMemo(() => {
-    if (printScope === "range" && rangeDates.length) {
-      return filterBaoDuongEntriesInRange(entries, rangeFrom, rangeTo);
-    }
-    return filterBaoDuongEntries(entries, date);
-  }, [printScope, rangeDates, entries, rangeFrom, rangeTo, date, catalogTick]);
+    const raw =
+      printScope === "range" && rangeDates.length
+        ? filterBaoDuongEntriesInRange(entries, rangeFrom, rangeTo)
+        : filterBaoDuongEntries(entries, date);
+    return filterByRouteView(raw);
+  }, [
+    printScope,
+    rangeDates,
+    entries,
+    rangeFrom,
+    rangeTo,
+    date,
+    catalogTick,
+    filterByRouteView
+  ]);
 
   const periodFrom = printScope === "range" ? rangeFrom : date;
   const periodTo = printScope === "range" ? rangeTo : date;
 
   const printPageCount = useMemo(() => {
     if (printScope === "range") {
-      const groups = groupBaoDuongEntriesByExecDay(printEntries);
+      const groups = groupBaoDuongEntriesByExecDay(printEntries, rangeFrom, rangeTo);
       if (!groups.length) return 1;
       return groups.reduce(
-        (n, g) => n + packBaoDuongPages(g.entries, margins).length,
+        (n, g) => n + packBaoDuongPages(g.entries, margins, routeViewCtx).length,
         0
       );
     }
-    return packBaoDuongPages(printEntries, margins).length;
-  }, [printScope, printEntries, margins]);
+    return packBaoDuongPages(printEntries, margins, routeViewCtx).length;
+  }, [printScope, printEntries, margins, rangeFrom, rangeTo, routeViewCtx]);
 
   const missingTypes = useMemo(
-    () => collectBaoDuongWorkTypes(entries).filter((t) => !hasQualityForType(t)),
+    () =>
+      collectBaoDuongWorkTypes(entries).filter(
+        (t) => !hasQualityForType(t) && !isQualityTypeHidden(t)
+      ),
     [entries, catalogTick]
   );
 
@@ -164,7 +233,52 @@ export default function SoBaoDuong({ date, onDateChange, onGoEdit, storageTick =
   }
 
   function runPrint() {
-    printBaoDuongPages(margins, colWidths);
+    printBaoDuongPages(margins, colWidths, pageStart);
+  }
+
+  async function runExportExcel() {
+    if (printScope === "range" && rangeDates.length === 0) return;
+    setExportingExcel(true);
+    try {
+      await exportBaoDuongExcel({
+        entries: printEntries,
+        periodFrom,
+        periodTo,
+        groupByDay: printScope === "range",
+        margins,
+        widths: colWidths,
+        chiefName,
+        signRole: chiefRoleLabel,
+        routeView: routeViewCtx
+      });
+    } catch (err) {
+      console.error(err);
+      window.alert("Không xuất được Excel. Thử lại hoặc kiểm tra console.");
+    } finally {
+      setExportingExcel(false);
+    }
+  }
+
+  async function runExportWord() {
+    if (printScope === "range" && rangeDates.length === 0) return;
+    setExportingWord(true);
+    try {
+      await exportBaoDuongWord({
+        entries: printEntries,
+        periodFrom,
+        periodTo,
+        groupByDay: printScope === "range",
+        margins,
+        chiefName,
+        signRole: chiefRoleLabel,
+        routeView: routeViewCtx
+      });
+    } catch (err) {
+      console.error(err);
+      window.alert("Không xuất được Word. Thử lại hoặc kiểm tra console.");
+    } finally {
+      setExportingWord(false);
+    }
   }
 
   return (
@@ -175,11 +289,7 @@ export default function SoBaoDuong({ date, onDateChange, onGoEdit, storageTick =
     >
       <aside
         className="nhaplieu-sidebar sonhatky-sidebar no-print"
-        style={{
-          width: SIDEBAR_WIDTH,
-          minWidth: SIDEBAR_WIDTH,
-          maxWidth: SIDEBAR_WIDTH
-        }}
+        style={sidebarStyle}
       >
         <div className="sidebar-sticky-head">
           <h2 className="sidebar-title">Sổ bảo dưỡng</h2>
@@ -234,6 +344,52 @@ export default function SoBaoDuong({ date, onDateChange, onGoEdit, storageTick =
           >
             {printOpen ? "Đóng xem trước in" : "In sổ bảo dưỡng"}
           </button>
+          <RoutesViewSidebarControls />
+          <div className="sidebar-field" style={{ marginTop: 10 }}>
+            <span className="sidebar-field-label">Chức danh ký (phần ký sổ BD)</span>
+            <div className="sonhatky-sign-role-options" role="radiogroup" aria-label="Chức danh ký sổ BD">
+              {HAT_SIGN_ROLES.map((opt) => (
+                <label key={opt.value} className="sonhatky-sign-role-option">
+                  <input
+                    type="radio"
+                    name="baoduong-hat-sign-role"
+                    value={opt.value}
+                    checked={chiefRole === opt.value}
+                    disabled={readOnly}
+                    onChange={() => setChiefRole(opt.value)}
+                  />
+                  <span>{opt.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <label className="sidebar-field">
+            <span className="sidebar-field-label">{chiefRoleLabel} (họ tên)</span>
+            <input
+              type="text"
+              className="sidebar-input"
+              value={chiefName}
+              onChange={(e) => setChiefName(e.target.value)}
+              placeholder={`VD: Nguyễn Văn A`}
+              disabled={readOnly}
+              aria-label={`Tên ${chiefRoleLabel}`}
+            />
+          </label>
+          <label className="sidebar-field">
+            <span className="sidebar-field-label">Số trang bắt đầu</span>
+            <input
+              className="sidebar-input"
+              type="number"
+              min="1"
+              step="1"
+              inputMode="numeric"
+              placeholder="Trống = không đánh số"
+              value={pageStartInput}
+              onChange={(e) => setPageStartInput(e.target.value)}
+              aria-label="Số trang bắt đầu khi in"
+              title="Nhập số tờ đầu tiên. Các tờ sau tự tăng. Để trống thì không in số trang."
+            />
+          </label>
         </div>
 
         {printOpen && (
@@ -262,25 +418,27 @@ export default function SoBaoDuong({ date, onDateChange, onGoEdit, storageTick =
               </div>
 
               {printScope === "range" && (
-                <div className="print-range-card">
-                  <label className="print-range-field">
-                    <span>Từ ngày</span>
-                    <ViDateInput
-                      value={rangeFrom}
-                      onChange={setRangeFrom}
-                      className="sidebar-input sidebar-input--date"
-                      aria-label="Từ ngày"
-                    />
-                  </label>
-                  <label className="print-range-field">
-                    <span>Đến ngày</span>
-                    <ViDateInput
-                      value={rangeTo}
-                      onChange={setRangeTo}
-                      className="sidebar-input sidebar-input--date"
-                      aria-label="Đến ngày"
-                    />
-                  </label>
+                <div className="print-range-card print-range-card--compact">
+                  <div className="print-range-fields-row">
+                    <label className="print-range-field">
+                      <span>Từ ngày</span>
+                      <ViDateInput
+                        value={rangeFrom}
+                        onChange={setRangeFrom}
+                        className="sidebar-input sidebar-input--date"
+                        aria-label="Từ ngày"
+                      />
+                    </label>
+                    <label className="print-range-field">
+                      <span>Đến ngày</span>
+                      <ViDateInput
+                        value={rangeTo}
+                        onChange={setRangeTo}
+                        className="sidebar-input sidebar-input--date"
+                        aria-label="Đến ngày"
+                      />
+                    </label>
+                  </div>
                   <div
                     className={`print-range-stat${
                       rangeDates.length === 0 ? " print-range-stat--warn" : ""
@@ -292,25 +450,12 @@ export default function SoBaoDuong({ date, onDateChange, onGoEdit, storageTick =
                   </div>
                 </div>
               )}
-
-              <ul className="print-form-tips">
-                <li>Khổ A4 dọc</li>
-                <li>Kéo lề xanh trên tờ đầu</li>
-                <li>Khoảng ngày: mỗi ngày thực hiện ≥ 1 tờ</li>
-              </ul>
             </div>
           </div>
         )}
-
-        {!printOpen && (
-          <div className="sidebar-scroll">
-            <p className="sidebar-subtitle" style={{ padding: "0 16px 12px" }}>
-              Tồn tại phát hiện ở sổ tuần đường phải được xử lý xong và ghi vào sổ BDTX
-              trong vòng {BAO_DUONG_MAX_DAYS} ngày. Bảng lấy theo ngày dự kiến sửa chữa.
-            </p>
-          </div>
-        )}
       </aside>
+
+      <SidebarResizer onMouseDown={onResizeStart} />
 
       <main className="nhaplieu-review-pane">
         {!printOpen ? (
@@ -349,7 +494,12 @@ export default function SoBaoDuong({ date, onDateChange, onGoEdit, storageTick =
                 </div>
               )}
               <div className="nhatky-review-canvas">
-                <BaoDuongSheet execDate={date} entries={data} />
+                <BaoDuongSheet
+                  execDate={date}
+                  entries={data}
+                  chiefName={chiefName}
+                  signRole={chiefRoleLabel}
+                />
               </div>
             </div>
           </div>
@@ -371,14 +521,37 @@ export default function SoBaoDuong({ date, onDateChange, onGoEdit, storageTick =
                   </span>
                 </div>
               </div>
-              <button
-                type="button"
-                className="btn-primary btn-primary--compact print-toolbar-action"
-                disabled={printScope === "range" && rangeDates.length === 0}
-                onClick={runPrint}
-              >
-                In sổ
-              </button>
+              <div className="print-toolbar-actions">
+                <button
+                  type="button"
+                  className="btn-secondary btn-secondary--compact print-toolbar-action"
+                  disabled={
+                    exportingExcel || (printScope === "range" && rangeDates.length === 0)
+                  }
+                  onClick={runExportExcel}
+                >
+                  {exportingExcel ? "Đang xuất…" : "Xuất Excel"}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary btn-secondary--compact print-toolbar-action"
+                  disabled={
+                    exportingWord || (printScope === "range" && rangeDates.length === 0)
+                  }
+                  onClick={() => void runExportWord()}
+                >
+                  {exportingWord ? "Đang xuất…" : "Xuất Word"}
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary btn-primary--compact print-toolbar-action"
+                  disabled={printScope === "range" && rangeDates.length === 0}
+                  onClick={runPrint}
+                  title="In máy in hoặc chọn «Microsoft Print to PDF» / «Save as PDF»"
+                >
+                  In / PDF
+                </button>
+              </div>
             </div>
             <BaoDuongPrintPages
               periodFrom={periodFrom}
@@ -388,6 +561,9 @@ export default function SoBaoDuong({ date, onDateChange, onGoEdit, storageTick =
               margins={margins}
               onMarginsChange={setMargins}
               widths={colWidths}
+              chiefName={chiefName}
+              signRole={chiefRoleLabel}
+              pageStart={pageStart}
             />
           </div>
         )}

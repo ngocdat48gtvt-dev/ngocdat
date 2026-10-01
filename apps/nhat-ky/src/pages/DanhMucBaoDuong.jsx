@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useOfficePermissions } from "../hooks/useOfficePermissions";
+import PasswordConfirmModal from "../components/PasswordConfirmModal";
 import {
-  fetchMatDuongIncidentTypes,
   getCatalogOwnerUid
 } from "../services/masterDataService";
 import {
@@ -16,11 +16,14 @@ import {
   DEFAULT_QUALITY_FALLBACK,
   BAO_DUONG_GROUPS,
   BAO_DUONG_UNITS,
-  DEFAULT_DEADLINE_DAYS
+  DEFAULT_DEADLINE_DAYS,
+  normalizeBaoDuongGroup,
+  setQualityCatalogOwnerUid
 } from "../utils/baoDuongQualityStore";
 import { saveDataNoiNghiep } from "../services/dataNoiNghiepService";
 
-const SIDEBAR_WIDTH = 260;
+import SidebarResizer from "../components/SidebarResizer";
+import { useResizableSidebar } from "../hooks/useResizableSidebar";
 
 const COLWIDTH_KEY = "danhmuc-bd-colwidths-v1";
 const MIN_COL_WIDTH = 48;
@@ -59,14 +62,20 @@ function toRomanNumeral(n) {
 function buildTableBlocks(visibleRows) {
   const byGroup = new Map();
   visibleRows.forEach((item) => {
-    const g = item.row.group || "";
+    const g = normalizeBaoDuongGroup(item.row.group || "");
     if (!byGroup.has(g)) byGroup.set(g, []);
-    byGroup.get(g).push(item);
+    byGroup.get(g).push({ ...item, row: { ...item.row, group: g } });
   });
 
   const orderedGroups = [];
   BAO_DUONG_GROUPS.forEach((g) => {
     if (byGroup.get(g)?.length) orderedGroups.push(g);
+  });
+  // Nhóm lạ (sau alias) vẫn hiện cuối, tránh mất dòng master data.
+  byGroup.forEach((_, g) => {
+    if (g && !BAO_DUONG_GROUPS.includes(g) && !orderedGroups.includes(g)) {
+      orderedGroups.push(g);
+    }
   });
   if (byGroup.get("")?.length) orderedGroups.push("");
 
@@ -204,14 +213,19 @@ function reorderRowWithinGroup(rows, fromIdx, toIdx) {
 }
 
 export default function DanhMucBaoDuong() {
+  const { sidebarStyle, onResizeStart } = useResizableSidebar({ defaultWidth: 260 });
   const { profile } = useAuth();
   const { canEditMasterData } = useOfficePermissions();
   const canEditCatalog = canEditMasterData;
+  const catalogOwnerUid = getCatalogOwnerUid(profile);
+  if (catalogOwnerUid) setQualityCatalogOwnerUid(catalogOwnerUid);
   const [rows, setRows] = useState(() => catalogToRows(loadQualityCatalog()));
   const [newType, setNewType] = useState("");
   const [newGroup, setNewGroup] = useState(BAO_DUONG_GROUPS[0]);
   const [groupFilter, setGroupFilter] = useState("");
   const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [colWidths, setColWidths] = useState(loadColWidths);
   const [dragIdx, setDragIdx] = useState(null);
   const [dropIdx, setDropIdx] = useState(null);
@@ -252,21 +266,13 @@ export default function DanhMucBaoDuong() {
   );
 
   useEffect(() => {
-    const ownerUid = getCatalogOwnerUid(profile);
-    if (!ownerUid) return;
-    let cancelled = false;
-    fetchMatDuongIncidentTypes(ownerUid).then((types) => {
-      if (cancelled || !types.length) return;
-      setRows((prev) => {
-        const map = Object.fromEntries(prev.map((r) => [r.type, r]));
-        const catalog = Object.fromEntries(prev.map((r) => [r.type, r]));
-        return catalogToRows(catalog, types).map((r) => map[r.type] || r);
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [profile?.uid, profile?.catalogOwnerUid, profile?.role]);
+    if (!catalogOwnerUid) return;
+    setQualityCatalogOwnerUid(catalogOwnerUid);
+    setRows(catalogToRows(loadQualityCatalog()));
+  }, [catalogOwnerUid]);
+
+  // Không trộn thêm types từ master_data/types (app sự cố) vào bảng MASTER DATA —
+  // nguồn đúng là data_noi_nghiep (đã sync qua BAO_DUONG_QUALITY_EVENT).
 
   useEffect(() => {
     const onChange = () => setRows(catalogToRows(loadQualityCatalog()));
@@ -365,65 +371,76 @@ export default function DanhMucBaoDuong() {
   }
 
   async function handleSave() {
-    if (!canEditCatalog) return;
-    const catalog = {};
-    const groupOrder = {};
-    rows.forEach((r) => {
-      const type = (r.type || "").trim();
-      if (!type) return;
-      const groupKey = (r.group || "").trim() || "_";
-      if (!groupOrder[groupKey]) groupOrder[groupKey] = 0;
-      const deadlineRaw = Number(r.deadlineDays);
-      catalog[type] = {
-        group: (r.group || "").trim(),
-        unit: (r.unit || "").trim(),
-        maintenanceName: (r.maintenanceName || "").trim(),
-        method: (r.method || "").trim(),
-        result: (r.result || "").trim(),
-        priority: (r.priority || "MEDIUM").trim().toUpperCase(),
-        deadlineDays: Number.isFinite(deadlineRaw) ? deadlineRaw : DEFAULT_DEADLINE_DAYS,
-        isNeedMaintenance: r.isNeedMaintenance !== false,
-        isActive: r.isActive !== false,
-        sortOrder: groupOrder[groupKey]++
-      };
-    });
-    const activeTypes = rows.map((r) => (r.type || "").trim()).filter(Boolean);
-    saveQualityCatalog(withDeletedCatalogTombstones(catalog, activeTypes));
-    const ownerUid = getCatalogOwnerUid(profile);
+    if (!canEditCatalog || saving) return;
+    setSaving(true);
+    setMessage("");
     try {
-      await saveDataNoiNghiep(ownerUid, getQualityCatalogOverrides());
-      setMessage("Đã lưu danh mục và đồng bộ lên cloud.");
-    } catch {
-      setMessage("Đã lưu trên máy nhưng chưa đồng bộ lên cloud.");
+      const ownerUid = getCatalogOwnerUid(profile);
+      if (ownerUid) setQualityCatalogOwnerUid(ownerUid);
+
+      const catalog = {};
+      const groupOrder = {};
+      rows.forEach((r) => {
+        const type = (r.type || "").trim();
+        if (!type) return;
+        const groupKey = (r.group || "").trim() || "_";
+        if (!groupOrder[groupKey]) groupOrder[groupKey] = 0;
+        const deadlineRaw = Number(r.deadlineDays);
+        catalog[type] = {
+          group: (r.group || "").trim(),
+          unit: (r.unit || "").trim(),
+          maintenanceName: (r.maintenanceName || "").trim(),
+          method: (r.method || "").trim(),
+          result: (r.result || "").trim(),
+          priority: (r.priority || "MEDIUM").trim().toUpperCase(),
+          deadlineDays: Number.isFinite(deadlineRaw) ? deadlineRaw : DEFAULT_DEADLINE_DAYS,
+          isNeedMaintenance: r.isNeedMaintenance !== false,
+          isActive: r.isActive !== false,
+          sortOrder: groupOrder[groupKey]++
+        };
+      });
+      const activeTypes = rows.map((r) => (r.type || "").trim()).filter(Boolean);
+      saveQualityCatalog(withDeletedCatalogTombstones(catalog, activeTypes));
+      try {
+        await saveDataNoiNghiep(ownerUid, getQualityCatalogOverrides());
+        setMessage("✓ Đã lưu danh mục thành công và đồng bộ lên cloud.");
+      } catch {
+        setMessage("✓ Đã lưu trên máy (chưa đồng bộ cloud).");
+      }
+    } finally {
+      setSaving(false);
+      setTimeout(() => setMessage(""), 5000);
     }
-    setTimeout(() => setMessage(""), 3500);
   }
 
-  async function handleReset() {
-    if (!canEditCatalog) return;
-    if (!window.confirm("Khôi phục danh mục mặc định? Nội dung tự chỉnh sẽ bị xoá.")) {
-      return;
-    }
+  function handleReset() {
+    if (!canEditCatalog || saving) return;
+    setResetConfirmOpen(true);
+  }
+
+  async function confirmResetCatalog() {
+    setMessage("");
     resetQualityCatalog();
     setRows(catalogToRows(loadQualityCatalog()));
     const ownerUid = getCatalogOwnerUid(profile);
     try {
       await saveDataNoiNghiep(ownerUid, {});
-      setMessage("Đã khôi phục danh mục mặc định và đồng bộ lên cloud.");
+      setMessage("✓ Đã khôi phục danh mục mặc định và đồng bộ lên cloud.");
     } catch {
-      setMessage("Đã khôi phục trên máy nhưng chưa đồng bộ lên cloud.");
+      setMessage("✓ Đã khôi phục trên máy nhưng chưa đồng bộ lên cloud.");
     }
-    setTimeout(() => setMessage(""), 3500);
+    setResetConfirmOpen(false);
+    setTimeout(() => setMessage(""), 5000);
   }
 
   return (
     <div className="nhaplieu-workspace sonhatky-workspace">
       <aside
         className="nhaplieu-sidebar sonhatky-sidebar"
-        style={{ width: SIDEBAR_WIDTH, minWidth: SIDEBAR_WIDTH, maxWidth: SIDEBAR_WIDTH }}
+        style={sidebarStyle}
       >
         <div className="sidebar-sticky-head">
-          <h2 className="sidebar-title">MASTER DATA</h2>
+          <h2 className="sidebar-title">DANH MỤC CÔNG VIỆC</h2>
           <p className="sonhatky-day-summary">Dữ liệu chuẩn hệ thống · BDTX</p>
           <p className="sonhatky-day-summary">
             {rows.length} loại công việc · {filledCount} đã có nhận xét
@@ -433,10 +450,9 @@ export default function DanhMucBaoDuong() {
             chuẩn cho từng loại công việc. Khi công việc đó xuất hiện trong sổ BDTX, hệ
             thống tự điền (nếu chưa nhập tay).
           </p>
-          {message && <p className="save-ok">{message}</p>}
           {!canEditCatalog && (
             <p className="section-guide danhmuc-bd-readonly-hint">
-              Chế độ chỉ xem. Chỉ tài khoản <strong>ADMIN</strong> được thêm, sửa hoặc xóa MASTER DATA.
+              Chế độ chỉ xem. Chỉ tài khoản <strong>ADMIN</strong> được thêm, sửa hoặc xóa danh mục công việc.
             </p>
           )}
           {canEditCatalog && (
@@ -461,16 +477,32 @@ export default function DanhMucBaoDuong() {
           </label>
           {canEditCatalog && (
             <div className="danhmuc-bd-actions">
-              <button type="button" className="btn-primary" onClick={handleSave}>
-                Lưu danh mục
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={saving}
+                onClick={() => void handleSave()}
+              >
+                {saving ? "Đang lưu…" : "Lưu danh mục"}
               </button>
-              <button type="button" className="btn-secondary" onClick={handleReset}>
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={saving}
+                onClick={handleReset}
+              >
                 Khôi phục mặc định
               </button>
+              {message ? <p className="save-ok danhmuc-bd-flash">{message}</p> : null}
             </div>
           )}
+          {!canEditCatalog && message ? (
+            <p className="save-ok danhmuc-bd-flash">{message}</p>
+          ) : null}
         </div>
       </aside>
+
+      <SidebarResizer onMouseDown={onResizeStart} />
 
       <main className="nhaplieu-review-pane">
         <div className={`danhmuc-bd-pane${canEditCatalog ? "" : " danhmuc-bd-pane--readonly"}`}>
@@ -656,6 +688,17 @@ export default function DanhMucBaoDuong() {
           </div>
         </div>
       </main>
+
+      <PasswordConfirmModal
+        open={resetConfirmOpen}
+        title="Khôi phục mặc định — nhập mật khẩu"
+        description={
+          "Bạn sắp khôi phục MASTER DATA về mặc định.\n\nToàn bộ nội dung đã chỉnh (biện pháp, nhận xét, loại tự thêm…) sẽ bị xoá và không hoàn tác được. Nhập mật khẩu ADMIN để xác nhận."
+        }
+        confirmLabel="Khôi phục mặc định"
+        onCancel={() => setResetConfirmOpen(false)}
+        onConfirmed={() => confirmResetCatalog()}
+      />
     </div>
   );
 }

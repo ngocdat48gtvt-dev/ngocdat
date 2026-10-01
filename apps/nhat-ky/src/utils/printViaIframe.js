@@ -1,29 +1,108 @@
 /**
  * In qua iframe ẩn — cùng kiểu sổ mặt đường (không mở about:blank).
+ *
+ * Lưu ý: header/footer của Chrome/Edge (tiêu đề, URL, ngày, số trang) do hộp thoại
+ * in quyết định — web không tắt được hẳn. Ta để <title> trống để giảm chữ đầu trang.
  */
 export function printViaIframe({
-  title,
+  title = "",
   css,
   sheetsHtml,
   pageWMm = 297,
-  pageHMm = 210
+  pageHMm = 210,
+  /** Để trống title trong PDF (mặc định true — tránh header trình duyệt hiện tên sổ). */
+  blankDocumentTitle = true,
+  /** Chờ trước khi mở hộp thoại in (ms). Khoảng dài nên lớn hơn. */
+  printDelayMs = 280
 }) {
   if (!sheetsHtml) {
     window.alert("Chưa có tờ xem trước để in.");
     return;
   }
 
+  const delay = Math.max(80, Number(printDelayMs) || 280);
+  const docTitle = blankDocumentTitle ? "" : String(title || "");
   const htmlDoc = `<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8"/>
-<title>${title}</title>
+<title>${docTitle}</title>
 <style>${css}</style>
 </head><body>${sheetsHtml}</body></html>`;
 
   const iframe = document.createElement("iframe");
-  iframe.setAttribute("title", title);
-  iframe.style.cssText = `position:fixed;left:-10000px;top:0;width:${pageWMm}mm;height:${pageHMm}mm;border:0;opacity:0;pointer-events:none;`;
+  iframe.setAttribute("title", title || "In");
+  /** opacity:0 khiến Chrome chụp PDF trống khi HTML dài (khoảng nhiều ngày). */
+  iframe.style.cssText = `position:fixed;left:-12000px;top:0;width:${pageWMm}mm;height:${pageHMm}mm;border:0;opacity:1;pointer-events:none;background:#fff;`;
   document.body.appendChild(iframe);
 
-  const doc = iframe.contentDocument || iframe.contentWindow?.document;
+  const win = iframe.contentWindow;
+  if (!win) {
+    iframe.remove();
+    window.alert("Không tạo được bản in. Thử lại.");
+    return;
+  }
+
+  const prevTitle = document.title;
+  let printed = false;
+  let cleaned = false;
+  let blobUrl = "";
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    try {
+      document.title = prevTitle;
+    } catch {
+      /* ignore */
+    }
+    try {
+      iframe.remove();
+    } catch {
+      /* ignore */
+    }
+    if (blobUrl) {
+      try {
+        URL.revokeObjectURL(blobUrl);
+      } catch {
+        /* ignore */
+      }
+      blobUrl = "";
+    }
+  };
+
+  const doPrint = () => {
+    if (printed) return;
+    printed = true;
+    const printWin = iframe.contentWindow || win;
+    try {
+      printWin.addEventListener("afterprint", cleanup);
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (blankDocumentTitle) document.title = "";
+      void printWin.document?.body?.offsetHeight;
+      printWin.focus();
+      printWin.print();
+    } finally {
+      /** Khoảng dài: Chrome còn dựng PDF sau khi print() trả về — giữ iframe. */
+      setTimeout(cleanup, 180000);
+    }
+  };
+
+  const kick = () => setTimeout(doPrint, delay);
+
+  /** HTML lớn: blob URL tránh khóa tab khi doc.write hàng trăm tờ.
+   * Không thu hồi URL trước print() — Chrome Save as PDF sẽ ra trang trắng. */
+  if (htmlDoc.length > 250000) {
+    const blob = new Blob([htmlDoc], { type: "text/html;charset=utf-8" });
+    blobUrl = URL.createObjectURL(blob);
+    iframe.onload = () => kick();
+    iframe.src = blobUrl;
+    setTimeout(() => {
+      if (!printed) kick();
+    }, delay + 900);
+    return;
+  }
+
+  const doc = iframe.contentDocument || win.document;
   if (!doc) {
     iframe.remove();
     window.alert("Không tạo được bản in. Thử lại.");
@@ -34,30 +113,11 @@ export function printViaIframe({
   doc.write(htmlDoc);
   doc.close();
 
-  const win = iframe.contentWindow;
-  const cleanup = () => {
-    try {
-      iframe.remove();
-    } catch {
-      /* ignore */
-    }
-  };
-
-  const doPrint = () => {
-    try {
-      win.focus();
-      win.print();
-    } finally {
-      setTimeout(cleanup, 1200);
-    }
-  };
-
-  const kick = () => setTimeout(doPrint, 280);
   if (doc.readyState === "complete") {
     kick();
   } else {
     iframe.onload = kick;
-    setTimeout(doPrint, 700);
+    setTimeout(doPrint, delay + 420);
   }
 }
 
@@ -150,13 +210,20 @@ ${tableSelector} th:last-child,
 ${tableSelector} td:last-child {
   border-right: none !important;
 }
-${tableSelector} thead th {
-  border-bottom: none !important;
+/* Đáy khối thead: ô rowspan + hàng phụ cuối (tránh mất nét dưới tiêu đề). */
+${tableSelector} thead th[rowspan],
+${tableSelector} thead tr:last-child:not(.tngt-header-num) th,
+${tableSelector} thead tr.tngt-header-sub th {
+  border-bottom: 0.5pt solid ${c} !important;
 }
-${tableSelector} tbody tr:last-child td {
+${tableSelector} thead tr.tngt-header-num th {
+  border-top: none !important;
+  border-bottom: 0.5pt solid ${c} !important;
+}
+/* Mỗi hàng thân có nét đáy — không chỉ :last-child. */
+${tableSelector} tbody td {
+  border-top: none !important;
   border-bottom: 0.5pt solid ${c} !important;
 }
 `;
 }
-
-

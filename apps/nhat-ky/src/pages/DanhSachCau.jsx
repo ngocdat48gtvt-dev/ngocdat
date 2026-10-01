@@ -1,19 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  loadCauRegistry,
+  loadCauRegistryForRoute,
   saveCauRegistry,
-  setCauRegistry,
-  cauScope,
+  resolveCauScope,
+  writeCauScope,
   makeEmptyCauRows,
   parseCauPaste,
   CAU_REGISTRY_EVENT
 } from "../utils/cauRegistryStore";
-import { fetchAllCau, pushManyCau } from "../services/cauRegistryService";
+import { hydrateCauRegistriesFromCloud, pushManyCau } from "../services/cauRegistryService";
 import { formatKmCell } from "../utils/matDuongFormat";
 import { useAuth } from "../context/AuthContext";
 import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
-
-const SIDEBAR_WIDTH = 340;
+import {
+  getRoadRoutes,
+  pickActiveRoute,
+  routeDisplayLabel,
+  routeRegistryCloudKey
+} from "../utils/roadsCatalog";
+import PasswordConfirmModal from "../components/PasswordConfirmModal";
+import EntryRoutePicker from "../components/EntryRoutePicker";
+import SidebarResizer from "../components/SidebarResizer";
+import { useResizableSidebar } from "../hooks/useResizableSidebar";
 
 function formatKm(value) {
   const v = String(value ?? "").trim();
@@ -21,60 +29,97 @@ function formatKm(value) {
   return formatKmCell(v) || v;
 }
 
-/** Danh sách cầu theo sổ hạt (đường) của user. */
+/** Danh sách cầu theo sổ đang chọn — nhiều nhánh thì chọn nhánh rồi lưu riêng. */
 export default function DanhSachCau({ readOnly = false }) {
   const { profile } = useAuth();
-  const { roads, activeRoadId, ownerUid } = useRoadWorkspace();
+  const { sidebarStyle, onResizeStart } = useResizableSidebar({ defaultWidth: 340 });
+  const {
+    roads,
+    activeRoadId,
+    ownerUid,
+    catalogRoad,
+    activeRouteId,
+    routes
+  } = useRoadWorkspace();
   const uid = ownerUid || profile?.uid || "";
-  const roadsKey = roads.map((r) => r.id).join(",");
 
-  const roadName = (id) => {
-    const r = roads.find((x) => x.id === id);
-    return (r?.roadName || r?.label || "").trim();
-  };
+  const activeRoad = useMemo(
+    () => roads.find((r) => r.id === activeRoadId) || catalogRoad || null,
+    [roads, activeRoadId, catalogRoad]
+  );
+  const routeList = useMemo(
+    () => (routes?.length ? routes : getRoadRoutes(activeRoad)),
+    [routes, activeRoad]
+  );
+  const activeRoute = useMemo(
+    () => pickActiveRoute(routeList, activeRouteId),
+    [routeList, activeRouteId]
+  );
+  const branchLabel = useMemo(() => {
+    if (routeList.length > 1 && activeRoute) {
+      return routeDisplayLabel(activeRoute) || activeRoute.roadName || "—";
+    }
+    return (activeRoad?.roadName || activeRoad?.label || "").trim() || "—";
+  }, [routeList.length, activeRoute, activeRoad]);
+  const cloudKey = useMemo(() => {
+    if (routeList.length > 1 && activeRoute) {
+      return routeRegistryCloudKey(activeRoute);
+    }
+    return (activeRoad?.roadName || activeRoad?.label || "").trim();
+  }, [routeList.length, activeRoute, activeRoad]);
+
+  const readScope = useMemo(
+    () => resolveCauScope(uid, activeRoadId, activeRoute?.id || activeRouteId, routeList),
+    [uid, activeRoadId, activeRoute?.id, activeRouteId, routeList]
+  );
+  const saveScope = useMemo(
+    () => writeCauScope(uid, activeRoadId, activeRoute?.id || activeRouteId, routeList),
+    [uid, activeRoadId, activeRoute?.id, activeRouteId, routeList]
+  );
 
   const [rows, setRows] = useState(() => makeEmptyCauRows(8));
   const [pasteText, setPasteText] = useState("");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [pendingClear, setPendingClear] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     async function build() {
-      const anyEmpty = roads.some(
-        (r) => loadCauRegistry(cauScope(uid, r.id)).length === 0
-      );
-      // ADMIN/VIEWER (readOnly) luôn đọc cloud của user đang browse
-      if (uid && (anyEmpty || readOnly)) {
-        const cloud = await fetchAllCau(uid);
-        if (cancelled) return;
-        for (const r of roads) {
-          const scope = cauScope(uid, r.id);
-          const list = cloud[roadName(r.id)];
-          if (list?.length && (readOnly || loadCauRegistry(scope).length === 0)) {
-            setCauRegistry(scope, list);
-          }
-        }
+      if (!activeRoadId) {
+        setRows(makeEmptyCauRows(8));
+        return;
+      }
+      if (uid && activeRoad) {
+        await hydrateCauRegistriesFromCloud(uid, [activeRoad], { force: readOnly });
       }
       if (cancelled) return;
-      const all = [];
-      for (const r of roads) {
-        for (const item of loadCauRegistry(cauScope(uid, r.id))) {
-          all.push({ ...item, roadId: r.id, km: formatKm(item.km) });
-        }
-      }
+      const list = loadCauRegistryForRoute(
+        uid,
+        activeRoadId,
+        activeRoute,
+        routeList
+      ).map((item) => ({
+        ...item,
+        roadId: activeRoadId,
+        routeId: activeRoute?.id || "",
+        km: formatKm(item.km)
+      }));
       setRows(
-        all.length
-          ? all
-          : makeEmptyCauRows(8).map((x) => ({ ...x, roadId: activeRoadId }))
+        list.length
+          ? list
+          : makeEmptyCauRows(8).map((x) => ({
+              ...x,
+              roadId: activeRoadId,
+              routeId: activeRoute?.id || ""
+            }))
       );
     }
     void build();
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uid, roadsKey, activeRoadId, readOnly]);
+  }, [uid, activeRoadId, activeRoad, activeRoute?.id, readScope, readOnly, routeList]);
 
   function flash(msg) {
     setMessage(msg);
@@ -88,58 +133,93 @@ export default function DanhSachCau({ readOnly = false }) {
 
   function addRows() {
     if (readOnly) return;
+    if (!activeRoadId) {
+      flash("Chưa chọn sổ đường.");
+      return;
+    }
     setRows((prev) => [
       ...prev,
-      ...makeEmptyCauRows(5).map((x) => ({ ...x, roadId: activeRoadId }))
+      ...makeEmptyCauRows(5).map((x) => ({
+        ...x,
+        roadId: activeRoadId,
+        routeId: activeRoute?.id || ""
+      }))
     ]);
   }
 
   function applyPaste() {
     if (readOnly) return;
-    const parsed = parseCauPaste(pasteText);
-    if (!parsed.length) {
-      flash("Không đọc được dòng nào từ vùng dán.");
+    if (!activeRoadId) {
+      flash("Chưa chọn sổ đường. Vào «Đổi sổ» để chọn sổ trước.");
       return;
     }
-    setRows(
-      parsed.map((p) => ({
-        ...p,
-        km: formatKm(p.km),
-        roadId: activeRoadId
-      }))
-    );
+    if (routeList.length > 1 && !activeRoute?.id) {
+      flash("Chọn đường/nhánh trước khi nạp danh sách.");
+      return;
+    }
+    const parsed = parseCauPaste(pasteText);
+    if (!parsed.length) {
+      flash(
+        "Không đọc được dòng nào. VD: «Cầu Sông Cầu» [Tab] «435+200» hoặc «Cầu Sông Cầu 435+200»."
+      );
+      return;
+    }
+    const formatted = parsed.map((p) => ({
+      ...p,
+      km: formatKm(p.km),
+      roadId: activeRoadId,
+      routeId: activeRoute?.id || ""
+    }));
+    setRows((prev) => {
+      const keep = prev.filter(
+        (r) => String(r.name || "").trim() || String(r.km || "").trim()
+      );
+      return [...keep, ...formatted];
+    });
     setPasteText("");
-    flash(`Đã nạp ${parsed.length} cầu — kiểm tra rồi bấm Lưu.`);
+    flash(`Đã nạp ${parsed.length} cầu cho «${branchLabel}» — kiểm tra rồi bấm Lưu.`);
   }
 
   async function handleSave() {
     if (readOnly) return;
+    if (!activeRoadId) {
+      flash("Chưa chọn sổ đường.");
+      return;
+    }
+    if (routeList.length > 1 && !activeRoute?.id) {
+      flash("Chọn đường/nhánh trước khi lưu.");
+      return;
+    }
     setSaving(true);
     try {
-      const byRoadId = {};
+      const list = [];
       rows.forEach((r) => {
-        const rid = r.roadId || activeRoadId;
-        if (!rid) return;
-        if (!byRoadId[rid]) byRoadId[rid] = [];
         const name = String(r.name || "").trim();
         const km = formatKm(r.km);
         if (!name && !km) return;
-        byRoadId[rid].push({ id: r.id, name, km });
+        list.push({
+          id: r.id,
+          name,
+          km,
+          roadId: activeRoadId,
+          routeId: activeRoute?.id || ""
+        });
       });
 
-      const updatesByRoad = {};
-      for (const r of roads) {
-        const list = byRoadId[r.id] || [];
-        saveCauRegistry(cauScope(uid, r.id), list);
-        const rn = roadName(r.id);
-        if (rn) updatesByRoad[rn] = list;
+      saveCauRegistry(saveScope, list);
+      if (
+        routeList.length > 1 &&
+        activeRoute?.id &&
+        readScope !== saveScope &&
+        routeList[0]?.id === activeRoute.id
+      ) {
+        saveCauRegistry(readScope, []);
       }
-
-      if (uid && Object.keys(updatesByRoad).length) {
-        await pushManyCau(uid, updatesByRoad);
+      if (uid && cloudKey) {
+        await pushManyCau(uid, { [cloudKey]: list });
       }
       window.dispatchEvent(new CustomEvent(CAU_REGISTRY_EVENT));
-      flash("Đã lưu danh sách cầu.");
+      flash(`Đã lưu danh sách cầu của «${branchLabel}».`);
     } catch (err) {
       console.warn(err);
       flash("Đã lưu cục bộ (chưa đồng bộ cloud).");
@@ -148,24 +228,54 @@ export default function DanhSachCau({ readOnly = false }) {
     }
   }
 
-  const roadOptions = useMemo(
-    () => roads.map((r) => ({ id: r.id, label: roadName(r.id) || r.id })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [roadsKey]
-  );
+  function requestClear() {
+    if (readOnly) return;
+    if (!activeRoadId) {
+      flash("Chưa chọn sổ đường.");
+      return;
+    }
+    setPendingClear(true);
+  }
+
+  async function confirmClear() {
+    setPendingClear(false);
+    if (!activeRoadId) return;
+    saveCauRegistry(saveScope, []);
+    setRows(
+      makeEmptyCauRows(8).map((x) => ({
+        ...x,
+        roadId: activeRoadId,
+        routeId: activeRoute?.id || ""
+      }))
+    );
+    if (uid && cloudKey) {
+      try {
+        await pushManyCau(uid, { [cloudKey]: [] });
+      } catch {
+        /* vẫn xoá trên máy */
+      }
+    }
+    window.dispatchEvent(new CustomEvent(CAU_REGISTRY_EVENT));
+    flash(`Đã xoá danh sách cầu của «${branchLabel}».`);
+  }
 
   return (
     <div className="hosocong-page">
-      <aside className="hosocong-sidebar" style={{ width: SIDEBAR_WIDTH, minWidth: SIDEBAR_WIDTH }}>
+      <aside className="hosocong-sidebar" style={sidebarStyle}>
         <h2 className="hosocong-title">Danh sách cầu</h2>
+        <EntryRoutePicker label="Đường / nhánh" />
         <p className="section-guide section-guide--compact">
-          Theo sổ hạt đang quản lý. Mỗi cầu: <strong>tên</strong> + <strong>một lý trình</strong>.
-          {activeRoadId && (
+          {routeList.length > 1 ? (
             <>
-              {" "}
-              Đường chọn: <strong>{roadName(activeRoadId) || "—"}</strong>.
+              Chọn <strong>nhánh</strong> rồi nhập / lưu cầu riêng:{" "}
+              <strong>{branchLabel}</strong>.
             </>
-          )}
+          ) : (
+            <>
+              Chỉ cầu của sổ đang chọn: <strong>{branchLabel}</strong>.
+            </>
+          )}{" "}
+          Mỗi cầu: <strong>tên</strong> + <strong>một lý trình</strong>.
         </p>
         {readOnly && (
           <p className="section-guide">Chỉ xem — ADMIN/VIEWER không sửa danh sách cầu.</p>
@@ -178,11 +288,11 @@ export default function DanhSachCau({ readOnly = false }) {
               rows={5}
               value={pasteText}
               onChange={(e) => setPasteText(e.target.value)}
-              placeholder={"Cầu Sông Cầu\t435+200\nCầu Km 440\t440+000"}
+              placeholder={"Cầu Sông Cầu\t435+200\nCầu Bản Cơi\tKm316+900\nCầu Km 440 440+000"}
             />
             <div className="hosocong-actions">
               <button type="button" className="btn-secondary btn-secondary--compact" onClick={applyPaste}>
-                Nạp từ vùng dán
+                Nạp vào bảng
               </button>
               <button type="button" className="btn-secondary btn-secondary--compact" onClick={addRows}>
                 + 5 dòng
@@ -190,10 +300,18 @@ export default function DanhSachCau({ readOnly = false }) {
               <button
                 type="button"
                 className="btn-primary"
-                disabled={saving}
+                disabled={saving || !activeRoadId}
                 onClick={() => void handleSave()}
               >
                 {saving ? "Đang lưu…" : "Lưu danh sách cầu"}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary btn-secondary--compact"
+                disabled={saving || !activeRoadId}
+                onClick={requestClear}
+              >
+                Xoá hết
               </button>
             </div>
           </>
@@ -201,20 +319,20 @@ export default function DanhSachCau({ readOnly = false }) {
         {message && <p className="hosocong-msg">{message}</p>}
       </aside>
 
+      <SidebarResizer onMouseDown={onResizeStart} />
+
       <main className="hosocong-main">
         <div className="hosocong-table-wrap hosocong-table-wrap--cau">
           <table className="hosocong-table hosocong-table--cau">
             <colgroup>
               <col style={{ width: 44 }} />
-              <col style={{ width: 120 }} />
-              <col style={{ width: 220 }} />
-              <col style={{ width: 120 }} />
+              <col style={{ width: 260 }} />
+              <col style={{ width: 140 }} />
               {!readOnly && <col style={{ width: 40 }} />}
             </colgroup>
             <thead>
               <tr>
                 <th>STT</th>
-                <th>Đường / Hạt</th>
                 <th>Tên cầu</th>
                 <th>Lý trình</th>
                 {!readOnly && <th />}
@@ -224,20 +342,6 @@ export default function DanhSachCau({ readOnly = false }) {
               {rows.map((row, idx) => (
                 <tr key={row.id || idx}>
                   <td className="hosocong-stt">{idx + 1}</td>
-                  <td>
-                    <select
-                      className="hosocong-input"
-                      value={row.roadId || activeRoadId || ""}
-                      disabled={readOnly}
-                      onChange={(e) => updateRow(idx, { roadId: e.target.value })}
-                    >
-                      {roadOptions.map((o) => (
-                        <option key={o.id} value={o.id}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
                   <td>
                     <input
                       className="hosocong-input"
@@ -277,6 +381,15 @@ export default function DanhSachCau({ readOnly = false }) {
           </table>
         </div>
       </main>
+
+      <PasswordConfirmModal
+        open={pendingClear}
+        title="Xoá hết danh sách cầu"
+        description={`Bạn sắp xoá toàn bộ danh sách cầu của «${branchLabel}».\n\nThao tác này không hoàn tác được trên máy. Nhập mật khẩu tài khoản đang đăng nhập để xác nhận.`}
+        confirmLabel="Xoá hết"
+        onCancel={() => setPendingClear(false)}
+        onConfirmed={() => void confirmClear()}
+      />
     </div>
   );
 }

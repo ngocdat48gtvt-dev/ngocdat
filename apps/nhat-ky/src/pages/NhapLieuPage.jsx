@@ -1,12 +1,16 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import NhatKyReview from "../components/NhatKyReview";
 import DraggableFormPanel from "../components/DraggableFormPanel";
 import TngtEntryForm from "../components/TngtEntryForm";
 import HanhLangEntryForm from "../components/HanhLangEntryForm";
 import HanhLangQuickEntry from "../components/HanhLangQuickEntry";
 import MatDuongEntryForm from "../components/MatDuongEntryForm";
+import EntryRoutePicker from "../components/EntryRoutePicker";
+import SidebarResizer from "../components/SidebarResizer";
+import { useResizableSidebar } from "../hooks/useResizableSidebar";
 import {
   SECTIONS,
+  VISIBLE_SECTIONS,
   EMPTY_DAY_META,
   EMPTY_REPORT_META,
   loadStorage,
@@ -16,40 +20,59 @@ import {
   sortEntriesOnDate,
   compareEntriesByTypeAndKm,
   entryIncidentType,
+  resolveNenDuongDiaryType,
   DIARY_ENTRY_COLUMN_HINT,
   HANH_LANG_SECTION,
+  isHanhLangSectionTitle,
   formatSectionPartPrefix
 } from "../utils/nhatKyFormat";
 import {
   MAT_DUONG_SECTION,
   defaultExportMatDuong,
-  withMatDuongKmTo
+  withMatDuongKmTo,
+  formatKmCell
 } from "../utils/matDuongFormat";
+import { withHanhLangKmTo } from "../utils/hanhLangFormat";
+import { syncNhatKyLeaderNoteToGptc } from "../utils/gptcNhatKySync";
 import { addMetersToKm, normalizeKmInput } from "../utils/nhatKyFormat";
 import {
   defaultPlannedRepairDate,
   maxPlannedRepairDate,
+  plannedRepairDateForType,
   validatePlannedRepairDate,
   isBaoDuongSection,
+  applyBaoDuongDiaryNotes,
   BAO_DUONG_MAX_DAYS
 } from "../utils/baoDuongFormat";
 import {
   listFormTypesForSection,
   isMasterDataSection,
   getUnitForType,
-  isCountUnit,
+  formatUnitLabel,
+  normalizeUnitValue,
+  needMaintenanceForType,
   BAO_DUONG_QUALITY_EVENT
 } from "../utils/baoDuongQualityStore";
-import { isNoteQtyDiarySection } from "../utils/incidentUtils";
+import {
+  mergeDiaryEntries,
+  validateDiaryMergeSelection,
+  unmergeDiaryEntries,
+  isMergedDiaryEntry
+} from "../utils/mergeDiaryEntries";
 import MatDuongQuickEntry from "../components/MatDuongQuickEntry";
 import BaoDuongQuickEntry from "../components/BaoDuongQuickEntry";
 import CongQuickEntry from "../components/CongQuickEntry";
 import WorkTypeCombo from "../components/WorkTypeCombo";
 import ViDateInput from "../components/ViDateInput";
+import {
+  collectDiaryFilledDates,
+  missingDiaryDatesYearToDate
+} from "../utils/diaryCalendarGaps";
 import { makeEmptyQuickRows } from "../utils/bulkMatDuongImport";
 import {
   NEN_DUONG_SECTION,
   defaultExportTrafficDuty,
+  isBaoLuTickSection,
   looksLikeEmail,
   isLegacyAutoRestoredAt
 } from "../utils/trafficDutyFormat";
@@ -61,6 +84,7 @@ import {
   defaultExportHanhLang
 } from "../utils/hanhLangFormat";
 import { useAuth } from "../context/AuthContext";
+import { useOfficePermissions } from "../hooks/useOfficePermissions";
 import {
   fetchMatDuongIncidentTypes,
   fetchMasterData,
@@ -71,34 +95,43 @@ import {
   DEFAULT_CONG_WORK_TYPES
 } from "../services/masterDataService";
 import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
-import { resolveReportMetaFromRoad } from "../utils/roadsCatalog";
+import {
+  loadNhatKySignNames,
+  resolveHatSignRoleLabel
+} from "../utils/nhatKySignNames";
+import {
+  resolveReportMetaFromRoad,
+  findRoute,
+  getRoadRoutes,
+  pickActiveRoute,
+  routeNameLabel
+} from "../utils/roadsCatalog";
 import { persistImportMapFromEntries } from "../services/nhatKyImportService";
 import {
-  loadCauRegistry,
-  cauScope,
+  applyCongExportStatusesToRegistry,
+  resolveCongScope,
+  writeCongScope
+} from "../utils/congRegistryStore";
+import {
+  loadCauRegistryForRoute,
   CAU_REGISTRY_EVENT,
   CAU_SECTION
 } from "../utils/cauRegistryStore";
+import { hydrateCauRegistriesFromCloud } from "../services/cauRegistryService";
 import { syncCauInspectionsFromEntries } from "../utils/cauInspectionStore";
-
-const SIDEBAR_MIN = 300;
-const SIDEBAR_MAX = 420;
-const SIDEBAR_DEFAULT = 340;
 
 const LE_DUONG_SECTION = "Lề đường";
 const THOAT_NUOC_SECTION = "Cống, rãnh thoát nước";
 /** Các hạng mục bảo dưỡng dùng bảng nhập nhanh (đơn vị/khối lượng theo loại công việc). */
 const BAO_DUONG_QUICK_SECTIONS = new Set([
+  "Nền đường",
   "Cống, rãnh thoát nước",
   "Ngầm, tràn (lũ, ngập)",
-  "Cột mốc GP mặt bằng, lộ giới",
   "Công trình an toàn giao thông",
-  "Công tác phát cây",
   "Công trình cầu"
 ]);
 const QUICK_GRID_SECTIONS = new Set([
   MAT_DUONG_SECTION,
-  NEN_DUONG_SECTION,
   LE_DUONG_SECTION,
   HANH_LANG_SECTION,
   ...BAO_DUONG_QUICK_SECTIONS
@@ -106,11 +139,11 @@ const QUICK_GRID_SECTIONS = new Set([
 
 /** Chuyển một ghi chép đã lưu → một dòng bảng nhập nhanh để sửa. */
 function entryToQuickRow(item, globalIndex) {
-  if (item.section === HANH_LANG_SECTION) {
+  if (isHanhLangSectionTitle(item.section)) {
     return {
       time: item.time || "",
-      kmFrom: item.kmFrom || "",
-      kmTo: item.kmTo || "",
+      kmFrom: item.kmFrom ? formatKmCell(item.kmFrom) || item.kmFrom : "",
+      kmTo: item.kmTo ? formatKmCell(item.kmTo) || item.kmTo : "",
       side: item.side || "",
       hlRecorder: item.hlRecorder || "",
       hlViolator: item.hlViolator || "",
@@ -121,41 +154,66 @@ function entryToQuickRow(item, globalIndex) {
       resolved: item.hlProcessNote || item.resolved || "",
       hlNote: item.hlNote || "",
       exportHanhLang: item.exportHanhLang,
+      routeId: item.routeId || "",
+      roadName: item.roadName || "",
       _editIndex: globalIndex
     };
   }
   return {
-    kmFrom: item.kmFrom || "",
-    kmTo: item.kmTo || "",
+    kmFrom: item.kmFrom ? formatKmCell(item.kmFrom) || item.kmFrom : "",
+    kmTo: item.kmTo ? formatKmCell(item.kmTo) || item.kmTo : "",
     side: item.side || "",
     length: item.length ?? "",
     width: item.width ?? "",
     height: item.height ?? "",
     unit: resolveQuickRowUnit(item),
     quantity: item.quantity ?? "",
-    type: item.type || "",
+    type: resolveNenDuongDiaryType(item) || item.type || "",
     content: item.content || "",
     resolvedStatus: item.resolvedStatus || "",
     exportMatDuong: item.exportMatDuong,
-    exportTrafficDuty: item.exportTrafficDuty,
+    exportTrafficDuty: item.exportTrafficDuty ?? defaultExportTrafficDuty(item),
     exportPhieuCau: item.exportPhieuCau,
+    routeId: item.routeId || "",
+    roadName: item.roadName || "",
     bridgeId: item.bridgeId || "",
     bridgeName: item.bridgeName || "",
     plannedRepairDate: item.plannedRepairDate || "",
+    congId: item.congId || item.assetId || "",
+    congType: item.viTriNote || "",
+    congLength: item.length ?? "",
+    exportCongStatus:
+      item.exportCongStatus ||
+      (item.exportCongList === true ? "hu_hong" : ""),
     _editIndex: globalIndex
   };
 }
 
-/** Đơn vị dòng sửa: ưu tiên master data khi bản ghi cũ bị gán m/m²/m³ nhầm. */
+/** Đơn vị dòng sửa: luôn ưu tiên MASTER DATA. */
 function resolveQuickRowUnit(item) {
-  const catalog = getUnitForType(item?.type);
-  const raw = String(item?.unit || "").trim();
-  if (isNoteQtyDiarySection(item?.section) && catalog) {
-    const geometric = new Set(["m", "m2", "m3", "m²", "m³"]);
-    if (isCountUnit(catalog) && (!raw || geometric.has(raw))) return catalog;
-    return raw || catalog;
-  }
-  return raw || catalog || "m2";
+  const catalog = normalizeUnitValue(getUnitForType(item?.type));
+  if (catalog) return catalog;
+  return normalizeUnitValue(item?.unit) || "m2";
+}
+
+/** Đơn vị form chi tiết: MASTER DATA (catalog sống), không nhận nhập tay. */
+function resolveFormCatalogUnit(type, unitMap = {}, fallback = "") {
+  return (
+    normalizeUnitValue(getUnitForType(type) || (type && unitMap[type]) || "") ||
+    normalizeUnitValue(fallback) ||
+    ""
+  );
+}
+
+function calcFormQuantity(unit, length, width, height, quantity) {
+  const u = normalizeUnitValue(unit);
+  const l = Number(length || 0);
+  const w = Number(width || 0);
+  const h = Number(height || 0);
+  if (u === "m") return l;
+  if (u === "m2") return l * w;
+  if (u === "m3") return l * w * h;
+  return Number(quantity || 0);
 }
 
 const EMPTY_FORM = {
@@ -163,7 +221,7 @@ const EMPTY_FORM = {
   time: "",
   kmFrom: "",
   kmTo: "",
-  side: "P",
+  side: "",
   locationNote: "",
   length: "",
   width: "",
@@ -215,7 +273,9 @@ const EMPTY_FORM = {
   hlAddress: "",
   hlRecordDate: "",
   hlProcessNote: "",
-  hlNote: ""
+  hlNote: "",
+  routeId: "",
+  roadName: ""
 };
 
 export default function NhapLieuPage({
@@ -227,10 +287,14 @@ export default function NhapLieuPage({
   onMatDuongQuickBootConsumed,
   bootSection = "",
   onBootSectionConsumed,
+  onOpenGptcDetail,
   readOnly = false
 }) {
   const { profile } = useAuth();
-  const { storageKey, activeRoadId, ownerUid, activeRoad } = useRoadWorkspace();
+  const { isAdmin } = useOfficePermissions();
+  const { storageKey, activeRoadId, ownerUid, activeRoad, catalogRoad, activeRouteId, selectRoute, routes, browseMode } =
+    useRoadWorkspace();
+  const signNames = useMemo(() => loadNhatKySignNames(storageKey), [storageKey]);
   const initial = loadStorage(storageKey);
   const [currentSection, setCurrentSection] = useState("");
   const [editingIndex, setEditingIndex] = useState(-1);
@@ -243,14 +307,16 @@ export default function NhapLieuPage({
   );
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [saveMessage, setSaveMessage] = useState("");
-  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT);
+  const { sidebarStyle, onResizeStart } = useResizableSidebar({ defaultWidth: 340 });
   const [matDuongMode, setMatDuongMode] = useState("single");
   const [quickRows, setQuickRows] = useState(() => makeEmptyQuickRows(8));
   const [congSubTab, setCongSubTab] = useState("cong");
   const [showEntryDetails, setShowEntryDetails] = useState(false);
   const [expandedSections, setExpandedSections] = useState(() => new Set());
   const [bulkDeleteMode, setBulkDeleteMode] = useState(false);
+  const [bulkMergeMode, setBulkMergeMode] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState(() => new Set());
+  const [selectedForMerge, setSelectedForMerge] = useState(() => new Set());
   const [matDuongTypes, setMatDuongTypes] = useState(
     () => SECTIONS.find((s) => s.key === "mat_duong")?.types || []
   );
@@ -266,18 +332,48 @@ export default function NhapLieuPage({
   }, []);
 
   useEffect(() => {
-    function reloadCau() {
+    let cancelled = false;
+    async function reloadCau() {
       const uid = ownerUid || profile?.uid || "";
       if (!uid || !activeRoadId) {
         setCauBridges([]);
         return;
       }
-      setCauBridges(loadCauRegistry(cauScope(uid, activeRoadId)));
+      const roadForHydrate = catalogRoad || activeRoad;
+      if (roadForHydrate) {
+        try {
+          await hydrateCauRegistriesFromCloud(uid, [roadForHydrate], {
+            force: browseMode || readOnly
+          });
+        } catch {
+          /* giữ list local nếu có */
+        }
+      }
+      if (cancelled) return;
+      const routeList = routes?.length ? routes : getRoadRoutes(catalogRoad || activeRoad);
+      const route = pickActiveRoute(routeList, activeRouteId);
+      setCauBridges(loadCauRegistryForRoute(uid, activeRoadId, route, routeList));
     }
-    reloadCau();
-    window.addEventListener(CAU_REGISTRY_EVENT, reloadCau);
-    return () => window.removeEventListener(CAU_REGISTRY_EVENT, reloadCau);
-  }, [ownerUid, profile?.uid, activeRoadId]);
+    void reloadCau();
+    function onRegistry() {
+      void reloadCau();
+    }
+    window.addEventListener(CAU_REGISTRY_EVENT, onRegistry);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(CAU_REGISTRY_EVENT, onRegistry);
+    };
+  }, [
+    ownerUid,
+    profile?.uid,
+    activeRoadId,
+    activeRouteId,
+    catalogRoad,
+    activeRoad,
+    routes,
+    browseMode,
+    readOnly
+  ]);
 
   const dayMeta = getDayMeta(dayMetaMap, date);
 
@@ -340,6 +436,12 @@ export default function NhapLieuPage({
     setSaveMessage("Đã đồng bộ dữ liệu từ App hiện trường.");
   }, [storageTick, storageKey, activeRoad]);
 
+  const missingDates = useMemo(() => {
+    if (!isAdmin) return [];
+    const filled = collectDiaryFilledDates(data);
+    return missingDiaryDatesYearToDate(filled);
+  }, [data, isAdmin]);
+
   useEffect(() => {
     setReportMeta((prev) => resolveReportMetaFromRoad(prev, activeRoad));
   }, [
@@ -358,23 +460,6 @@ export default function NhapLieuPage({
     setExpandedSections((prev) => new Set([...prev, key]));
   }, [currentSection, showEntryDetails]);
 
-  const onResizeStart = useCallback((e) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startW = sidebarWidth;
-    function onMove(ev) {
-      setSidebarWidth(
-        Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, startW + ev.clientX - startX))
-      );
-    }
-    function onUp() {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    }
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }, [sidebarWidth]);
-
   function persistNow(
     nextData = data,
     nextDayMetaMap = dayMetaMap,
@@ -382,7 +467,13 @@ export default function NhapLieuPage({
     message = "Đã lưu."
   ) {
     if (readOnly) return;
-    saveStorage(nextData, nextDayMetaMap, nextReportMeta, storageKey);
+    const saved = saveStorage(nextData, nextDayMetaMap, nextReportMeta, storageKey);
+    if (!saved) {
+      setSaveMessage(
+        "Không lưu được: bộ nhớ trình duyệt đầy. Dòng vừa nhập vẫn ở trên màn hình — đừng tải lại trang."
+      );
+      return;
+    }
     const uid = ownerUid || profile?.uid || "";
     if (uid && activeRoadId && cauBridges.length) {
       syncCauInspectionsFromEntries(
@@ -398,8 +489,9 @@ export default function NhapLieuPage({
       setTimeout(() => setSaveMessage(""), 2500);
     }
     onStorageChange?.();
-    void persistImportMapFromEntries(profile?.uid, storageKey, nextData).catch(() => {
-      setSaveMessage("Đã lưu local; chưa đồng bộ importMap lên Firestore.");
+    const importUid = ownerUid || profile?.uid || "";
+    void persistImportMapFromEntries(importUid, storageKey, nextData).catch(() => {
+      setSaveMessage("Đã lưu local; chưa đồng bộ trạng thái «đã vào NK» lên cloud.");
     });
   }
 
@@ -424,18 +516,27 @@ export default function NhapLieuPage({
     setQuickRows(makeEmptyQuickRows(8));
     if (itemIndex >= 0) {
       const item = data[itemIndex];
+      const type = resolveNenDuongDiaryType(item) || item.type;
+      const unit = resolveFormCatalogUnit(type, unitByType, item.unit);
+      const quantity = calcFormQuantity(
+        unit,
+        item.length,
+        item.width,
+        item.height,
+        item.quantity
+      );
       setForm({
-        type: item.type,
+        type,
         time: item.time || "",
-        kmFrom: item.kmFrom,
-        kmTo: item.kmTo,
+        kmFrom: item.kmFrom ? formatKmCell(item.kmFrom) || item.kmFrom : item.kmFrom,
+        kmTo: item.kmTo ? formatKmCell(item.kmTo) || item.kmTo : item.kmTo,
         side: item.side,
         locationNote: item.locationNote || "",
         length: item.length,
         width: item.width,
         height: item.height,
-        unit: item.unit,
-        quantity: item.quantity,
+        unit: unit || item.unit,
+        quantity,
         content: item.content,
         resolved: item.resolved || item.solution || "",
         leaderNote: item.leaderNote || "",
@@ -481,8 +582,11 @@ export default function NhapLieuPage({
         hlAddress: item.hlAddress || "",
         hlRecordDate: item.hlRecordDate || item.date || date,
         hlProcessNote: item.hlProcessNote || item.resolved || "",
-        hlNote: item.hlNote || item.inspectorNote || ""
+        hlNote: item.hlNote || item.inspectorNote || "",
+        routeId: item.routeId || "",
+        roadName: item.roadName || ""
       });
+      if (item.routeId) selectRoute(item.routeId);
     } else {
       setForm({
         ...EMPTY_FORM,
@@ -493,11 +597,13 @@ export default function NhapLieuPage({
         type: sectionTitle === TNGT_SECTION ? "Tai nạn giao thông" : "",
         tngtOccurDate: sectionTitle === TNGT_SECTION ? date : "",
         hlRecordDate: sectionTitle === HANH_LANG_SECTION ? date : "",
-        side: sectionTitle === TNGT_SECTION || sectionTitle === HANH_LANG_SECTION ? "P" : "P",
+        side: sectionTitle === TNGT_SECTION || sectionTitle === HANH_LANG_SECTION ? "P" : "",
         tngtCauseNguoi: sectionTitle === TNGT_SECTION,
         plannedRepairDate: isBaoDuongSection(sectionTitle)
           ? defaultPlannedRepairDate(date)
-          : ""
+          : "",
+        routeId: "",
+        roadName: ""
       });
     }
   }
@@ -518,6 +624,7 @@ export default function NhapLieuPage({
     const switching = sectionTitle !== currentSection;
     setCurrentSection(sectionTitle);
     setEditingIndex(-1);
+    if (item.routeId) selectRoute(item.routeId);
     setQuickRows((prev) => {
       if (switching) {
         return [entryToQuickRow(item, globalIndex), ...makeEmptyQuickRows(4)];
@@ -538,39 +645,49 @@ export default function NhapLieuPage({
         [name]: type === "checkbox" ? checked : value
       };
       if (name === "type" && value) {
-        const catalogUnit =
-          unitByType[value] || getUnitForType(value) || "";
-        const u = String(catalogUnit).trim().toLowerCase();
-        if (u === "m" || u === "m2" || u === "m3" || u === "m²" || u === "m³") {
-          newForm.unit = u === "m²" ? "m2" : u === "m³" ? "m3" : u;
+        const catalogUnit = normalizeUnitValue(
+          getUnitForType(value) || unitByType[value] || ""
+        );
+        if (catalogUnit) newForm.unit = catalogUnit;
+        if (catalogUnit === "m") {
+          newForm.width = "";
+          newForm.height = "";
+        } else if (catalogUnit === "m2") {
+          newForm.height = "";
         }
       }
       if (name === "type" && currentSection === MAT_DUONG_SECTION) {
         newForm.exportMatDuong = defaultExportMatDuong(value);
-        if (!defaultExportMatDuong(value)) {
+        if (!defaultExportMatDuong(value) || !needMaintenanceForType(value)) {
           newForm.plannedRepairDate = "";
         } else if (!newForm.plannedRepairDate) {
-          newForm.plannedRepairDate = defaultPlannedRepairDate(date);
+          newForm.plannedRepairDate = plannedRepairDateForType(date, value);
         }
       }
       if (
         name === "type" &&
         currentSection !== MAT_DUONG_SECTION &&
         isBaoDuongSection(currentSection) &&
-        value &&
-        !newForm.plannedRepairDate
+        value
       ) {
-        newForm.plannedRepairDate = defaultPlannedRepairDate(date);
+        if (!needMaintenanceForType(value)) {
+          newForm.plannedRepairDate = "";
+        } else if (!newForm.plannedRepairDate) {
+          newForm.plannedRepairDate = plannedRepairDateForType(date, value);
+        }
       }
       if (name === "resolved" && currentSection === HANH_LANG_SECTION) {
         newForm.hlProcessNote = value;
       }
       if (
-        currentSection === MAT_DUONG_SECTION &&
+        (currentSection === MAT_DUONG_SECTION ||
+          currentSection === HANH_LANG_SECTION) &&
         (name === "kmFrom" || name === "length")
       ) {
         const kmFrom = normalizeKmInput(newForm.kmFrom);
-        if (kmFrom) newForm.kmFrom = kmFrom;
+        if (kmFrom && currentSection === MAT_DUONG_SECTION) {
+          newForm.kmFrom = kmFrom;
+        }
         const len = Number(String(newForm.length || "").replace(",", ".")) || 0;
         if (kmFrom) {
           newForm.kmTo = len > 0 ? addMetersToKm(kmFrom, len) : kmFrom;
@@ -592,12 +709,31 @@ export default function NhapLieuPage({
   function updateItemField(globalIndex, field, value) {
     if (readOnly) return;
     const next = [...data];
-    next[globalIndex] = { ...next[globalIndex], [field]: value };
+    const prev = next[globalIndex];
+    next[globalIndex] = { ...prev, [field]: value };
     setData(next);
     if (editingIndex === globalIndex) {
-      setForm((prev) => ({ ...prev, [field]: value }));
+      setForm((f) => ({ ...f, [field]: value }));
     }
     persistNow(next, dayMetaMap, reportMeta);
+    if (
+      field === "leaderNote" &&
+      prev?.sourceGptcEntryId &&
+      ownerUid &&
+      activeRoadId
+    ) {
+      try {
+        syncNhatKyLeaderNoteToGptc({
+          uid: ownerUid,
+          roadId: activeRoadId,
+          sourceGptcPermitId: prev.sourceGptcPermitId,
+          sourceGptcEntryId: prev.sourceGptcEntryId,
+          leaderNote: value
+        });
+      } catch (err) {
+        console.warn("Đồng bộ ý kiến Hạt NK → CPTC thất bại.", err);
+      }
+    }
   }
 
   function addToPreview() {
@@ -641,15 +777,54 @@ export default function NhapLieuPage({
         return;
       }
     }
-    const item = withMatDuongKmTo(
-      migrateEntry({
-        ...form,
-        type: form.type || (currentSection === TNGT_SECTION ? "Tai nạn giao thông" : ""),
-        section: currentSection,
-        date,
-        tngtOccurDate: currentSection === TNGT_SECTION ? date : form.tngtOccurDate || date,
-        hlRecordDate: currentSection === HANH_LANG_SECTION ? date : form.hlRecordDate || date
-      })
+    const activeRt =
+      findRoute(catalogRoad, form.routeId || activeRouteId) ||
+      getRoadRoutes(catalogRoad)[0] ||
+      null;
+    const savedType =
+      form.type || (currentSection === TNGT_SECTION ? "Tai nạn giao thông" : "");
+    const catalogUnit =
+      currentSection !== TNGT_SECTION && currentSection !== HANH_LANG_SECTION
+        ? resolveFormCatalogUnit(savedType, unitByType, form.unit)
+        : form.unit;
+    const item = applyBaoDuongDiaryNotes(
+      withHanhLangKmTo(
+        withMatDuongKmTo(
+          migrateEntry({
+            ...form,
+            type: savedType,
+            // Đồng bộ loại hiển thị — tránh giữ sourceIncidentType cũ khi sửa loại.
+            sourceIncidentType: savedType,
+            unit: catalogUnit || form.unit,
+            quantity: calcFormQuantity(
+              catalogUnit || form.unit,
+              form.length,
+              form.width,
+              form.height,
+              form.quantity
+            ),
+            section: currentSection,
+            date,
+            // Giữ một bản tương thích trong content để dữ liệu TNGT cũ/mới đều
+            // hiện đủ diễn biến ở nhật ký và không bị mất khi qua các bước migrate.
+            content:
+              currentSection === TNGT_SECTION
+                ? form.tngtCauseDetail || form.content || ""
+                : form.content,
+            exportTngt:
+              currentSection === TNGT_SECTION ? form.exportTngt !== false : form.exportTngt,
+            tngtOccurDate: currentSection === TNGT_SECTION ? date : form.tngtOccurDate || date,
+            tngtOccurTime:
+              currentSection === TNGT_SECTION
+                ? form.tngtOccurTime || form.time || ""
+                : form.tngtOccurTime,
+            hlRecordDate: currentSection === HANH_LANG_SECTION ? date : form.hlRecordDate || date,
+            ...(activeRt?.id
+              ? { routeId: form.routeId || activeRt.id, roadName: form.roadName || activeRt.roadName }
+              : {})
+          })
+        )
+      )
     );
     let newData;
     if (editingIndex >= 0) {
@@ -667,6 +842,7 @@ export default function NhapLieuPage({
       editingIndex >= 0 ? "Đã cập nhật ghi chép." : "Đã thêm vào nhật ký."
     );
     resetForm();
+    setCurrentSection("");
   }
 
   function addQuickToPreview(entries, errors = []) {
@@ -683,12 +859,25 @@ export default function NhapLieuPage({
     )) {
       return;
     }
+    const activeRt =
+      findRoute(catalogRoad, form.routeId || activeRouteId) ||
+      getRoadRoutes(catalogRoad)[0] ||
+      null;
     const newData = [...data];
     const inserts = [];
     let updateCount = 0;
+    const stampedEntries = [];
     entries.forEach((e) => {
       const editIdx = e._editIndex;
-      const built = withMatDuongKmTo(migrateEntry(e));
+      const stamped = {
+        ...e,
+        routeId: form.routeId || activeRt?.id || e.routeId || "",
+        roadName: form.roadName || activeRt?.roadName || e.roadName || ""
+      };
+      const built = applyBaoDuongDiaryNotes(
+        withHanhLangKmTo(withMatDuongKmTo(migrateEntry(stamped)))
+      );
+      stampedEntries.push(built);
       if (Number.isInteger(editIdx) && editIdx >= 0 && editIdx < newData.length) {
         const orig = newData[editIdx];
         let patch;
@@ -709,7 +898,9 @@ export default function NhapLieuPage({
             resolved: built.resolved,
             hlProcessNote: built.hlProcessNote,
             hlNote: built.hlNote,
-            exportHanhLang: built.exportHanhLang
+            exportHanhLang: built.exportHanhLang,
+            routeId: built.routeId || "",
+            roadName: built.roadName || ""
           };
         } else {
           patch = {
@@ -722,8 +913,16 @@ export default function NhapLieuPage({
             unit: built.unit,
             quantity: built.quantity,
             type: built.type,
+            // Đồng bộ loại hiển thị với loại vừa sửa (entryIncidentType ưu tiên field này).
+            sourceIncidentType: built.type || "",
+            // Ghi chú ATGT/Cột mốc (và content chung) — phải ghi cả chuỗi rỗng để xóa được.
+            content: built.content ?? "",
             resolvedStatus: built.resolvedStatus,
-            plannedRepairDate: built.plannedRepairDate
+            plannedRepairDate: built.plannedRepairDate,
+            resolved: built.resolved,
+            leaderNote: built.leaderNote,
+            routeId: built.routeId || "",
+            roadName: built.roadName || ""
           };
           if (built.exportMatDuong !== undefined) patch.exportMatDuong = built.exportMatDuong;
           if (built.exportTrafficDuty !== undefined) {
@@ -732,6 +931,12 @@ export default function NhapLieuPage({
           if (built.exportPhieuCau !== undefined) patch.exportPhieuCau = built.exportPhieuCau;
           if (built.bridgeId !== undefined) patch.bridgeId = built.bridgeId;
           if (built.bridgeName !== undefined) patch.bridgeName = built.bridgeName;
+          if (built.exportCongStatus !== undefined) {
+            patch.exportCongStatus = built.exportCongStatus;
+          }
+          if (built.congId !== undefined) patch.congId = built.congId;
+          if (built.assetType !== undefined) patch.assetType = built.assetType;
+          if (built.assetId !== undefined) patch.assetId = built.assetId;
         }
         newData[editIdx] = { ...orig, ...patch };
         updateCount += 1;
@@ -750,14 +955,64 @@ export default function NhapLieuPage({
       reportMeta,
       `Đã ${parts.join(", ") || "lưu"} trong nhật ký.`
     );
+    const congExports = stampedEntries.filter(
+      (e) =>
+        e.section === THOAT_NUOC_SECTION &&
+        (e.exportCongStatus === "hu_hong" ||
+          e.exportCongStatus === "sua_chua" ||
+          e.exportCongStatus === "bo_sung")
+    );
+    if (congExports.length && (ownerUid || profile?.uid)) {
+      const uid = ownerUid || profile?.uid || "";
+      const routeList = routes?.length ? routes : getRoadRoutes(catalogRoad || activeRoad);
+      const scope = writeCongScope(
+        uid,
+        activeRoadId,
+        activeRt?.id || activeRouteId,
+        routeList
+      );
+      applyCongExportStatusesToRegistry(scope, congExports);
+      // Đồng bộ luôn scope đọc (khi resolve khác write) để DS cống thấy ngay.
+      const readScope = resolveCongScope(
+        uid,
+        activeRoadId,
+        activeRt?.id || activeRouteId,
+        routeList
+      );
+      if (readScope !== scope) {
+        applyCongExportStatusesToRegistry(readScope, congExports);
+      }
+    }
     setQuickRows(makeEmptyQuickRows(8));
+    resetForm();
+    setCurrentSection("");
   }
 
   function deleteItems(indices) {
     if (readOnly) return;
-    const indexSet = new Set(indices);
+    const indexSet = new Set(
+      (indices || [])
+        .map((i) => Number(i))
+        .filter((i) => Number.isInteger(i) && i >= 0)
+    );
+    if (!indexSet.size) return;
     const remaining = data.filter((_, i) => !indexSet.has(i));
     setData(remaining);
+    setQuickRows((prev) =>
+      prev.map((row) => {
+        const editIdx = row?._editIndex;
+        if (!Number.isInteger(editIdx)) return row;
+        if (indexSet.has(editIdx)) {
+          const { _editIndex, ...rest } = row;
+          return rest;
+        }
+        let nextIdx = editIdx;
+        for (const i of [...indexSet].sort((a, b) => a - b)) {
+          if (i < editIdx) nextIdx -= 1;
+        }
+        return nextIdx === editIdx ? row : { ...row, _editIndex: nextIdx };
+      })
+    );
     persistNow(remaining, dayMetaMap, reportMeta, "Đã xoá ghi chép.");
     if (editingIndex >= 0) {
       if (indexSet.has(editingIndex)) {
@@ -772,12 +1027,14 @@ export default function NhapLieuPage({
     }
     setSelectedForDelete((prev) => {
       const next = new Set(prev);
-      indices.forEach((i) => next.delete(i));
+      indexSet.forEach((i) => next.delete(i));
       return next;
     });
   }
 
-  function deleteItem(index) {
+  function deleteItem(index, event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
     if (!window.confirm("Xác nhận xoá dòng ghi chép này?")) return;
     deleteItems([index]);
   }
@@ -823,6 +1080,8 @@ export default function NhapLieuPage({
   }
 
   function toggleBulkDeleteMode() {
+    setBulkMergeMode(false);
+    setSelectedForMerge(new Set());
     setBulkDeleteMode((prev) => {
       const next = !prev;
       if (next) {
@@ -838,17 +1097,38 @@ export default function NhapLieuPage({
     });
   }
 
+  function toggleBulkMergeMode() {
+    setBulkDeleteMode(false);
+    setSelectedForDelete(new Set());
+    setBulkMergeMode((prev) => {
+      const next = !prev;
+      if (next) {
+        setShowEntryDetails(true);
+        const keys = SECTIONS.filter((s) =>
+          data.some((x) => x.date === date && x.section === s.title)
+        ).map((s) => s.key);
+        setExpandedSections(new Set(keys));
+      } else {
+        setSelectedForMerge(new Set());
+      }
+      return next;
+    });
+  }
+
   function toggleSelectAllDay() {
     const all = filteredData.map((x) => x._globalIndex);
-    if (selectedForDelete.size === all.length && all.length > 0) {
-      setSelectedForDelete(new Set());
+    const selected = bulkMergeMode ? selectedForMerge : selectedForDelete;
+    const setSelected = bulkMergeMode ? setSelectedForMerge : setSelectedForDelete;
+    if (selected.size === all.length && all.length > 0) {
+      setSelected(new Set());
     } else {
-      setSelectedForDelete(new Set(all));
+      setSelected(new Set(all));
     }
   }
 
   function toggleSelectIndex(index) {
-    setSelectedForDelete((prev) => {
+    const setSelected = bulkMergeMode ? setSelectedForMerge : setSelectedForDelete;
+    setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(index)) next.delete(index);
       else next.add(index);
@@ -860,13 +1140,77 @@ export default function NhapLieuPage({
     const indices = filteredData
       .filter((x) => x.section === sectionTitle)
       .map((x) => x._globalIndex);
-    setSelectedForDelete((prev) => {
+    const setSelected = bulkMergeMode ? setSelectedForMerge : setSelectedForDelete;
+    setSelected((prev) => {
       const next = new Set(prev);
       const allSelected = indices.every((i) => next.has(i));
       if (allSelected) indices.forEach((i) => next.delete(i));
       else indices.forEach((i) => next.add(i));
       return next;
     });
+  }
+
+  function mergeSelectedItems() {
+    if (readOnly) return;
+    const indices = [...selectedForMerge].sort((a, b) => a - b);
+    const items = indices.map((i) => data[i]).filter(Boolean);
+    const check = validateDiaryMergeSelection(items);
+    if (!check.ok) {
+      window.alert(check.msg);
+      return;
+    }
+    if (
+      !window.confirm(
+        `Gộp ${items.length} dòng «${entryIncidentType(items[0]) || items[0].type}» thành 1 hàng trên sổ?`
+      )
+    ) {
+      return;
+    }
+    let merged;
+    try {
+      merged = mergeDiaryEntries(items);
+    } catch (err) {
+      window.alert(err?.message || "Không gộp được.");
+      return;
+    }
+    const keepIndex = indices[0];
+    const drop = new Set(indices.slice(1));
+    const nextData = data
+      .map((row, i) => (i === keepIndex ? merged : row))
+      .filter((_, i) => !drop.has(i));
+    setData(nextData);
+    persistNow(nextData, dayMetaMap, reportMeta, `Đã gộp ${items.length} dòng thành 1.`);
+    setSelectedForMerge(new Set());
+    if (editingIndex >= 0 && (editingIndex === keepIndex || drop.has(editingIndex))) {
+      resetForm();
+    }
+  }
+
+  function unmergeItem(index) {
+    if (readOnly) return;
+    const item = data[index];
+    if (!isMergedDiaryEntry(item)) return;
+    const sources = unmergeDiaryEntries(item);
+    if (!sources?.length) {
+      window.alert("Không tách được dòng đã gộp.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Bỏ gộp «${entryIncidentType(item) || item.type}» thành ${sources.length} dòng riêng?`
+      )
+    ) {
+      return;
+    }
+    const nextData = [
+      ...data.slice(0, index),
+      ...sources,
+      ...data.slice(index + 1)
+    ];
+    setData(nextData);
+    persistNow(nextData, dayMetaMap, reportMeta, `Đã bỏ gộp thành ${sources.length} dòng.`);
+    setSelectedForMerge(new Set());
+    if (editingIndex === index) resetForm();
   }
 
   function handleDateChange(nextDate) {
@@ -888,44 +1232,19 @@ export default function NhapLieuPage({
     handleDateChange(d.toISOString().split("T")[0]);
   }
 
-  const filteredData = data
-    .map((item, globalIndex) => ({ ...item, _globalIndex: globalIndex }))
-    .filter((x) => x.date === date);
+  const filteredData = (() => {
+    // Hiện đủ công việc trong ngày (mọi nhánh). Ô «Đường đang nhập» chỉ gán nhánh khi thêm mới.
+    return data
+      .map((item, globalIndex) => ({ ...item, _globalIndex: globalIndex }))
+      .filter((x) => x.date === date);
+  })();
   const currentSectionDef = SECTIONS.find((x) => x.title === currentSection);
   const currentTypes = useMemo(() => {
     if (!currentSection) return [];
 
     const extras = [];
     if (isMasterDataSection(currentSection)) {
-      if (currentSection === MAT_DUONG_SECTION) {
-        extras.push(...matDuongTypes);
-      }
-      if (currentSection === THOAT_NUOC_SECTION && thoatNuocMasterTypes.length) {
-        // Ưu tiên tên công việc từ master data (web điều hành).
-        const seen = new Set();
-        const out = [];
-        thoatNuocMasterTypes.forEach((t) => {
-          const key = String(t || "").trim();
-          if (key && !seen.has(key)) {
-            seen.add(key);
-            out.push(key);
-          }
-        });
-        filteredData
-          .filter((x) => x.section === currentSection && x.type)
-          .forEach((x) => {
-            const key = String(x.type || "").trim();
-            if (key && !seen.has(key)) {
-              seen.add(key);
-              out.push(key);
-            }
-          });
-        if (form.type) {
-          const key = String(form.type || "").trim();
-          if (key && !seen.has(key)) out.push(key);
-        }
-        return out;
-      }
+      // Chỉ lấy loại từ danh mục công việc (data_noi_nghiep) + loại đã có trên sổ.
       filteredData
         .filter((x) => x.section === currentSection && x.type)
         .forEach((x) => extras.push(x.type));
@@ -993,7 +1312,7 @@ export default function NhapLieuPage({
     <div className="nhaplieu-workspace">
       <aside
         className="nhaplieu-sidebar"
-        style={{ width: sidebarWidth, minWidth: sidebarWidth, maxWidth: sidebarWidth }}
+        style={sidebarStyle}
       >
         <div className="sidebar-sticky-head">
           <h2 className="sidebar-title">Nhập liệu</h2>
@@ -1026,8 +1345,15 @@ export default function NhapLieuPage({
               onChange={handleDateChange}
               className="sidebar-input sidebar-input--date"
               aria-label="Ngày nhập liệu"
+              missingDates={missingDates}
             />
           </div>
+          <EntryRoutePicker className="entry-route-picker--sidebar" />
+          {isAdmin && missingDates.length > 0 ? (
+            <p className="sidebar-missing-summary">
+              {missingDates.length} ngày chưa nhập (đầu năm → nay) — mở lịch để xem ô đỏ
+            </p>
+          ) : null}
           {saveMessage && <p className="save-ok">{saveMessage}</p>}
         </div>
 
@@ -1042,6 +1368,14 @@ export default function NhapLieuPage({
                 onClick={toggleShowEntryDetails}
               >
                 {showEntryDetails ? "Ẩn chi tiết" : "Hiện chi tiết"}
+              </button>
+              <button
+                type="button"
+                className={`section-toolbar-btn${bulkMergeMode ? " active" : ""}`}
+                onClick={toggleBulkMergeMode}
+                hidden={readOnly}
+              >
+                Gộp công việc
               </button>
               <button
                 type="button"
@@ -1070,16 +1404,35 @@ export default function NhapLieuPage({
               </button>
             </div>
           )}
+          {bulkMergeMode && (
+            <div className="bulk-delete-bar">
+              <button type="button" className="bulk-delete-btn" onClick={toggleSelectAllDay}>
+                {selectedForMerge.size === filteredData.length && filteredData.length > 0
+                  ? "Bỏ chọn"
+                  : `Chọn tất cả (${filteredData.length})`}
+              </button>
+              <button
+                type="button"
+                className="bulk-delete-btn bulk-delete-btn--merge"
+                disabled={selectedForMerge.size < 2}
+                onClick={mergeSelectedItems}
+              >
+                Gộp {selectedForMerge.size} dòng
+              </button>
+            </div>
+          )}
           <ul className="section-list">
-            {SECTIONS.map((section) => {
+            {VISIBLE_SECTIONS.map((section) => {
               const count = filteredData.filter((x) => x.section === section.title).length;
               const active = currentSection === section.title;
               const sectionItems = filteredData
                 .filter((x) => x.section === section.title)
                 .sort(compareEntriesByTypeAndKm);
               const expanded = showEntryDetails && expandedSections.has(section.key);
+              const selectMode = bulkDeleteMode || bulkMergeMode;
+              const selectedSet = bulkMergeMode ? selectedForMerge : selectedForDelete;
               const sectionSelectedCount = sectionItems.filter((item) =>
-                selectedForDelete.has(item._globalIndex)
+                selectedSet.has(item._globalIndex)
               ).length;
               return (
                 <li key={section.key} className={active ? "active" : ""}>
@@ -1101,14 +1454,14 @@ export default function NhapLieuPage({
                     >
                       <span>
                         <span className="section-part">{formatSectionPartPrefix(section)}</span>
-                        {section.title}
+                        {section.displayTitle || section.title}
                       </span>
                       {count > 0 && <span className="section-count">{count}</span>}
                     </button>
                   </div>
                   {expanded && count > 0 && (
                     <div className="section-entries-wrap">
-                      {bulkDeleteMode && (
+                      {selectMode && (
                         <div className="section-entries-actions">
                           <button
                             type="button"
@@ -1119,13 +1472,15 @@ export default function NhapLieuPage({
                               ? "Bỏ chọn hạng mục"
                               : `Chọn ${count} dòng`}
                           </button>
-                          <button
-                            type="button"
-                            className="section-entries-action section-entries-action--danger"
-                            onClick={() => deleteSectionItems(section.title)}
-                          >
-                            Xoá hết
-                          </button>
+                          {bulkDeleteMode ? (
+                            <button
+                              type="button"
+                              className="section-entries-action section-entries-action--danger"
+                              onClick={() => deleteSectionItems(section.title)}
+                            >
+                              Xoá hết
+                            </button>
+                          ) : null}
                         </div>
                       )}
                       <ul className="section-entries">
@@ -1134,13 +1489,18 @@ export default function NhapLieuPage({
                           const kmHint = item.kmFrom
                             ? `Km${item.kmFrom}`
                             : "";
+                          const merged = isMergedDiaryEntry(item);
+                          const routeHint =
+                            String(item.roadName || "").trim() ||
+                            routeNameLabel(findRoute(catalogRoad, item.routeId)) ||
+                            "";
                           return (
                             <li key={item._globalIndex}>
-                              {bulkDeleteMode && (
+                              {selectMode && (
                                 <input
                                   type="checkbox"
                                   className="section-entry-check"
-                                  checked={selectedForDelete.has(item._globalIndex)}
+                                  checked={selectedSet.has(item._globalIndex)}
                                   onChange={() => toggleSelectIndex(item._globalIndex)}
                                 />
                               )}
@@ -1153,16 +1513,34 @@ export default function NhapLieuPage({
                                     : openForm(section.title, item._globalIndex)
                                 }
                               >
-                                <span className="section-entry-label">{label}</span>
+                                <span className="section-entry-label">
+                                  {label}
+                                  {merged ? (
+                                    <span className="section-entry-merged"> · đã gộp</span>
+                                  ) : null}
+                                </span>
                                 {kmHint && (
                                   <span className="section-entry-km">{kmHint}</span>
                                 )}
+                                {routeHint ? (
+                                  <span className="section-entry-km">{routeHint}</span>
+                                ) : null}
                               </button>
-                              {!bulkDeleteMode && !readOnly && (
+                              {!selectMode && !readOnly && merged && (
+                                <button
+                                  type="button"
+                                  className="entry-unmerge"
+                                  onClick={() => unmergeItem(item._globalIndex)}
+                                  title="Bỏ gộp"
+                                >
+                                  Bỏ gộp
+                                </button>
+                              )}
+                              {!selectMode && !readOnly && (
                                 <button
                                   type="button"
                                   className="entry-delete"
-                                  onClick={() => deleteItem(item._globalIndex)}
+                                  onClick={(e) => deleteItem(item._globalIndex, e)}
                                   title="Xoá"
                                 >
                                   ×
@@ -1203,6 +1581,33 @@ export default function NhapLieuPage({
           }}
         >
           <div className="entry-form">
+            <EntryRoutePicker
+              className="entry-route-picker--form-top"
+              value={
+                form.routeId ||
+                quickRows.find((row) => Number.isInteger(row._editIndex))?.routeId ||
+                ""
+              }
+              onChange={(route) => {
+                selectRoute(route.id);
+                setForm((prev) => ({
+                  ...prev,
+                  routeId: route.id || "",
+                  roadName: route.roadName || route.label || ""
+                }));
+                setQuickRows((prev) =>
+                  prev.map((row) =>
+                    Number.isInteger(row._editIndex)
+                      ? {
+                          ...row,
+                          routeId: route.id || "",
+                          roadName: route.roadName || route.label || ""
+                        }
+                      : row
+                  )
+                );
+              }}
+            />
             {currentSection !== TNGT_SECTION && currentSection !== HANH_LANG_SECTION && currentSection !== MAT_DUONG_SECTION && (
               <p className="section-guide">{currentSectionDef.guide}</p>
             )}
@@ -1238,6 +1643,17 @@ export default function NhapLieuPage({
                       Xoá
                     </button>
                   )}
+                </div>
+                <div className="entry-form-section">
+                  <label className="form-check-row">
+                    <input
+                      type="checkbox"
+                      name="exportTrafficDuty"
+                      checked={Boolean(form.exportTrafficDuty)}
+                      onChange={handleChange}
+                    />
+                    <span>Xuất sang sổ trực ĐBGT (thiệt hại bão lũ)</span>
+                  </label>
                 </div>
               </>
             ) : currentSection === TNGT_SECTION ? (
@@ -1291,19 +1707,6 @@ export default function NhapLieuPage({
                   )}
                 </div>
               </>
-            ) : currentSection === NEN_DUONG_SECTION && editingIndex < 0 ? (
-              <MatDuongQuickEntry
-                date={date}
-                form={form}
-                rows={quickRows}
-                onRowsChange={setQuickRows}
-                onImport={addQuickToPreview}
-                types={currentTypes}
-                unitByType={unitByType}
-                section={NEN_DUONG_SECTION}
-                exportField="exportTrafficDuty"
-                exportLabel="Xuất sổ trực ĐBGT"
-              />
             ) : currentSection === "Lề đường" && editingIndex < 0 ? (
               <MatDuongQuickEntry
                 date={date}
@@ -1424,7 +1827,8 @@ export default function NhapLieuPage({
                 </div>
                 <div className="entry-form-field">
                   <label className="entry-form-label" htmlFor="entry-side">Phía</label>
-                  <select id="entry-side" name="side" value={form.side} onChange={handleChange} className="sidebar-input">
+                  <select id="entry-side" name="side" value={form.side ?? ""} onChange={handleChange} className="sidebar-input">
+                    <option value=""></option>
                     <option value="P">P — Phải</option>
                     <option value="T">T — Trái</option>
                     <option value="M">M — Giữa</option>
@@ -1463,15 +1867,20 @@ export default function NhapLieuPage({
                   <input id="entry-height" name="height" value={form.height} onChange={handleChange} className="sidebar-input" />
                 </div>
                 <div className="entry-form-field">
-                  <label className="entry-form-label" htmlFor="entry-unit">Đơn vị</label>
-                  <select id="entry-unit" name="unit" value={form.unit} onChange={handleChange} className="sidebar-input">
-                    <option value="m">m</option>
-                    <option value="m2">m²</option>
-                    <option value="m3">m³</option>
-                    <option value="cái">cái</option>
-                    <option value="vị trí">vị trí</option>
-                    <option value="%">%</option>
-                  </select>
+                  <label className="entry-form-label" htmlFor="entry-unit">
+                    Đơn vị (danh mục công việc)
+                  </label>
+                  <input
+                    id="entry-unit"
+                    value={formatUnitLabel(
+                      normalizeUnitValue(
+                        getUnitForType(form.type) || unitByType[form.type] || form.unit
+                      )
+                    )}
+                    readOnly
+                    className="sidebar-input sidebar-input-readonly"
+                    title="Đơn vị lấy theo danh mục công việc — không sửa tay"
+                  />
                 </div>
                 <div className="entry-form-field">
                   <label className="entry-form-label" htmlFor="entry-quantity">Khối lượng</label>
@@ -1509,9 +1918,9 @@ export default function NhapLieuPage({
                     Bảo dưỡng thường xuyên (sổ BDTX)
                   </div>
                   <p className="section-guide section-guide--compact">
-                    Tồn tại phải được xử lý xong và ghi vào sổ BDTX trong vòng{" "}
-                    {BAO_DUONG_MAX_DAYS} ngày kể từ ngày phát hiện. Biện pháp và nhận
-                    xét kết quả sẽ tự điền theo danh mục nếu để trống.
+                    Cùng ngày sổ tuần đường: cột «Đã giải quyết» ghi{" "}
+                    <em>Đã xử lý: tên BDTX, khối lượng</em>. Khác ngày: gộp các dòng cùng
+                    loại công việc, ghi yêu cầu tổ đội ở cột nhận xét (hàng đầu nhóm).
                   </p>
                   <div className="entry-form-grid">
                     <div className="entry-form-field">
@@ -1560,7 +1969,7 @@ export default function NhapLieuPage({
                 </div>
               )}
 
-            {currentSection === NEN_DUONG_SECTION && (
+            {isBaoLuTickSection(currentSection) && (
               <div className="entry-form-section">
                 <label className="form-check-row">
                   <input
@@ -1734,13 +2143,7 @@ export default function NhapLieuPage({
         </DraggableFormPanel>
       )}
 
-      <div
-        className="nhaplieu-resizer"
-        onMouseDown={onResizeStart}
-        title="Kéo đổi độ rộng form"
-        role="separator"
-        aria-orientation="vertical"
-      />
+      <SidebarResizer onMouseDown={onResizeStart} />
 
       <main className="nhaplieu-review-pane">
         <NhatKyReview
@@ -1749,6 +2152,9 @@ export default function NhapLieuPage({
           draftItem={draftItem}
           dayMeta={dayMeta}
           alwaysShow
+          signTuanDuong={signNames.tuanDuong}
+          signHatTruong={signNames.hatTruong}
+          signHatRole={resolveHatSignRoleLabel(signNames.hatRole)}
           onItemFieldChange={readOnly ? undefined : updateItemField}
           onDraftFieldChange={
             readOnly
@@ -1764,6 +2170,7 @@ export default function NhapLieuPage({
               openForm(sectionTitle, globalIndex);
             }
           }}
+          onGptcEntryOpen={onOpenGptcDetail}
         />
       </main>
     </div>

@@ -1,4 +1,6 @@
 import { formatDisplayDate } from "../utils/nhatKyFormat";
+import { formatKmCell } from "../utils/matDuongFormat";
+import { resolveHanhLangKmTo } from "../utils/hanhLangFormat";
 
 const SIDE_OPTIONS = [
   { value: "P", label: "P — Phải" },
@@ -19,6 +21,15 @@ function formatArea(length, width) {
 export default function HanhLangEntryForm({ form, onChange, date }) {
   const syncedDate = formatDisplayDate(date);
   const area = formatArea(form.length, form.width);
+  const kmToDisplay =
+    formatKmCell(resolveHanhLangKmTo(form.kmFrom, form.length)) || "";
+
+  function blurKmFrom(e) {
+    const formatted = formatKmCell(e.target.value);
+    if (formatted && formatted !== e.target.value) {
+      onChange({ target: { name: "kmFrom", value: formatted } });
+    }
+  }
 
   return (
     <div className="entry-form">
@@ -50,9 +61,10 @@ export default function HanhLangEntryForm({ form, onChange, date }) {
             <input
               id="hl-entry-kmFrom"
               name="kmFrom"
-              placeholder="372+400"
+              placeholder="Km365+100"
               value={form.kmFrom}
               onChange={onChange}
+              onBlur={blurKmFrom}
               className="sidebar-input"
             />
           </div>
@@ -63,10 +75,10 @@ export default function HanhLangEntryForm({ form, onChange, date }) {
             <input
               id="hl-entry-kmTo"
               name="kmTo"
-              placeholder="372+500"
-              value={form.kmTo}
-              onChange={onChange}
-              className="sidebar-input"
+              value={kmToDisplay}
+              readOnly
+              placeholder="Tự tính = đầu + dài"
+              className="sidebar-input sidebar-input-readonly"
             />
           </div>
           <div className="entry-form-field">

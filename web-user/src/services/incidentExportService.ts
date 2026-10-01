@@ -4,6 +4,7 @@ import {
   isBaoLuExport,
   sortIncidentsForExport,
 } from '@/lib/excelReportBuilder'
+import { downloadBlob } from '@/lib/downloadBlob'
 
 function isoToFileDate(iso?: string): string {
   if (!iso?.trim()) return ''
@@ -49,12 +50,8 @@ export async function exportIncidentsExcel(
   const blob = new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`
-  a.click()
-  URL.revokeObjectURL(url)
+  const name = filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`
+  await downloadBlob(blob, name)
 }
 
 export function exportIncidentsWordHtml(items: IncidentRecord[], filename: string) {
@@ -82,10 +79,6 @@ export function exportIncidentsWordHtml(items: IncidentRecord[], filename: strin
     </tr></thead><tbody>${rows}</tbody></table></body></html>`
 
   const blob = new Blob(['\ufeff', html], { type: 'application/msword' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename.endsWith('.doc') ? filename : `${filename}.doc`
-  a.click()
-  URL.revokeObjectURL(url)
+  const name = filename.endsWith('.doc') ? filename : `${filename}.doc`
+  void downloadBlob(blob, name)
 }

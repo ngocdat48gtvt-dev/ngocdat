@@ -2,14 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 import TngtSheet from "../components/TngtSheet";
 import TngtPrintPages from "../components/TngtPrintPages";
 import { ViMonthInput } from "../components/ViDateInput";
-import { loadStorage, formatYearMonthVN } from "../utils/nhatKyFormat";
+import { loadStorage, formatYearMonthVN, safeSetLocalStorage } from "../utils/nhatKyFormat";
 import { filterTngtEntries, packTngtPages } from "../utils/tngtFormat";
 import { printTngtPages } from "../utils/tngtPrint";
+import { exportTngtExcel } from "../utils/tngtExcel";
 import { getTngtColWidths } from "../hooks/useTngtColWidths";
 import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
 import { resolveReportMetaFromRoad } from "../utils/roadsCatalog";
+import RoutesViewSidebarControls from "../components/RoutesViewSidebarControls";
 
-const SIDEBAR_WIDTH = 280;
+import SidebarResizer from "../components/SidebarResizer";
+import { useResizableSidebar } from "../hooks/useResizableSidebar";
 const MARGIN_KEY = "tngt-print-margins-v1";
 const DEFAULT_MARGINS = { top: 8, right: 10, bottom: 8, left: 10 };
 
@@ -35,12 +38,14 @@ function loadMargins() {
 }
 
 export default function SoTngt({ onGoEdit, storageTick = 0, readOnly = false }) {
-  const { storageKey, activeRoad } = useRoadWorkspace();
+  const { storageKey, activeRoad, filterByRouteView } = useRoadWorkspace();
+  const { sidebarStyle, onResizeStart } = useResizableSidebar({ defaultWidth: 280 });
   const now = new Date();
   const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
   const [yearMonth, setYearMonth] = useState(defaultMonth);
   const [printOpen, setPrintOpen] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
   const [margins, setMargins] = useState(loadMargins);
   const [colWidths, setColWidths] = useState(getTngtColWidths);
 
@@ -52,14 +57,17 @@ export default function SoTngt({ onGoEdit, storageTick = 0, readOnly = false }) 
     () => resolveReportMetaFromRoad(savedMeta, activeRoad),
     [savedMeta, activeRoad]
   );
-  const data = filterTngtEntries(entries, yearMonth);
+  const data = useMemo(
+    () => filterByRouteView(filterTngtEntries(entries, yearMonth)),
+    [entries, yearMonth, filterByRouteView]
+  );
   const printPageCount = useMemo(
     () => packTngtPages(data, margins).length,
     [data, margins]
   );
 
   useEffect(() => {
-    localStorage.setItem(MARGIN_KEY, JSON.stringify(margins));
+    safeSetLocalStorage(MARGIN_KEY, margins);
   }, [margins]);
 
   useEffect(() => {
@@ -72,6 +80,25 @@ export default function SoTngt({ onGoEdit, storageTick = 0, readOnly = false }) 
     setYearMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
   }
 
+  async function runExportExcel() {
+    if (exportingExcel) return;
+    setExportingExcel(true);
+    try {
+      await exportTngtExcel({
+        yearMonth,
+        reportMeta,
+        entries: data,
+        margins,
+        widths: colWidths
+      });
+    } catch (error) {
+      console.error(error);
+      window.alert("Không xuất được Excel. Vui lòng thử lại.");
+    } finally {
+      setExportingExcel(false);
+    }
+  }
+
   return (
     <div
       className={`nhaplieu-workspace sonhatky-workspace${
@@ -80,11 +107,7 @@ export default function SoTngt({ onGoEdit, storageTick = 0, readOnly = false }) 
     >
       <aside
         className="nhaplieu-sidebar sonhatky-sidebar no-print"
-        style={{
-          width: SIDEBAR_WIDTH,
-          minWidth: SIDEBAR_WIDTH,
-          maxWidth: SIDEBAR_WIDTH
-        }}
+        style={sidebarStyle}
       >
         <div className="sidebar-sticky-head">
           <h2 className="sidebar-title">Sổ TNGT</h2>
@@ -137,6 +160,7 @@ export default function SoTngt({ onGoEdit, storageTick = 0, readOnly = false }) 
           >
             {printOpen ? "Đóng xem trước in" : "In sổ TNGT"}
           </button>
+          <RoutesViewSidebarControls />
         </div>
 
         {printOpen && (
@@ -153,6 +177,8 @@ export default function SoTngt({ onGoEdit, storageTick = 0, readOnly = false }) 
           </div>
         )}
       </aside>
+
+      <SidebarResizer onMouseDown={onResizeStart} />
 
       <main className="nhaplieu-review-pane">
         {!printOpen ? (
@@ -177,13 +203,23 @@ export default function SoTngt({ onGoEdit, storageTick = 0, readOnly = false }) 
                   </span>
                 </div>
               </div>
-              <button
-                type="button"
-                className="btn-primary btn-primary--compact print-toolbar-action"
-                onClick={() => printTngtPages(margins, colWidths)}
-              >
-                In tháng này
-              </button>
+              <div className="print-toolbar-actions">
+                <button
+                  type="button"
+                  className="btn-secondary btn-secondary--compact print-toolbar-action"
+                  disabled={exportingExcel}
+                  onClick={() => void runExportExcel()}
+                >
+                  {exportingExcel ? "Đang xuất…" : "Xuất Excel"}
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary btn-primary--compact print-toolbar-action"
+                  onClick={() => printTngtPages(margins, colWidths)}
+                >
+                  In tháng này
+                </button>
+              </div>
             </div>
             <TngtPrintPages
               yearMonth={yearMonth}

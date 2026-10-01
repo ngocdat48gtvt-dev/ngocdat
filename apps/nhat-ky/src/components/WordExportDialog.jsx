@@ -92,8 +92,13 @@ export default function WordExportDialog({ open, onClose, items, filters }) {
         window.alert(`Đã xuất Word, nhưng ${failed} ảnh không tải được.`);
       }
       onClose();
-    } catch {
-      window.alert("Không xuất được file Word.");
+    } catch (err) {
+      console.error("Xuất Word thất bại:", err);
+      window.alert(
+        err?.message
+          ? `Không xuất được file Word.\n${err.message}`
+          : "Không xuất được file Word."
+      );
     } finally {
       setExporting(false);
       setProgress(null);
@@ -155,6 +160,7 @@ export default function WordExportDialog({ open, onClose, items, filters }) {
           </div>
           <p className="section-guide">
             {finalList.length} sự cố sẽ được ghép · mỗi sự cố 1 trang (ảnh hiện trạng | sau xử lý).
+            Chưa chọn ảnh trong chi tiết → mặc định ảnh đầu mỗi bên.
           </p>
           {progress && (
             <p className="hientruong-import-msg">

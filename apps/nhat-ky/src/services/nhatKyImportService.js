@@ -15,33 +15,47 @@ function cacheImportMapLocally(storageKey, importMap) {
   );
 }
 
-/** Firestore là nguồn chính; localStorage là cache offline. */
-export async function loadImportMap(uid, storageKey) {
-  const localMap = loadStorage(storageKey).importMap || {};
+function mapsEqual(a, b) {
+  const ak = Object.keys(a || {});
+  const bk = Object.keys(b || {});
+  if (ak.length !== bk.length) return false;
+  return ak.every((k) => JSON.stringify(a[k]) === JSON.stringify(b[k]));
+}
 
-  if (!uid) return localMap;
+/**
+ * Firestore là nguồn chính; khi local đã gỡ id (xoá dòng NK) thì không để remote đè lại.
+ * Đồng thời reconcile theo entries của sổ đang mở.
+ */
+export async function loadImportMap(uid, storageKey) {
+  const stored = loadStorage(storageKey);
+  const localMap = stored.importMap || {};
+  const entries = stored.entries || [];
+
+  if (!uid) {
+    return reconcileImportMap(entries, localMap, storageKey);
+  }
 
   try {
-    const remoteMap = await fetchImportMapFromFirestore(uid);
-    if (remoteMap !== null) {
-      if (Object.keys(remoteMap).length > 0 || Object.keys(localMap).length === 0) {
-        cacheImportMapLocally(storageKey, remoteMap);
-        return remoteMap;
+    const remoteMap = (await fetchImportMapFromFirestore(uid)) || {};
+    const merged = { ...remoteMap, ...localMap };
+    const reconciled = reconcileImportMap(entries, merged, storageKey);
+
+    cacheImportMapLocally(storageKey, reconciled);
+
+    // Local/entries đã bỏ id mà remote vẫn còn → đẩy lại cloud (tránh tick bị khóa)
+    if (!mapsEqual(reconciled, remoteMap)) {
+      try {
+        await saveImportMapToFirestore(uid, reconciled);
+      } catch (err) {
+        console.warn("Không đồng bộ importMap đã reconcile lên Firestore.", err);
       }
     }
+
+    return reconciled;
   } catch (err) {
     console.warn("Không đọc được importMap từ Firestore, dùng bản local.", err);
+    return reconcileImportMap(entries, localMap, storageKey);
   }
-
-  if (Object.keys(localMap).length > 0) {
-    try {
-      await saveImportMapToFirestore(uid, localMap);
-    } catch (err) {
-      console.warn("Không đẩy importMap local lên Firestore.", err);
-    }
-  }
-
-  return localMap;
 }
 
 export async function persistImportMap(uid, storageKey, importMap) {
@@ -53,9 +67,23 @@ export async function persistImportMap(uid, storageKey, importMap) {
   return map;
 }
 
+/**
+ * Sau khi lưu/xoá NK: gộp map remote + local, gỡ id không còn trên sổ này, ghi Firestore.
+ */
 export async function persistImportMapFromEntries(uid, storageKey, entries) {
   const current = loadStorage(storageKey);
-  const reconciled = reconcileImportMap(entries, current.importMap);
+  let base = { ...(current.importMap || {}) };
+
+  if (uid) {
+    try {
+      const remoteMap = (await fetchImportMapFromFirestore(uid)) || {};
+      base = { ...remoteMap, ...base };
+    } catch (err) {
+      console.warn("Không đọc importMap remote trước khi persist.", err);
+    }
+  }
+
+  const reconciled = reconcileImportMap(entries, base, storageKey);
   return persistImportMap(uid, storageKey, reconciled);
 }
 

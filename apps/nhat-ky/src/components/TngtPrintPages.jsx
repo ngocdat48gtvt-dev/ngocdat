@@ -1,19 +1,26 @@
-import { useMemo } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   entryToTngtRow,
   formatMonthTitle,
   formatTngtKmLine,
-  computeTngtPadRows,
   packTngtPages,
-  estimateTngtDataRowMm
+  computeTngtPadRows,
+  estimateTngtDataRowMm,
+  TNGT_SHEET_LAYOUT
 } from "../utils/tngtFormat";
 import {
   TNGT_COLS,
   getTngtColWidths,
   sumTngtCols
 } from "../hooks/useTngtColWidths";
+import {
+  useOrderedEntriesByRoute,
+  useRouteDisplayBlocks
+} from "../hooks/useRouteDisplayBlocks";
+import { blocksForPackedEntries } from "../utils/roadsCatalog";
 import TngtTableHead from "./TngtTableHead";
 import NhatKyMarginGuides from "./NhatKyMarginGuides";
+import RouteHeaderRow from "./RouteHeaderRow";
 
 function emptyRows(count, rowHeightMm) {
   if (count <= 0) return null;
@@ -29,16 +36,22 @@ function emptyRows(count, rowHeightMm) {
   ));
 }
 
-function DataRows({ entries, sttOffset }) {
-  return entries.map((entry, idx) => {
-    const r = entryToTngtRow(entry, sttOffset + idx);
-    const h = estimateTngtDataRowMm(entry);
+function BlockRows({ blocks }) {
+  return (blocks || []).map((block) => {
+    if (block.kind === "routeHeader") {
+      return (
+        <RouteHeaderRow
+          key={block.key}
+          heading={block.heading}
+          colSpan={TNGT_COLS.length}
+        />
+      );
+    }
+    const r = entryToTngtRow(block.entry, Math.max(0, (block.stt || 1) - 1));
+    r.tt = block.stt;
+    const h = estimateTngtDataRowMm(block.entry);
     return (
-      <tr
-        key={`${entry.date}-${entry.kmFrom}-${sttOffset + idx}`}
-        className="tngt-data-row"
-        style={{ height: `${h}mm` }}
-      >
+      <tr key={block.key} className="tngt-data-row" style={{ height: `${h}mm` }}>
         <td className="tngt-col-tt">{r.tt}</td>
         <td>{r.location}</td>
         <td className="tngt-col-date">{r.occurDate}</td>
@@ -61,18 +74,23 @@ function DataRows({ entries, sttOffset }) {
 function TngtPrintPage({
   yearMonth,
   reportMeta,
+  blocks,
   entries,
-  sttOffset,
   margins,
   widths,
   showGuides,
   onMarginsChange,
+  onRowOverflow,
   pageIndex,
   pageCount
 }) {
+  const pageRef = useRef(null);
   const total = sumTngtCols(widths) || 1;
-  const { count: padCount, rowHeightMm } = computeTngtPadRows(entries, margins);
   const kmLine = formatTngtKmLine(reportMeta);
+  const { count: padCount, rowHeightMm } = useMemo(
+    () => computeTngtPadRows(entries, margins),
+    [entries, margins]
+  );
   const pad = {
     paddingTop: `${margins.top}mm`,
     paddingRight: `${margins.right}mm`,
@@ -80,8 +98,33 @@ function TngtPrintPage({
     paddingLeft: `${margins.left}mm`
   };
 
+  useLayoutEffect(() => {
+    const page = pageRef.current;
+    const dataRows = page?.querySelectorAll(
+      "tbody tr.tngt-data-row:not(.tngt-data-row--empty)"
+    );
+    const lastRow = dataRows?.[dataRows.length - 1];
+    const lastEntry = entries?.[entries.length - 1];
+    if (!page || !lastRow || !lastEntry) return;
+
+    const pageRect = page.getBoundingClientRect();
+    const pxPerMm = pageRect.height / TNGT_SHEET_LAYOUT.sheetHeightMm;
+    const bottomLimit =
+      pageRect.bottom -
+      ((Number(margins.bottom) || 0) + TNGT_SHEET_LAYOUT.safetyMm) * pxPerMm;
+
+    if (lastRow.getBoundingClientRect().bottom > bottomLimit + 0.5) {
+      onRowOverflow?.(pageIndex, lastEntry);
+    }
+  }, [entries, margins.bottom, onRowOverflow, pageIndex, widths]);
+
   return (
-    <section className="tngt-print-page landscape-print-page" style={pad} data-print-page={pageIndex + 1}>
+    <section
+      ref={pageRef}
+      className="tngt-print-page landscape-print-page"
+      style={pad}
+      data-print-page={pageIndex + 1}
+    >
       {showGuides && onMarginsChange ? (
         <NhatKyMarginGuides
           margins={margins}
@@ -111,7 +154,7 @@ function TngtPrintPage({
             <TngtTableHead />
           </thead>
           <tbody>
-            <DataRows entries={entries} sttOffset={sttOffset} />
+            <BlockRows blocks={blocks} />
             {emptyRows(padCount, rowHeightMm)}
           </tbody>
         </table>
@@ -120,7 +163,7 @@ function TngtPrintPage({
   );
 }
 
-/** Xem trước / in sổ TNGT — A4 ngang, chia tờ + kéo lề như sổ mặt đường. */
+/** Xem trước / in sổ TNGT — A4 ngang; gộp đường thì tách tiêu đề nhánh. */
 export default function TngtPrintPages({
   yearMonth,
   reportMeta,
@@ -130,30 +173,57 @@ export default function TngtPrintPages({
   widths: widthsProp
 }) {
   const widths = widthsProp || getTngtColWidths();
-  const chunks = useMemo(() => packTngtPages(entries, margins), [entries, margins]);
+  const allBlocks = useRouteDisplayBlocks(entries, "Tai nạn khác");
+  const ordered = useOrderedEntriesByRoute(entries, "Tai nạn khác");
+  const estimatedChunks = useMemo(
+    () => packTngtPages(ordered, margins),
+    [ordered, margins]
+  );
+  const [chunks, setChunks] = useState(estimatedChunks);
 
-  let sttOffset = 0;
+  useLayoutEffect(() => {
+    setChunks(estimatedChunks);
+  }, [estimatedChunks]);
+
+  const moveOverflowRow = useCallback((pageIndex, expectedLastEntry) => {
+    setChunks((current) => {
+      const source = current[pageIndex];
+      if (
+        !source ||
+        source.length <= 1 ||
+        source[source.length - 1] !== expectedLastEntry
+      ) {
+        return current;
+      }
+      const next = current.map((chunk) => [...chunk]);
+      const moved = next[pageIndex].pop();
+      if (next[pageIndex + 1]) next[pageIndex + 1].unshift(moved);
+      else next.push([moved]);
+      return next;
+    });
+  }, []);
+
   return (
-    <div className="tngt-print-stack tngt-print-stack--preview landscape-print-stack--preview" data-page-count={chunks.length}>
-      {chunks.map((chunk, i) => {
-        const offset = sttOffset;
-        sttOffset += chunk.length;
-        return (
-          <TngtPrintPage
-            key={`tngt-p${i}`}
-            yearMonth={yearMonth}
-            reportMeta={reportMeta}
-            entries={chunk}
-            sttOffset={offset}
-            margins={margins}
-            widths={widths}
-            showGuides={i === 0}
-            onMarginsChange={onMarginsChange}
-            pageIndex={i}
-            pageCount={chunks.length}
-          />
-        );
-      })}
+    <div
+      className="tngt-print-stack tngt-print-stack--preview landscape-print-stack--preview"
+      data-page-count={chunks.length}
+    >
+      {chunks.map((chunk, i) => (
+        <TngtPrintPage
+          key={`tngt-p${i}`}
+          yearMonth={yearMonth}
+          reportMeta={reportMeta}
+          blocks={blocksForPackedEntries(allBlocks, chunk)}
+          entries={chunk}
+          margins={margins}
+          widths={widths}
+          showGuides={i === 0}
+          onMarginsChange={onMarginsChange}
+          onRowOverflow={moveOverflowRow}
+          pageIndex={i}
+          pageCount={chunks.length}
+        />
+      ))}
     </div>
   );
 }

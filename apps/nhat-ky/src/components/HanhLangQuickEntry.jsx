@@ -1,17 +1,21 @@
 import { useMemo } from "react";
 import { formatDisplayDate } from "../utils/nhatKyFormat";
+import { formatKmCell } from "../utils/matDuongFormat";
 import {
   buildHanhLangEntriesFromRows,
-  makeEmptyHanhLangRows
+  makeEmptyHanhLangRows,
+  resolveHanhLangKmTo
 } from "../utils/hanhLangFormat";
+import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
+import { findRoute } from "../utils/roadsCatalog";
+import HanhLangAutoTextarea from "./HanhLangAutoTextarea";
 
 const SIDE_OPTIONS = ["", "T", "P", "M", "C"];
 
 const COLS = [
-  { key: "date", label: "Ngày", width: 84 },
-  { key: "time", label: "Giờ", width: 58 },
-  { key: "kmFrom", label: "Lý trình đầu", width: 86 },
-  { key: "kmTo", label: "Lý trình cuối", width: 86 },
+  { key: "date", label: "Ngày", width: 108 },
+  { key: "kmFrom", label: "Lý trình đầu", width: 108 },
+  { key: "kmTo", label: "Lý trình cuối", width: 108 },
   { key: "side", label: "Phía", width: 52 },
   { key: "hlRecorder", label: "Người lập biên bản", width: 130 },
   { key: "hlViolator", label: "Tổ chức / cá nhân vi phạm", width: 150 },
@@ -21,7 +25,7 @@ const COLS = [
   { key: "width", label: "Rộng (m)", width: 56 },
   { key: "area", label: "Diện tích (m²)", width: 76 },
   { key: "resolved", label: "Đã xử lý · theo dõi", width: 180 },
-  { key: "hlNote", label: "Ghi chú", width: 120 },
+  { key: "hlNote", label: "Ghi chú", width: 72 },
   { key: "exportHanhLang", label: "Xuất sổ hành lang", width: 90 }
 ];
 
@@ -48,6 +52,9 @@ function formatArea(length, width) {
 
 /** Bảng nhập nhanh hành lang ATGT — nhập nhiều dòng, dùng chung nhật ký + sổ theo dõi. */
 export default function HanhLangQuickEntry({ date, rows, onRowsChange, onImport }) {
+  const { routes, activeRouteId, catalogRoad } = useRoadWorkspace();
+  const activeRoute = findRoute(catalogRoad, activeRouteId) || routes?.[0] || null;
+
   const displayDate = formatDisplayDate(date);
   const validCount = useMemo(() => rows.filter(rowHasData).length, [rows]);
   const editCount = useMemo(
@@ -60,15 +67,29 @@ export default function HanhLangQuickEntry({ date, rows, onRowsChange, onImport 
   }
 
   function addEmptyRows() {
-    onRowsChange([...rows, ...makeEmptyHanhLangRows(3)]);
+    const extras = makeEmptyHanhLangRows(3).map((r) => ({
+      ...r,
+      routeId: activeRoute?.id || "",
+      roadName: activeRoute?.roadName || ""
+    }));
+    onRowsChange([...rows, ...extras]);
   }
 
   function clearGrid() {
-    onRowsChange(makeEmptyHanhLangRows(6));
+    onRowsChange(
+      makeEmptyHanhLangRows(6).map((r) => ({
+        ...r,
+        routeId: activeRoute?.id || "",
+        roadName: activeRoute?.roadName || ""
+      }))
+    );
   }
 
   function handleImport() {
-    const { entries, errors } = buildHanhLangEntriesFromRows(rows, date);
+    const { entries, errors } = buildHanhLangEntriesFromRows(rows, date, {
+      routeId: activeRoute?.id || "",
+      roadName: activeRoute?.roadName || ""
+    });
     onImport(entries, errors);
   }
 
@@ -84,8 +105,8 @@ export default function HanhLangQuickEntry({ date, rows, onRowsChange, onImport 
           {validCount === 0
             ? "Thêm vào nhật ký"
             : editCount > 0
-            ? `Lưu ${validCount} dòng (${editCount} sửa)`
-            : `Thêm ${validCount} dòng vào nhật ký`}
+              ? `Lưu ${validCount} dòng (${editCount} sửa)`
+              : `Thêm ${validCount} dòng vào nhật ký`}
         </button>
         <button type="button" className="btn-secondary btn-secondary--compact" onClick={addEmptyRows}>
           + 3 dòng
@@ -98,7 +119,7 @@ export default function HanhLangQuickEntry({ date, rows, onRowsChange, onImport 
       <p className="section-guide section-guide--compact matduong-quick-hint">
         Ghi 1 hay nhiều vi phạm — tự dùng cho cả nhật ký tuần đường và sổ theo dõi hành
         lang. Bấm vi phạm ở danh sách bên trái để nạp dòng <strong>✎ sửa</strong>. Ngày:{" "}
-        {displayDate || "—"}.
+        {displayDate || "—"}. Đường/nhánh lấy theo ô <strong>Đường đang nhập</strong> phía trên.
       </p>
 
       <div className="matduong-quick-sheet-scroll">
@@ -137,27 +158,19 @@ export default function HanhLangQuickEntry({ date, rows, onRowsChange, onImport 
                   </td>
                   <td>
                     <input
-                      value={row.time || ""}
-                      onChange={(e) => updateRow(idx, "time", e.target.value)}
-                      className="matduong-excel-cell"
-                      aria-label={`Giờ dòng ${idx + 1}`}
-                    />
-                  </td>
-                  <td>
-                    <input
                       value={row.kmFrom || ""}
                       onChange={(e) => updateRow(idx, "kmFrom", e.target.value)}
+                      onBlur={(e) => {
+                        const formatted = formatKmCell(e.target.value);
+                        if (formatted) updateRow(idx, "kmFrom", formatted);
+                      }}
                       className="matduong-excel-cell"
                       aria-label={`Lý trình đầu dòng ${idx + 1}`}
+                      placeholder="Km0+000"
                     />
                   </td>
-                  <td>
-                    <input
-                      value={row.kmTo || ""}
-                      onChange={(e) => updateRow(idx, "kmTo", e.target.value)}
-                      className="matduong-excel-cell"
-                      aria-label={`Lý trình cuối dòng ${idx + 1}`}
-                    />
+                  <td className="matduong-cell-readonly">
+                    {formatKmCell(resolveHanhLangKmTo(row.kmFrom, row.length)) || ""}
                   </td>
                   <td>
                     <select
@@ -168,41 +181,41 @@ export default function HanhLangQuickEntry({ date, rows, onRowsChange, onImport 
                     >
                       {SIDE_OPTIONS.map((v) => (
                         <option key={v || "default"} value={v}>
-                          {v || "—"}
+                          {v || ""}
                         </option>
                       ))}
                     </select>
                   </td>
                   <td>
-                    <input
+                    <HanhLangAutoTextarea
+                      variant="excel"
                       value={row.hlRecorder || ""}
                       onChange={(e) => updateRow(idx, "hlRecorder", e.target.value)}
-                      className="matduong-excel-cell"
-                      aria-label={`Người lập biên bản dòng ${idx + 1}`}
+                      ariaLabel={`Người lập biên bản dòng ${idx + 1}`}
                     />
                   </td>
                   <td>
-                    <input
+                    <HanhLangAutoTextarea
+                      variant="excel"
                       value={row.hlViolator || ""}
                       onChange={(e) => updateRow(idx, "hlViolator", e.target.value)}
-                      className="matduong-excel-cell"
-                      aria-label={`Tổ chức / cá nhân vi phạm dòng ${idx + 1}`}
+                      ariaLabel={`Tổ chức / cá nhân vi phạm dòng ${idx + 1}`}
                     />
                   </td>
                   <td>
-                    <input
+                    <HanhLangAutoTextarea
+                      variant="excel"
                       value={row.hlAddress || ""}
                       onChange={(e) => updateRow(idx, "hlAddress", e.target.value)}
-                      className="matduong-excel-cell"
-                      aria-label={`Địa chỉ dòng ${idx + 1}`}
+                      ariaLabel={`Địa chỉ dòng ${idx + 1}`}
                     />
                   </td>
                   <td>
-                    <input
+                    <HanhLangAutoTextarea
+                      variant="excel"
                       value={row.content || ""}
                       onChange={(e) => updateRow(idx, "content", e.target.value)}
-                      className="matduong-excel-cell"
-                      aria-label={`Nội dung vi phạm dòng ${idx + 1}`}
+                      ariaLabel={`Nội dung vi phạm dòng ${idx + 1}`}
                     />
                   </td>
                   <td>
@@ -225,19 +238,19 @@ export default function HanhLangQuickEntry({ date, rows, onRowsChange, onImport 
                     {formatArea(row.length, row.width)}
                   </td>
                   <td>
-                    <input
+                    <HanhLangAutoTextarea
+                      variant="excel"
                       value={row.resolved || ""}
                       onChange={(e) => updateRow(idx, "resolved", e.target.value)}
-                      className="matduong-excel-cell"
-                      aria-label={`Đã xử lý dòng ${idx + 1}`}
+                      ariaLabel={`Đã xử lý dòng ${idx + 1}`}
                     />
                   </td>
                   <td>
-                    <input
+                    <HanhLangAutoTextarea
+                      variant="excel"
                       value={row.hlNote || ""}
                       onChange={(e) => updateRow(idx, "hlNote", e.target.value)}
-                      className="matduong-excel-cell"
-                      aria-label={`Ghi chú dòng ${idx + 1}`}
+                      ariaLabel={`Ghi chú dòng ${idx + 1}`}
                     />
                   </td>
                   <td className="matduong-col-export">

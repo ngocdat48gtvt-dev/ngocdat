@@ -1,4 +1,4 @@
-﻿import {
+import {
   AlignmentType,
   BorderStyle,
   Document,
@@ -16,6 +16,7 @@
 } from 'docx'
 import type { IncidentRecord } from '@/types/incident'
 import { reportImageSlotsForExport } from '@/lib/incidentUtils'
+import { resolveDisplayImageUrl } from '@/services/imageUrlService'
 import { formatKmDisplay } from '@quanlysuco/shared'
 
 const FONT = 'Times New Roman'
@@ -95,7 +96,12 @@ async function fetchImageBlob(url: string): Promise<Blob | null> {
 async function prepareImage(url: string): Promise<PreparedImage | null> {
   let objectUrl: string | null = null
   try {
-    const blob = await fetchImageBlob(url)
+    const resolved = await resolveDisplayImageUrl(url)
+    let blob = resolved.url ? await fetchImageBlob(resolved.url) : null
+    if (!blob) {
+      const refreshed = await resolveDisplayImageUrl(url, { forceRefresh: true })
+      if (refreshed.url) blob = await fetchImageBlob(refreshed.url)
+    }
     if (!blob) return null
     objectUrl = URL.createObjectURL(blob)
     const img = await loadImage(objectUrl)

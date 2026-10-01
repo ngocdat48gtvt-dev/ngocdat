@@ -5,9 +5,13 @@ import {
   loadStorage,
   saveReportMeta
 } from "../utils/nhatKyFormat";
+import { fetchOfficeBookAsStorage } from "../services/officeBooksService";
+import { overlayRemoteDaysInMemory } from "../utils/officeBooksLocal";
+import { addDays, BAO_DUONG_MAX_DAYS } from "../utils/baoDuongFormat";
 import { resolveReportMetaFromRoad } from "../utils/roadsCatalog";
 import {
   BAO_DUONG_GROUPS,
+  BAO_DUONG_QUALITY_EVENT,
   getMaintenanceWorksByGroup,
   getUnitForMaintenanceWork,
   resolveMaintenanceWorkLabel
@@ -27,7 +31,8 @@ import StatsResultTable from "../components/StatsResultTable";
 import AtgtDiaryStatsTable from "../components/AtgtDiaryStatsTable";
 import VolumeDetailFormModal from "../components/VolumeDetailFormModal";
 
-const SIDEBAR_WIDTH = 560;
+import SidebarResizer from "../components/SidebarResizer";
+import { useResizableSidebar } from "../hooks/useResizableSidebar";
 
 function StatusBadge({ row }) {
   if (row.status === "ok") {
@@ -47,7 +52,8 @@ function StatusBadge({ row }) {
 }
 
 export default function ThongKeKhoiLuong({ storageTick = 0, readOnly = false }) {
-  const { storageKey, activeRoad } = useRoadWorkspace();
+  const { storageKey, activeRoad, ownerUid, activeRoadId, offlineMode } = useRoadWorkspace();
+  const { sidebarStyle, onResizeStart } = useResizableSidebar({ defaultWidth: 560, max: 720 });
   const defaults = defaultDateRange();
   const [dateFrom, setDateFrom] = useState(defaults.dateFrom);
   const [dateTo, setDateTo] = useState(defaults.dateTo);
@@ -61,11 +67,62 @@ export default function ThongKeKhoiLuong({ storageTick = 0, readOnly = false }) 
   const [detailSource, setDetailSource] = useState("bdtx"); // bdtx | atgt
   const [mainTab, setMainTab] = useState("bdtx"); // bdtx | atgt
   const [saveMessage, setSaveMessage] = useState("");
+  const [catalogTick, setCatalogTick] = useState(0);
+
+  useEffect(() => {
+    const onCatalog = () => setCatalogTick((n) => n + 1);
+    window.addEventListener(BAO_DUONG_QUALITY_EVENT, onCatalog);
+    return () => window.removeEventListener(BAO_DUONG_QUALITY_EVENT, onCatalog);
+  }, []);
 
   const stored = useMemo(
     () => loadStorage(storageKey),
     [storageKey, storageTick]
   );
+  const [rangeEntries, setRangeEntries] = useState(null);
+  const [rangeLoading, setRangeLoading] = useState(false);
+
+  useEffect(() => {
+    setRangeEntries(null);
+    if (!ownerUid || !activeRoadId || offlineMode || !dateFrom || !dateTo || dateFrom > dateTo) {
+      setRangeLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setRangeLoading(true);
+    const timer = setTimeout(() => {
+      const from = addDays(dateFrom, -BAO_DUONG_MAX_DAYS);
+      fetchOfficeBookAsStorage(ownerUid, activeRoadId, { dateFrom: from, dateTo })
+        .then((remote) => {
+          if (cancelled) return;
+          const overlaid = overlayRemoteDaysInMemory(stored.entries, stored.dayMeta, remote);
+          setRangeEntries(overlaid.entries);
+        })
+        .catch((err) => {
+          console.warn("Không tải đủ sổ để thống kê khối lượng.", err);
+          if (!cancelled) setRangeEntries(null);
+        })
+        .finally(() => {
+          if (!cancelled) setRangeLoading(false);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [
+    ownerUid,
+    activeRoadId,
+    offlineMode,
+    dateFrom,
+    dateTo,
+    storageKey,
+    storageTick,
+    stored.entries,
+    stored.dayMeta
+  ]);
+
+  const sourceEntries = rangeEntries || stored.entries;
 
   const [contractVolumes, setContractVolumes] = useState([]);
 
@@ -91,22 +148,22 @@ export default function ThongKeKhoiLuong({ storageTick = 0, readOnly = false }) 
 
   const stats = useMemo(
     () =>
-      buildVolumeStats(stored.entries, contractVolumes, {
+      buildVolumeStats(sourceEntries, contractVolumes, {
         dateFrom,
         dateTo,
         sectionFilter
       }),
-    [stored.entries, contractVolumes, dateFrom, dateTo, sectionFilter]
+    [sourceEntries, contractVolumes, dateFrom, dateTo, sectionFilter, catalogTick]
   );
 
   const atgtStats = useMemo(
     () =>
-      buildAtgtDiaryVolumeStats(stored.entries, {
+      buildAtgtDiaryVolumeStats(sourceEntries, {
         dateFrom,
         dateTo,
         kindFilter: atgtKindFilter
       }),
-    [stored.entries, dateFrom, dateTo, atgtKindFilter]
+    [sourceEntries, dateFrom, dateTo, atgtKindFilter]
   );
 
   useEffect(() => {
@@ -227,11 +284,7 @@ export default function ThongKeKhoiLuong({ storageTick = 0, readOnly = false }) 
     <div className="stats-page">
       <aside
         className="stats-sidebar stats-sidebar--contract"
-        style={{
-          width: SIDEBAR_WIDTH,
-          minWidth: SIDEBAR_WIDTH,
-          maxWidth: SIDEBAR_WIDTH
-        }}
+        style={sidebarStyle}
       >
         <div className="stats-contract-block stats-contract-block--solo">
           <div className="stats-contract-head">
@@ -290,6 +343,8 @@ export default function ThongKeKhoiLuong({ storageTick = 0, readOnly = false }) 
             ))}
         </datalist>
       </aside>
+
+      <SidebarResizer onMouseDown={onResizeStart} />
 
       <main className="stats-main">
         <div className="stats-toolbar">
@@ -381,6 +436,7 @@ export default function ThongKeKhoiLuong({ storageTick = 0, readOnly = false }) 
           <div className="stats-tab-panel" role="tabpanel">
             <p className="stats-tab-hint">
               Khối lượng thực hiện theo sổ bảo dưỡng (ngày dự kiến sửa).
+              {rangeLoading ? " Đang tải đủ ngày trên sổ…" : ""}
             </p>
             <div className="stats-summary stats-summary--compact">
               <div className="stats-summary-card">

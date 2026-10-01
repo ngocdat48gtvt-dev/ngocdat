@@ -46,6 +46,7 @@ export function normalizePermit(permit, index = 0) {
     id: permit?.id || nextId("gptc_p"),
     stt: permit?.stt ?? "",
     tenCongTrinh: strField(permit?.tenCongTrinh),
+    tenCongTrinhBm02: strField(permit?.tenCongTrinhBm02),
     soNgayCapPhep: strField(permit?.soNgayCapPhep),
     ngayBanGiao: strField(permit?.ngayBanGiao),
     donViDuocCap: strField(permit?.donViDuocCap),
@@ -57,15 +58,46 @@ export function normalizePermit(permit, index = 0) {
   };
 }
 
+function uniqueIdList(ids) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of ids || []) {
+    const id = String(raw || "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
 export function normalizeLedger(raw) {
   const base = { ...EMPTY_GPTC_LEDGER, ...(raw || {}) };
-  const permits = reindexPermits((base.permits || []).map((p, i) => normalizePermit(p, i)));
+  const deletedPermitIds = uniqueIdList(base.deletedPermitIds);
+  const deletedEntryIds = uniqueIdList(base.deletedEntryIds);
+  const deletedPermits = new Set(deletedPermitIds);
+  const deletedEntries = new Set(deletedEntryIds);
+  const permits = reindexPermits(
+    (base.permits || [])
+      .filter((p) => !deletedPermits.has(String(p?.id || "").trim()))
+      .map((p, i) => {
+        const next = normalizePermit(p, i);
+        return {
+          ...next,
+          entries: (next.entries || []).filter(
+            (e) => !deletedEntries.has(String(e?.id || "").trim())
+          )
+        };
+      })
+  );
   return {
     year: String(base.year || new Date().getFullYear()),
     tenTuyen: String(base.tenTuyen || "").trim(),
     summaryColWidths: normalizeSummaryColWidths(base.summaryColWidths),
     detailColWidths: normalizeDetailColWidths(base.detailColWidths),
-    permits
+    permits,
+    deletedPermitIds,
+    deletedEntryIds,
+    updatedAt: Number(base.updatedAt) || 0
   };
 }
 
@@ -103,6 +135,45 @@ export function makeEmptyPermit() {
 
 export function makeEmptyEntry() {
   return normalizeEntry({ ...EMPTY_PERMIT_ENTRY });
+}
+
+/** Tiêu đề BM02 = tên công trình (cột 2 BM01). */
+export function permitBm02Title(permit) {
+  return String(permit?.tenCongTrinhBm02 || permit?.tenCongTrinh || "").trim();
+}
+
+/** Xóa công trình khỏi BM01/BM02 và ghi tombstone để merge không kéo lại. */
+export function markPermitDeleted(ledger, permitId, extraEntryIds = []) {
+  const id = String(permitId || "").trim();
+  const permit = (ledger?.permits || []).find((p) => String(p?.id || "") === id);
+  const entryIds = [
+    ...(Array.isArray(extraEntryIds) ? extraEntryIds : []),
+    ...((permit?.entries || []).map((e) => e?.id))
+  ];
+  return normalizeLedger({
+    ...(ledger || {}),
+    permits: (ledger?.permits || []).filter((p) => String(p?.id || "") !== id),
+    deletedPermitIds: [...(ledger?.deletedPermitIds || []), id],
+    deletedEntryIds: [...(ledger?.deletedEntryIds || []), ...entryIds]
+  });
+}
+
+/** Xóa một dòng theo dõi BM02 và ghi tombstone. */
+export function markEntryDeleted(ledger, permitId, entryId) {
+  const pid = String(permitId || "").trim();
+  const eid = String(entryId || "").trim();
+  return normalizeLedger({
+    ...(ledger || {}),
+    permits: (ledger?.permits || []).map((p) =>
+      String(p?.id || "") !== pid
+        ? p
+        : {
+            ...p,
+            entries: (p.entries || []).filter((e) => String(e?.id || "") !== eid)
+          }
+    ),
+    deletedEntryIds: [...(ledger?.deletedEntryIds || []), eid]
+  });
 }
 
 /** STT chỉ đánh cho dòng đã nhập liệu; dòng trống để trống. */

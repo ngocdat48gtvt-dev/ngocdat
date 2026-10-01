@@ -18,6 +18,7 @@ import {
 } from "./tngtFormat";
 import { migrateHanhLangFields } from "./hanhLangFormat";
 import { notifyOfficeBooksLocalChange } from "./officeBooksSyncBus";
+import { dedupeDiaryEntriesByFingerprint } from "./officeBooksConflictMerge";
 
 export { formatEntryVolumeLine };
 
@@ -80,7 +81,22 @@ export function kmToMeters(kmValue) {
 }
 
 export function entryIncidentType(entry) {
-  return entry?.sourceIncidentType?.trim() || entry?.type?.trim() || "";
+  return resolveNenDuongDiaryType(entry);
+}
+
+/**
+ * Bản ghi cũ import bão lũ từng gộp nhầm «Sa bồi…» → «Sụt lún».
+ * Khôi phục loại đúng từ sourceIncidentType khi sửa / hiển thị.
+ */
+export function resolveNenDuongDiaryType(entry) {
+  const type = String(entry?.type || "").trim();
+  const source = String(entry?.sourceIncidentType || "").trim();
+  if (entry?.section === "Nền đường" && type === "Sụt lún" && /^sa\s*bồi/i.test(source)) {
+    const nenTypes = SECTIONS.find((s) => s.title === "Nền đường")?.types || [];
+    const found = nenTypes.find((t) => t.toLowerCase() === source.toLowerCase());
+    return found || source;
+  }
+  return type || source;
 }
 
 export function compareEntriesByTypeAndKm(a, b) {
@@ -145,6 +161,14 @@ export function formatDateTimeCol(isoDate, time) {
   const d = formatDisplayDate(isoDate);
   if (time) return `${time} — ${d}`;
   return d;
+}
+
+/** Mã nhánh trong ngoặc cuối tên đường: «QL.6C (TL-CN)» → «TL-CN». */
+export function extractBranchParenCode(roadName) {
+  const raw = String(roadName || "").trim();
+  if (!raw) return "";
+  const m = raw.match(/\(([^)]+)\)\s*$/);
+  return m ? String(m[1] || "").trim() : "";
 }
 
 /** Cột 2: Vị trí, lý trình */
@@ -278,6 +302,17 @@ export const TEMP_OPTIONS = [
 ];
 
 export const HANH_LANG_SECTION = "Vi phạm hành lang ATGT";
+export const HANH_LANG_SECTION_LEGACY = "Hành lang ATGT";
+
+export function isHanhLangSectionTitle(section) {
+  const s = String(section || "").trim();
+  if (!s) return false;
+  return (
+    s === HANH_LANG_SECTION ||
+    s === HANH_LANG_SECTION_LEGACY ||
+    /hành lang/i.test(s)
+  );
+}
 
 /** Phần II — hạng mục ghi chép chuẩn (thứ tự theo TT.41 / QL37) */
 export const SECTIONS = [
@@ -339,6 +374,7 @@ export const SECTIONS = [
     part: "I",
     num: 7,
     key: "cot_moc",
+    hidden: true,
     title: "Cột mốc GP mặt bằng, lộ giới",
     guide:
       "Ghi các cột bị mất, gãy đổ và các hư hỏng khác của cột mốc giải phóng mặt bằng, mốc đất đường bộ, cột mốc lộ giới hành lang an toàn (nếu có).",
@@ -346,7 +382,7 @@ export const SECTIONS = [
   },
   {
     part: "I",
-    num: 8,
+    num: 7,
     key: "he_thong_atgt",
     title: "Công trình an toàn giao thông",
     guide:
@@ -355,7 +391,7 @@ export const SECTIONS = [
   },
   {
     part: "I",
-    num: 9,
+    num: 8,
     key: "tai_nan",
     title: "Tai nạn giao thông",
     guide:
@@ -366,13 +402,14 @@ export const SECTIONS = [
     part: "I",
     num: 10,
     key: "phat_cay",
+    hidden: true,
     title: "Công tác phát cây",
     guide: "Cây cỏ che khuất cột Km, cọc tiêu, đầu cầu, cống, lòng sông.",
     types: ["Cây cỏ ven đường", "Che biển báo", "Che cọc tiêu", "Che cột Km", "Che đầu cầu", "Che đầu cống", "Che gương cầu lồi", "Che tầm nhìn", "Cây đổ", "Cành cây nguy hiểm"]
   },
   {
     part: "II",
-    num: 11,
+    num: 9,
     key: "cau",
     title: "Công trình cầu",
     guide:
@@ -381,12 +418,14 @@ export const SECTIONS = [
   }
 ];
 
+export const VISIBLE_SECTIONS = SECTIONS.filter((s) => !s.hidden);
+
 export const PART_LABELS = {
   I: "I. Về đường",
   II: "II. Công trình cầu"
 };
 
-/** Nhãn hạng mục trên sổ / preview / sidebar: 1 … 11. */
+/** Nhãn hạng mục trên sổ / preview / sidebar: 1 … 9. */
 export function formatSectionHeading(section) {
   if (!section) return "";
   if (section.num === "" || section.num == null) return section.title;
@@ -398,6 +437,13 @@ export function formatSectionPartPrefix(section) {
   if (!section) return "";
   if (section.num === "" || section.num == null) return "";
   return String(section.num);
+}
+
+/** Bỏ nhãn «Công trình:» khi đưa diễn biến BM02 sang cột nhật ký. */
+export function stripGptcBm02Label(text) {
+  return String(text || "")
+    .replace(/^\s*công\s*trình\s*:\s*/i, "")
+    .trim();
 }
 
 export const OFFICIAL_HEADERS = {
@@ -414,39 +460,79 @@ export function getStorageKey(uid) {
   return uid ? `nhatky_${uid}` : "nhatky";
 }
 
-export function loadStorage(storageKey = "nhatky") {
-  const raw = localStorage.getItem(storageKey);
-  if (!raw) {
-    return {
-      entries: [],
-      dayMeta: {},
-      reportMeta: { ...EMPTY_REPORT_META },
-      importMap: {}
-    };
+export function hasStorage(key) {
+  if (!key) return false;
+  try {
+    return localStorage.getItem(key) != null;
+  } catch {
+    return false;
   }
+}
+
+/**
+ * Xóa cache sổ/marker khác để nhường chỗ cho sổ đang mở.
+ * @param {string} keepKey
+ * @param {string[]} [extraKeep]
+ */
+export function freeLocalStorageQuota(keepKey = "", extraKeep = []) {
+  const keep = new Set(
+    [keepKey, ...(Array.isArray(extraKeep) ? extraKeep : [])]
+      .map((k) => String(k || "").trim())
+      .filter(Boolean)
+  );
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (key) keys.push(key);
+  }
+  keys.forEach((key) => {
+    if (keep.has(key)) return;
+    const drop =
+      key.startsWith("nhatky_") ||
+      key.startsWith("nhatky_office_sync") ||
+      key.startsWith("nhatky_office_full_sync") ||
+      key.startsWith("gptc_") ||
+      key.startsWith("demxe_") ||
+      key.startsWith("dem_xe_") ||
+      key.startsWith("cau_") ||
+      key.startsWith("cong_");
+    if (!drop) return;
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
+export function loadStorage(storageKey = "nhatky", options = {}) {
+  const includeDeleted = options?.includeDeleted === true;
+  const empty = {
+    entries: [],
+    dayMeta: {},
+    reportMeta: { ...EMPTY_REPORT_META },
+    importMap: {}
+  };
+  const raw = localStorage.getItem(storageKey);
+  if (!raw) return empty;
   try {
     const parsed = JSON.parse(raw);
+    const list = Array.isArray(parsed) ? parsed : parsed.entries || [];
+    let entries = dedupeDiaryEntriesByFingerprint(
+      sortAllEntryDates(list.map(migrateEntry))
+    );
+    if (!includeDeleted) entries = entries.filter((e) => !e?.deletedAt);
     if (Array.isArray(parsed)) {
-    return {
-      entries: sortAllEntryDates(parsed.map(migrateEntry)),
-        dayMeta: {},
-        reportMeta: { ...EMPTY_REPORT_META },
-        importMap: {}
-      };
+      return { ...empty, entries };
     }
     return {
-      entries: sortAllEntryDates((parsed.entries || []).map(migrateEntry)),
+      entries,
       dayMeta: parsed.dayMeta || {},
       reportMeta: { ...EMPTY_REPORT_META, ...(parsed.reportMeta || {}) },
       importMap: parsed.importMap && typeof parsed.importMap === "object" ? parsed.importMap : {}
     };
   } catch {
-    return {
-      entries: [],
-      dayMeta: {},
-      reportMeta: { ...EMPTY_REPORT_META },
-      importMap: {}
-    };
+    return empty;
   }
 }
 
@@ -465,25 +551,55 @@ export function reconcileImportMap(entries, importMap) {
   return next;
 }
 
-export function saveStorage(entries, dayMeta, reportMeta, storageKey = "nhatky", options = {}) {
-  const current = loadStorage(storageKey);
-  const importMap = reconcileImportMap(entries, current.importMap);
-  localStorage.setItem(
-    storageKey,
-    JSON.stringify({
-      entries: sortAllEntryDates(entries.map(migrateEntry)),
-      dayMeta,
-      reportMeta: reportMeta ?? current.reportMeta,
-      importMap
-    })
-  );
-  if (!options.silent) {
-    notifyOfficeBooksLocalChange(storageKey);
+function isQuotaError(err) {
+  const name = String(err?.name || "");
+  const code = err?.code;
+  return name === "QuotaExceededError" || name === "NS_ERROR_DOM_QUOTA_REACHED" || code === 22 || code === 1014;
+}
+
+/** Ghi localStorage: bỏ qua nếu trùng. Hết chỗ thì dọn cache sổ khác rồi ghi lại một lần. */
+export function safeSetLocalStorage(key, value) {
+  const next = typeof value === "string" ? value : JSON.stringify(value);
+  const write = () => {
+    if (localStorage.getItem(key) === next) return true;
+    localStorage.setItem(key, next);
+    return true;
+  };
+  try {
+    return write();
+  } catch (err) {
+    if (!isQuotaError(err)) return false;
+    try {
+      freeLocalStorageQuota(key);
+      return write();
+    } catch {
+      return false;
+    }
   }
 }
 
-export function saveReportMeta(reportMeta, storageKey = "nhatky") {
+export function saveStorage(entries, dayMeta, reportMeta, storageKey = "nhatky", options = {}) {
   const current = loadStorage(storageKey);
+  const importMap = reconcileImportMap(entries, current.importMap);
+  const payload = {
+    entries: sortAllEntryDates(entries.map(migrateEntry)),
+    dayMeta,
+    reportMeta: reportMeta ?? current.reportMeta,
+    importMap
+  };
+  const ok = safeSetLocalStorage(storageKey, payload);
+  if (!ok) {
+    console.warn("Không ghi được sổ vào localStorage (quota đầy):", storageKey);
+    return false;
+  }
+  if (!options.silent) {
+    notifyOfficeBooksLocalChange(storageKey);
+  }
+  return true;
+}
+
+export function saveReportMeta(reportMeta, storageKey = "nhatky") {
+  const current = loadStorage(storageKey, { includeDeleted: true });
   saveStorage(current.entries, current.dayMeta, reportMeta, storageKey);
 }
 
@@ -515,6 +631,34 @@ function resolveSectionTitle(section, entry) {
     return byType || alias || "Công trình cầu";
   }
   return alias || section;
+}
+
+/** Hạng mục cho phép để trống phía (T/P): hành lang, cầu, ATGT, cống… */
+export function allowsEmptyDiarySide(section) {
+  const s = String(section || "").trim();
+  if (!s) return false;
+  if (isHanhLangSectionTitle(s)) return true;
+  if (
+    s === "Công trình cầu" ||
+    s === "Công trình an toàn giao thông" ||
+    s === "Tai nạn giao thông" ||
+    s === "Công tác phát cây" ||
+    s === "Cột mốc GP mặt bằng, lộ giới" ||
+    s === "Cống, rãnh thoát nước"
+  ) {
+    return true;
+  }
+  return /cầu|cống|atgt|hành lang|tai nạn|phát cây|cột mốc/i.test(s);
+}
+
+/** Bản ghi cống (không phải rãnh) — lý trình không kèm phía. */
+export function isCulvertDiaryEntry(entry) {
+  if (!entry) return false;
+  if (String(entry.congId || entry.assetId || "").trim()) return true;
+  const type = String(entry.type || "").trim();
+  if (!type) return false;
+  if (/rãnh/i.test(type) && !/cống/i.test(type)) return false;
+  return /cống|hố ga|tấm đan|song chắn rác/i.test(type);
 }
 
 /** Dòng bão lũ / sổ trực ĐBGT — ý kiến chỉ đạo thuộc cột 5 (leaderNote), không phải cột 4. */

@@ -36,6 +36,11 @@ ${landscapePageShellCss(margins)}
   line-height: 1.4;
 }
 .hanh-lang-head-line { margin: 0 0 1px; }
+.hanh-lang-head-line--company {
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+}
 .hanh-lang-motto {
   text-decoration: underline;
   text-underline-offset: 4px;

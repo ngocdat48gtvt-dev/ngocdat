@@ -1,14 +1,19 @@
-import ExcelJS from 'exceljs'
+import ExcelJSImport from 'exceljs'
 
 import {
   isSaBoiCungType,
   resolveSoilPercent,
 } from "../utils/incidentUtils";
 
+/** Vite / CJS interop — tránh `ExcelJS.Workbook` undefined. */
+const ExcelJS = ExcelJSImport?.default ?? ExcelJSImport;
+
 /** Khớp ExcelExporter.kt — nhóm Bão lũ: biểu PHỤ LỤC 11 cột. */
 export const BAO_LU_GROUP = 'Bão lũ'
 
 const KM_NUM_FMT = '"Km"0"+"000'
+/** Thập phân số (Excel locale VI sẽ hiện dấu phẩy). */
+const DEC_NUM_FMT = '0.00'
 
 const ROMAN = [
   '',
@@ -141,7 +146,7 @@ function createSheetStyles() {
     total: {
       font: font13Bold,
       alignment: { horizontal: 'center', vertical: 'middle' },
-      numFmt: '0.00',
+      numFmt: DEC_NUM_FMT,
       border,
     },
     center: {
@@ -158,7 +163,7 @@ function createSheetStyles() {
     number: {
       font: font13,
       alignment: { horizontal: 'center', vertical: 'middle' },
-      numFmt: '0.00',
+      numFmt: DEC_NUM_FMT,
       border,
     },
     note: {
@@ -335,7 +340,7 @@ async function buildBaoLuWorkbook(items) {
   const caoCol = 'G'
 
   const styles = createSheetStyles()
-  const wb = new Object()
+  const wb = new ExcelJS.Workbook()
   const sheet = wb.addWorksheet('BaoCao', {
     views: [{ state: 'frozen', ySplit: 4, activeCell: 'A5' }],
   })
@@ -467,7 +472,7 @@ async function buildStandardWorkbook(items) {
   const noteIdx = lastCol
 
   const styles = createSheetStyles()
-  const wb = new Object()
+  const wb = new ExcelJS.Workbook()
   const sheet = wb.addWorksheet('BaoCao', {
     views: [{ state: 'frozen', ySplit: 2, activeCell: 'A3' }],
   })

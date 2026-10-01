@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   formatMonthTitle,
@@ -10,6 +10,9 @@ import {
   TRAFFIC_DUTY_COLS,
   useTrafficDutyColWidths
 } from "../hooks/useTrafficDutyColWidths";
+import { useRouteViewCtx } from "../hooks/useRouteDisplayBlocks";
+import { buildRouteDisplayBlocks } from "../utils/roadsCatalog";
+import RouteHeaderRow from "./RouteHeaderRow";
 
 const MIN_ROWS = 12;
 
@@ -41,8 +44,20 @@ function ResizableTh({ colKey, children, onResizeStart, rowSpan, colSpan }) {
 
 function fitTextarea(el) {
   if (!el) return;
-  el.style.height = "0px";
-  el.style.height = `${Math.max(el.scrollHeight, 20)}px`;
+  const tr = el.closest("tr");
+  const areas = tr
+    ? Array.from(tr.querySelectorAll("textarea.traffic-duty-cell-input"))
+    : [el];
+  areas.forEach((a) => {
+    a.style.height = "0px";
+  });
+  let max = 22;
+  areas.forEach((a) => {
+    max = Math.max(max, a.scrollHeight || 0);
+  });
+  areas.forEach((a) => {
+    a.style.height = `${max}px`;
+  });
 }
 
 function EditableCell({ value, placeholder, onChange, onContextMenu }) {
@@ -162,7 +177,7 @@ export default function TrafficDutySheet({
     };
   }, [ctxMenu]);
 
-  function openCellMenu(e, liveValue, { entry, globalIndex }, col) {
+  function openCellMenu(e, liveValue, { entry, globalIndex, sourceIndex }, col) {
     if (!editable) return;
 
     const sameDayCount = rowItems.filter((item) => item.entry.date === entry.date).length;
@@ -176,6 +191,7 @@ export default function TrafficDutySheet({
       x: e.clientX,
       y: e.clientY,
       globalIndex,
+      sourceIndex: sourceIndex ?? -1,
       field: col.field,
       value: cellValue,
       date: entry.date,
@@ -186,11 +202,31 @@ export default function TrafficDutySheet({
     });
   }
 
-  const rows = rowItems.map(({ entry, globalIndex }, idx) => {
+  const viewCtx = useRouteViewCtx();
+  const blocks = useMemo(
+    () =>
+      buildRouteDisplayBlocks(rowItems || [], viewCtx.road, viewCtx, {
+        orphanLabel: "Thiệt hại khác",
+        getEntry: (item) => item.entry
+      }),
+    [rowItems, viewCtx]
+  );
+
+  const rows = blocks.map((block) => {
+    if (block.kind === "routeHeader") {
+      return (
+        <RouteHeaderRow
+          key={block.key}
+          heading={block.heading}
+          colSpan={TRAFFIC_DUTY_COLS.length}
+        />
+      );
+    }
+    const { entry, globalIndex, sourceIndex = -1 } = block.item;
     const r = entryToTrafficDutyRow(entry, dayMetaMap, reportMeta);
 
     return (
-      <tr key={`${entry.date}-${entry.kmFrom}-${idx}`} className="traffic-duty-data-row">
+      <tr key={block.key} className="traffic-duty-data-row">
         <td>{r.dutyDate}</td>
         <td className="traffic-duty-col-readonly">{r.weather}</td>
         <td className="traffic-duty-col-damage">{r.damageContent}</td>
@@ -210,16 +246,18 @@ export default function TrafficDutySheet({
               const input = e.currentTarget.querySelector("textarea");
               if (!input) return;
               e.preventDefault();
-              openCellMenu(e, input.value, { entry, globalIndex }, col);
+              openCellMenu(e, input.value, { entry, globalIndex, sourceIndex }, col);
             }}
           >
             {editable ? (
               <EditableCell
                 value={getTrafficDutyCellValue(entry, col.field, dayMetaMap, reportMeta)}
-                placeholder={col.field === "cause" ? "Tự suy nếu trống" : ""}
-                onChange={(value) => onCellChange(globalIndex, col.field, value)}
+                placeholder=""
+                onChange={(value) =>
+                  onCellChange(globalIndex, col.field, value, sourceIndex)
+                }
                 onContextMenu={(e, liveValue) =>
-                  openCellMenu(e, liveValue, { entry, globalIndex }, col)
+                  openCellMenu(e, liveValue, { entry, globalIndex, sourceIndex }, col)
                 }
               />
             ) : (
@@ -231,7 +269,8 @@ export default function TrafficDutySheet({
     );
   });
 
-  const padCount = Math.max(0, MIN_ROWS - rows.length);
+  const entryCount = blocks.filter((b) => b.kind === "entry").length;
+  const padCount = Math.max(0, MIN_ROWS - entryCount);
 
   return (
     <div className="traffic-duty-sheet-wrap">
@@ -321,7 +360,9 @@ export default function TrafficDutySheet({
 
       <CellContextMenu
         menu={ctxMenu}
-        onApply={(menu) => onApplySameDay?.(menu.globalIndex, menu.field, menu.value)}
+        onApply={(menu) =>
+          onApplySameDay?.(menu.globalIndex, menu.field, menu.value, menu.sourceIndex)
+        }
         onClose={() => setCtxMenu(null)}
       />
     </div>

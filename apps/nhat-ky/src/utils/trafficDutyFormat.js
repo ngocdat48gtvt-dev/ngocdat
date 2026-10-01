@@ -8,8 +8,26 @@ import {
   kmToMeters
 } from "./nhatKyFormat";
 import { normalizeGroupKey } from "./incidentImport";
+import { expandEntriesForVolumeBooks } from "./mergeDiaryEntries";
+import { formatBookKmTitleLine } from "./roadsCatalog";
+import { formatBookDecimal } from "./bookNumberFormat";
 
 export const NEN_DUONG_SECTION = "Nền đường";
+export const MAT_DUONG_SECTION = "Mặt đường";
+export const LE_DUONG_SECTION = "Lề đường";
+export const THOAT_NUOC_SECTION = "Cống, rãnh thoát nước";
+
+/** Hạng mục có cột tick «Bão lũ» → xuất sổ trực ĐBGT. */
+export const BAO_LU_TICK_SECTIONS = new Set([
+  NEN_DUONG_SECTION,
+  MAT_DUONG_SECTION,
+  LE_DUONG_SECTION,
+  THOAT_NUOC_SECTION
+]);
+
+export function isBaoLuTickSection(section) {
+  return BAO_LU_TICK_SECTIONS.has(String(section || "").trim());
+}
 
 const BAO_LU_KEYS = new Set(["bão lũ", "bao lu"].map(normalizeGroupKey));
 
@@ -34,10 +52,11 @@ function isBaoLuSource(entry) {
 
 export function shouldExportTrafficDuty(entry) {
   const e = migrateEntry(entry);
-  if (e.section !== NEN_DUONG_SECTION) return false;
+  if (!isBaoLuTickSection(e.section)) return false;
   if (e.exportTrafficDuty === false) return false;
   if (e.exportTrafficDuty === true) return true;
-  return isBaoLuSource(e);
+  // Legacy: nhóm bão lũ app → tự xuất khi thuộc Nền đường.
+  return e.section === NEN_DUONG_SECTION && isBaoLuSource(e);
 }
 
 export function defaultExportTrafficDuty(entry) {
@@ -46,7 +65,8 @@ export function defaultExportTrafficDuty(entry) {
 
 export function filterTrafficDutyEntries(entries, yearMonth) {
   const prefix = `${yearMonth}-`;
-  return entries
+  // Gộp chỉ trên sổ tuần đường — sổ bão lũ tách từng vị trí.
+  return expandEntriesForVolumeBooks(entries || [])
     .map(migrateEntry)
     .filter((e) => shouldExportTrafficDuty(e) && String(e.date || "").startsWith(prefix))
     .sort((a, b) => {
@@ -74,9 +94,7 @@ function formatSideLabel(side) {
 }
 
 function formatNum(value) {
-  const n = Number(value);
-  if (!n && n !== 0) return "";
-  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+  return formatBookDecimal(value);
 }
 
 /** Thời tiết từ nhật ký tuần đường — chỉ hiện tình trạng, không kèm nhiệt độ. */
@@ -112,10 +130,10 @@ export function inferTrafficCause(entry, dayMeta) {
 }
 
 function formatReportRecipient(entry, dayMeta, reportMeta) {
+  if (dayMeta?.leaderSign?.trim()) return dayMeta.leaderSign.trim();
   if (reportMeta?.trafficDutyLeaderSign?.trim()) {
     return reportMeta.trafficDutyLeaderSign.trim();
   }
-  if (dayMeta?.leaderSign?.trim()) return dayMeta.leaderSign.trim();
   return "";
 }
 
@@ -215,8 +233,12 @@ export function entryToTrafficDutyRow(entry, dayMetaMap, reportMeta) {
     height: formatNum(e.height),
     quantity: formatNum(e.quantity),
     cause: inferTrafficCause(e, dayMeta),
-    // Người trực / thời gian thông xe: chỉ lấy giá trị nhập tay trên sổ
-    dutyPerson: looksLikeEmail(e.dutyPerson) ? "" : e.dutyPerson?.trim() || "",
+    // Người trực: nhập tay trên dòng, hoặc tên chung từ sidebar (reportMeta)
+    dutyPerson: (() => {
+      const own = looksLikeEmail(e.dutyPerson) ? "" : e.dutyPerson?.trim() || "";
+      if (own) return own;
+      return String(reportMeta?.trafficDutyPerson || "").trim();
+    })(),
     reportRecipient: formatReportRecipient(e, dayMeta, reportMeta),
     directives: formatDirectives(e, dayMeta),
     restoredAt: formatRestoredAt(e),
@@ -230,18 +252,9 @@ export function formatMonthTitle(yearMonth) {
   return `THÁNG ${String(m).padStart(2, "0")}/${y}`;
 }
 
-/** Dòng lý trình tiêu đề — VD: LÝ TRÌNH: KM357 - KM404/QL37 */
+/** Dòng lý trình tiêu đề sổ bão lũ. */
 export function formatTrafficDutyKmLine(reportMeta) {
-  const range = String(reportMeta?.kmRange || "")
-    .replace(/\bkm/gi, "KM")
-    .replace(/\s*-\s*/g, " - ")
-    .trim();
-  const road = String(reportMeta?.roadName || "")
-    .replace(/\./g, "")
-    .trim();
-  if (!range && !road) return "LÝ TRÌNH:";
-  if (!road) return `LÝ TRÌNH: ${range}`;
-  return `LÝ TRÌNH: ${range}/${road}`;
+  return formatBookKmTitleLine(reportMeta);
 }
 
 const CELL_FIELD_MAP = {
@@ -253,18 +266,22 @@ const CELL_FIELD_MAP = {
 };
 
 /** Giá trị raw để nhập trực tiếp trên bảng. */
-export function getTrafficDutyCellValue(entry, field, dayMetaMap, reportMeta, applyAll) {
+export function getTrafficDutyCellValue(entry, field, dayMetaMap, reportMeta) {
   const e = migrateEntry(entry);
   const dayMeta = getDayMeta(dayMetaMap || {}, e.date);
-  const all = applyAll || {};
 
   switch (field) {
-    case "dutyPerson":
-      if (all.dutyPerson) return reportMeta?.trafficDutyPerson || "";
-      return looksLikeEmail(e.dutyPerson) ? "" : e.dutyPerson || "";
-    case "reportRecipient":
-      if (all.reportRecipient) return reportMeta?.trafficDutyLeaderSign || "";
-      return dayMeta?.leaderSign?.trim() || reportMeta?.trafficDutyLeaderSign || "";
+    case "dutyPerson": {
+      const own = looksLikeEmail(e.dutyPerson) ? "" : e.dutyPerson;
+      if (typeof own === "string" && own.length) return own;
+      return reportMeta?.trafficDutyPerson || "";
+    }
+    case "reportRecipient": {
+      // Không .trim() khi đang nhập — nếu trim sẽ mất dấu cách giữa các từ
+      const day = dayMeta?.leaderSign;
+      if (typeof day === "string") return day;
+      return reportMeta?.trafficDutyLeaderSign || "";
+    }
     case "cause":
       return e.trafficCause || "";
     case "directives":

@@ -13,7 +13,7 @@ function showBootError(message: string) {
     <div style="font-family:system-ui,sans-serif;max-width:520px;margin:3rem auto;padding:1.5rem;line-height:1.6;color:#111">
       <h1 style="font-size:1.25rem;margin:0 0 1rem">Không khởi động được cổng điều hành</h1>
       <p>${message}</p>
-      <p style="margin-top:1rem"><a href="/san-pham.html">← Về trang sản phẩm</a></p>
+      <p style="margin-top:1rem"><a href="/quan-ly-duong-bo.html">← Về trung tâm quản lý đường bộ</a></p>
     </div>
   `
 }

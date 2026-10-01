@@ -1,10 +1,14 @@
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase/firebase";
 import { normalizeRoad } from "../utils/roadsCatalog";
 import { EMPTY_REPORT_META } from "../utils/nhatKyFormat";
 import { fetchOfficeBookMeta, pushOfficeBookMeta } from "./officeBooksService";
 
 const DOC_ID = "office_roads_catalog";
+
+function catalogRef(ownerUid) {
+  return doc(db, "users", ownerUid, "master_data", DOC_ID);
+}
 
 function normalizeCatalog(data) {
   const roads = Array.isArray(data?.roads) ? data.roads.map(normalizeRoad) : [];
@@ -35,22 +39,38 @@ async function syncRoadMetaToOfficeBook(ownerUid, road) {
 /** Danh sách hạt/sổ của USER — SSOT trên cloud, ADMIN quản lý. */
 export async function fetchOfficeRoadsCatalog(ownerUid) {
   if (!ownerUid) return { activeRoadId: "", roads: [] };
-  const snap = await getDoc(doc(db, "users", ownerUid, "master_data", DOC_ID));
+  const snap = await getDoc(catalogRef(ownerUid));
   if (!snap.exists()) return { activeRoadId: "", roads: [] };
   return normalizeCatalog(snap.data());
+}
+
+/** Lắng nghe danh mục sổ (USER nhận tên đường ADMIN vừa sửa). */
+export function subscribeOfficeRoadsCatalog(ownerUid, onUpdate, onError) {
+  if (!ownerUid) return () => {};
+  return onSnapshot(
+    catalogRef(ownerUid),
+    (snap) => {
+      onUpdate(
+        snap.exists()
+          ? normalizeCatalog(snap.data())
+          : { activeRoadId: "", roads: [] }
+      );
+    },
+    (err) => {
+      console.warn("Không đọc được office_roads_catalog từ cloud.", err);
+      onError?.(err);
+    }
+  );
 }
 
 export async function pushOfficeRoadsCatalog(ownerUid, catalog) {
   if (!ownerUid) return;
   const payload = normalizeCatalog(catalog);
-  await setDoc(
-    doc(db, "users", ownerUid, "master_data", DOC_ID),
-    {
-      ...payload,
-      updatedAt: serverTimestamp()
-    },
-    { merge: true }
-  );
+  // Thay toàn bộ document — tránh merge giữ routes/tên cũ.
+  await setDoc(catalogRef(ownerUid), {
+    ...payload,
+    updatedAt: serverTimestamp()
+  });
   return payload;
 }
 

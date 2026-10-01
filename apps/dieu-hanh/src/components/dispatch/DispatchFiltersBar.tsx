@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { Filter, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useDispatch } from '@/context/DispatchContext'
@@ -28,23 +28,30 @@ export function DispatchFiltersBar({ compact = false }: { compact?: boolean }) {
   const { items, filters, setFilters, filterUserOptions } = useDispatch()
 
   const roadOptions = useMemo(
-    () => [...new Set(items.map((i) => i.road).filter(Boolean))].sort() as string[],
-    [items],
+    () =>
+      [...new Set([...items.map((i) => i.road).filter(Boolean), ...filters.roads])].sort() as string[],
+    [items, filters.roads],
   )
   const groups = useMemo(
-    () => [...new Set(items.map((i) => i.groupName).filter(Boolean))].sort() as string[],
-    [items],
+    () =>
+      [
+        ...new Set([
+          ...items.map((i) => i.groupName).filter(Boolean),
+          ...(filters.groupName ? [filters.groupName] : []),
+        ]),
+      ].sort() as string[],
+    [items, filters.groupName],
   )
   const types = useMemo(() => {
     const src = filters.groupName
       ? items.filter((i) => i.groupName === filters.groupName)
       : items
-    return [...new Set(src.map((i) => i.type).filter(Boolean))].sort() as string[]
-  }, [items, filters.groupName])
+    return [...new Set([...src.map((i) => i.type).filter(Boolean), ...filters.types])].sort() as string[]
+  }, [items, filters.groupName, filters.types])
 
   const ownerUidOptions = useMemo(
-    () => filterUserOptions.map((u) => u.uid),
-    [filterUserOptions],
+    () => [...new Set([...filterUserOptions.map((u) => u.uid), ...filters.ownerUids])],
+    [filterUserOptions, filters.ownerUids],
   )
 
   const getOwnerLabel = useCallback(
@@ -52,27 +59,6 @@ export function DispatchFiltersBar({ compact = false }: { compact?: boolean }) {
       filterUserOptions.find((u) => u.uid === uid)?.displayName ?? uid,
     [filterUserOptions],
   )
-
-  useEffect(() => {
-    if (filters.roads.length === 0) return
-    const valid = filters.roads.filter((r) => roadOptions.includes(r))
-    if (valid.length === filters.roads.length) return
-    setFilters((f) => ({ ...f, roads: valid }))
-  }, [roadOptions, filters.roads, setFilters])
-
-  useEffect(() => {
-    if (filters.types.length === 0) return
-    const valid = filters.types.filter((t) => types.includes(t))
-    if (valid.length === filters.types.length) return
-    setFilters((f) => ({ ...f, types: valid }))
-  }, [types, filters.types, setFilters])
-
-  useEffect(() => {
-    if (filters.ownerUids.length === 0) return
-    const valid = filters.ownerUids.filter((uid) => ownerUidOptions.includes(uid))
-    if (valid.length === filters.ownerUids.length) return
-    setFilters((f) => ({ ...f, ownerUids: valid }))
-  }, [ownerUidOptions, filters.ownerUids, setFilters])
 
   const dossierRoundOptions = useMemo(() => {
     const rounds = new Set<number>()

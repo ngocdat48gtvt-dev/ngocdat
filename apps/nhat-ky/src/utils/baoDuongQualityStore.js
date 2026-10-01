@@ -6,6 +6,57 @@
 const STORAGE_KEY = "baoduong-quality-catalog-v1";
 export const BAO_DUONG_QUALITY_EVENT = "baoduong-quality-changed";
 
+/** Owner MASTER DATA (ADMIN uid) — tách local theo công ty, tránh USER/ADMIN ghi đè nhau trên cùng máy. */
+let activeCatalogOwnerUid = "";
+
+export function setQualityCatalogOwnerUid(uid) {
+  const next = String(uid || "").trim();
+  if (next === activeCatalogOwnerUid) return false;
+  activeCatalogOwnerUid = next;
+  cache = null;
+  return true;
+}
+
+export function resetQualityCatalogOwnerUid() {
+  if (!activeCatalogOwnerUid && !cache) return;
+  activeCatalogOwnerUid = "";
+  cache = null;
+}
+
+function storageKeyFor(uid = activeCatalogOwnerUid) {
+  const owner = String(uid || "").trim();
+  return owner ? `${STORAGE_KEY}__${owner}` : STORAGE_KEY;
+}
+
+function metaKeyFor(uid = activeCatalogOwnerUid) {
+  return `${storageKeyFor(uid)}__meta`;
+}
+
+function getLocalUpdatedAt() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(metaKeyFor()) || "{}");
+    const n = Number(raw?.updatedAt);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function setLocalUpdatedAt(ms) {
+  const n = Number(ms);
+  const updatedAt = Number.isFinite(n) && n > 0 ? n : Date.now();
+  try {
+    localStorage.setItem(metaKeyFor(), JSON.stringify({ updatedAt }));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Timestamp local — dùng khi quyết định đẩy lại cloud nếu máy đang mới hơn. */
+export function getQualityCatalogLocalUpdatedAt() {
+  return getLocalUpdatedAt();
+}
+
 /** Nhóm công việc — khớp các mục nhập liệu (hạng mục sổ tuần đường). */
 export const BAO_DUONG_GROUPS = [
   "Mặt đường",
@@ -15,9 +66,21 @@ export const BAO_DUONG_GROUPS = [
   "Ngầm, tràn (lũ, ngập)",
   "Cột mốc GP mặt bằng, lộ giới",
   "Công trình an toàn giao thông",
-  "Công tác phát cây",
   "Công trình cầu"
 ];
+
+/** Nhóm cũ → nhóm hiện tại (MASTER DATA / data_noi_nghiep). */
+const GROUP_ALIASES = {
+  "Công tác phát cây": "Nền đường",
+  "Phát cây": "Nền đường"
+};
+
+/** Chuẩn hoá tên nhóm (gộp phát cây → Nền đường). */
+export function normalizeBaoDuongGroup(group) {
+  const g = String(group || "").trim();
+  if (!g) return "";
+  return GROUP_ALIASES[g] || g;
+}
 
 /** Đơn vị tính cho phép (m, m², m³, đếm cái/cột/cây/tấm/vị trí, %). */
 export const BAO_DUONG_UNITS = [
@@ -31,6 +94,25 @@ export const BAO_DUONG_UNITS = [
   { value: "vị trí", label: "vị trí" },
   { value: "%", label: "%" }
 ];
+
+/** Chuẩn hoá giá trị đơn vị lưu sổ (m²→m2…). */
+export function normalizeUnitValue(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  const lower = s.toLowerCase();
+  if (s === "m²" || lower === "m2") return "m2";
+  if (s === "m³" || lower === "m3") return "m3";
+  if (lower === "m") return "m";
+  return s;
+}
+
+/** Nhãn hiển thị đơn vị (m2→m²). Ô trống → chuỗi rỗng (không hiện gạch —). */
+export function formatUnitLabel(unit) {
+  const value = normalizeUnitValue(unit);
+  if (!value) return "";
+  const found = BAO_DUONG_UNITS.find((u) => u.value === value);
+  return found?.label || value;
+}
 
 /** Mức ưu tiên xử lý. */
 export const PRIORITIES = [
@@ -118,10 +200,20 @@ const GROUP_DEFAULTS = {
     ["Sa bồi hố thu nước", "Nạo vét hố thu nước", "m3"],
     ["Sa bồi mặt đường", "Thu dọn sa bồi mặt đường", "m3"],
     ["Trôi nền đường", "Khôi phục nền đường", "m3"],
-    ["Ngập nền đường", "Khơi thông thoát nước nền đường", "m"]
+    ["Ngập nền đường", "Khơi thông thoát nước nền đường", "m"],
+    ["Cây cỏ ven đường", "Phát cây ven đường", "m2"],
+    ["Che biển báo", "Phát cây khu vực biển báo", "m2"],
+    ["Che cọc tiêu", "Phát cây khu vực cọc tiêu", "m2"],
+    ["Che cột Km", "Phát cây khu vực cột Km", "m2"],
+    ["Che đầu cầu", "Phát cây khu vực đầu cầu", "m2"],
+    ["Che đầu cống", "Phát cây khu vực đầu cống", "m2"],
+    ["Che gương cầu lồi", "Phát cây khu vực gương cầu", "m2"],
+    ["Che tầm nhìn", "Phát quang bảo đảm tầm nhìn", "m2"],
+    ["Cây đổ", "Cưa dọn cây đổ", "cây"],
+    ["Cành cây nguy hiểm", "Cắt tỉa cành cây", "cây"]
   ],
   "Lề đường": [
-    ["Lề cao", "Hạ lề đường", "m3"],
+    ["Lề cao", "Hạ lề đường", "m"],
     ["Lề thấp", "Đắp phụ lề", "m3"],
     ["Xói lở lề", "Đắp hoàn trả lề", "m3"],
     ["Sụt lề", "Gia cố lề đường", "m3"],
@@ -185,18 +277,6 @@ const GROUP_DEFAULTS = {
     ["Hỏng gương cầu lồi", "Thay gương cầu lồi", "cái"],
     ["Hỏng cột H", "Sửa chữa cột H", "cột"]
   ],
-  "Công tác phát cây": [
-    ["Cây cỏ ven đường", "Phát cây ven đường", "m2"],
-    ["Che biển báo", "Phát cây khu vực biển báo", "m2"],
-    ["Che cọc tiêu", "Phát cây khu vực cọc tiêu", "m2"],
-    ["Che cột Km", "Phát cây khu vực cột Km", "m2"],
-    ["Che đầu cầu", "Phát cây khu vực đầu cầu", "m2"],
-    ["Che đầu cống", "Phát cây khu vực đầu cống", "m2"],
-    ["Che gương cầu lồi", "Phát cây khu vực gương cầu", "m2"],
-    ["Che tầm nhìn", "Phát quang bảo đảm tầm nhìn", "m2"],
-    ["Cây đổ", "Cưa dọn cây đổ", "cây"],
-    ["Cành cây nguy hiểm", "Cắt tỉa cành cây", "cây"]
-  ],
   "Công trình cầu": [
     ["Hỏng khe co giãn", "Sửa chữa khe co giãn", "m"],
     ["Hỏng mặt cầu", "Sửa chữa mặt cầu", "m2"],
@@ -237,7 +317,7 @@ let cache = null;
 
 function normalizeEntry(value) {
   const entry = {
-    group: String(value?.group || "").trim(),
+    group: normalizeBaoDuongGroup(value?.group),
     unit: String(value?.unit || "").trim(),
     maintenanceName: String(value?.maintenanceName || "").trim(),
     method: String(value?.method || "").trim(),
@@ -271,13 +351,40 @@ function normalizeEntry(value) {
 
 function readStorage() {
   try {
-    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    const key = storageKeyFor();
+    let rawText = localStorage.getItem(key);
+    // Migrate key cũ (global) → key theo catalogOwnerUid (một lần).
+    if (!rawText && activeCatalogOwnerUid) {
+      const legacy = localStorage.getItem(STORAGE_KEY);
+      if (legacy) {
+        try {
+          localStorage.setItem(key, legacy);
+          localStorage.removeItem(STORAGE_KEY);
+          rawText = legacy;
+        } catch {
+          rawText = legacy;
+        }
+      }
+    }
+    const raw = rawText ? JSON.parse(rawText) : null;
     if (!raw || typeof raw !== "object") return {};
     const out = {};
-    for (const [key, val] of Object.entries(raw)) {
-      const k = String(key || "").trim();
+    let needsPersist = false;
+    for (const [keyName, val] of Object.entries(raw)) {
+      const k = String(keyName || "").trim();
       if (!k) continue;
-      out[k] = normalizeEntry(val);
+      const rawGroup = String(val?.group || "").trim();
+      const entry = normalizeEntry(val);
+      if (rawGroup && entry.group && rawGroup !== entry.group) needsPersist = true;
+      out[k] = entry;
+    }
+    // Ghi lại local khi còn nhóm cũ «Công tác phát cây» → «Nền đường».
+    if (needsPersist) {
+      try {
+        localStorage.setItem(key, JSON.stringify(out));
+      } catch {
+        /* ignore quota */
+      }
     }
     return out;
   } catch {
@@ -338,7 +445,11 @@ export function loadQualityCatalog() {
     const deadlineDays =
       val.deadlineDays ?? prev.deadlineDays ?? defaultDeadlineDays(key);
     merged[key] = {
-      group: val.group || prev.group || "",
+      group:
+        normalizeBaoDuongGroup(val.group) ||
+        normalizeBaoDuongGroup(prev.group) ||
+        DEFAULT_TYPE_GROUP[key] ||
+        "",
       unit: val.unit || prev.unit || DEFAULT_TYPE_UNIT[key] || "",
       maintenanceName:
         val.maintenanceName || prev.maintenanceName || DEFAULT_TYPE_MAINTENANCE[key] || "",
@@ -395,14 +506,67 @@ export function getQualityCatalogOverrides() {
 }
 
 /**
- * Áp danh mục từ cloud vào localStorage (giữ logic merge mặc định khi load).
- * Trả về true nếu có thay đổi.
+ * Snapshot danh mục builtin (GROUP_DEFAULTS) — dùng seed khi chưa có mẫu hệ thống.
+ * Không gồm tombstone isActive:false.
  */
-export function applyRemoteQualityCatalog(catalog) {
+export function buildBuiltinSeedCatalog() {
+  const out = {};
+  let order = 0;
+  for (const [key, val] of Object.entries(DEFAULT_QUALITY_CATALOG)) {
+    const deadlineDays = defaultDeadlineDays(key);
+    out[key] = {
+      group: DEFAULT_TYPE_GROUP[key] || "",
+      unit: DEFAULT_TYPE_UNIT[key] || "",
+      maintenanceName: DEFAULT_TYPE_MAINTENANCE[key] || "",
+      method: val.method || "",
+      result: val.result || "",
+      priority: priorityFromDeadline(deadlineDays),
+      deadlineDays,
+      isNeedMaintenance: defaultNeedMaintenance(key),
+      sortOrder: order++,
+      isActive: true
+    };
+  }
+  return out;
+}
+
+/**
+ * Catalog sạch để seed công ty mới: ưu tiên overrides local (đã sync),
+ * không thì snapshot builtin.
+ */
+export function getCatalogSnapshotForSeed() {
+  const overrides = buildCleanCatalog(readStorage());
+  const active = {};
+  for (const [key, val] of Object.entries(overrides)) {
+    if (val.isActive === false) continue;
+    active[key] = val;
+  }
+  if (Object.keys(active).length > 0) return active;
+  return buildBuiltinSeedCatalog();
+}
+
+/**
+ * Áp danh mục từ cloud vào localStorage.
+ * Cloud là SSOT khi có dữ liệu — không giữ local cũ chặn tên mới (USER cùng máy).
+ * Chỉ bỏ qua khi cloud trống mà local đang có dữ liệu.
+ */
+export function applyRemoteQualityCatalog(catalog, remoteUpdatedAtMs = 0) {
   const clean = buildCleanCatalog(catalog);
   const prev = readStorage();
-  if (JSON.stringify(prev) === JSON.stringify(clean)) return false;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
+  const remoteAt = Number(remoteUpdatedAtMs) || 0;
+  const cleanEmpty = Object.keys(clean).length === 0;
+  const prevEmpty = Object.keys(prev).length === 0;
+
+  if (cleanEmpty && !prevEmpty) {
+    return false;
+  }
+
+  if (JSON.stringify(prev) === JSON.stringify(clean)) {
+    if (remoteAt > 0) setLocalUpdatedAt(Math.max(getLocalUpdatedAt(), remoteAt));
+    return false;
+  }
+  localStorage.setItem(storageKeyFor(), JSON.stringify(clean));
+  setLocalUpdatedAt(remoteAt > 0 ? remoteAt : Date.now());
   cache = null;
   loadQualityCatalog();
   dispatchQualityChanged();
@@ -411,7 +575,8 @@ export function applyRemoteQualityCatalog(catalog) {
 
 export function saveQualityCatalog(catalog) {
   const clean = buildCleanCatalog(catalog);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
+  localStorage.setItem(storageKeyFor(), JSON.stringify(clean));
+  setLocalUpdatedAt(Date.now());
   cache = null;
   loadQualityCatalog();
   dispatchQualityChanged();
@@ -440,7 +605,15 @@ export function isQualityTypeHidden(type) {
 }
 
 export function resetQualityCatalog() {
-  localStorage.removeItem(STORAGE_KEY);
+  try {
+    localStorage.removeItem(storageKeyFor());
+    localStorage.removeItem(metaKeyFor());
+    // Xóa luôn key legacy nếu còn.
+    if (!activeCatalogOwnerUid) localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+  setLocalUpdatedAt(Date.now());
   cache = null;
   loadQualityCatalog();
   dispatchQualityChanged();
@@ -458,7 +631,7 @@ export function listQualityTypes() {
 
 export function getGroupForType(type) {
   const key = String(type || "").trim();
-  return loadQualityCatalog()[key]?.group || "";
+  return normalizeBaoDuongGroup(loadQualityCatalog()[key]?.group || "");
 }
 
 /** Đơn vị tính của một loại công việc (theo danh mục, fallback mặc định). */
@@ -468,11 +641,189 @@ export function getUnitForType(type) {
   return loadQualityCatalog()[key]?.unit || DEFAULT_TYPE_UNIT[key] || "";
 }
 
-/** Tên công việc bảo dưỡng (BDTX) tương ứng công việc tuần đường. */
+/** Alias loại tuần đường (master data / tên dài) → khóa danh mục. */
+const INSPECTION_TYPE_ALIASES = {
+  "Hư hỏng lớp móng mặt đường": "Hư hỏng lớp móng",
+  "Cỏ lề cao": "Cỏ mọc",
+  "Cỏ lề": "Cỏ mọc",
+  "Cỏ vai đường": "Cỏ mọc"
+};
+
+function normalizeTypeLookupKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function allInspectionTypeKeys() {
+  return new Set([
+    ...Object.keys(loadQualityCatalog()),
+    ...Object.keys(DEFAULT_TYPE_MAINTENANCE),
+    ...Object.keys(DEFAULT_QUALITY_CATALOG)
+  ]);
+}
+
+/** Đọc cột «Công việc BDTX» (maintenanceName) theo khóa loại tuần đường. */
+function maintenanceNameOfKey(catalogKey) {
+  return (
+    String(
+      loadQualityCatalog()[catalogKey]?.maintenanceName ||
+        DEFAULT_TYPE_MAINTENANCE[catalogKey] ||
+        ""
+    ).trim() || ""
+  );
+}
+
+function stripXuLyPrefix(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^xử\s*lý\s+/i, "")
+    .trim();
+}
+
+function lookupMaintenanceByNormalized(norm) {
+  if (!norm) return "";
+  for (const k of allInspectionTypeKeys()) {
+    if (normalizeTypeLookupKey(k) === norm) {
+      const name = maintenanceNameOfKey(k);
+      if (name) return name;
+    }
+    const alias = INSPECTION_TYPE_ALIASES[k];
+    if (alias && normalizeTypeLookupKey(alias) === norm) {
+      const name = maintenanceNameOfKey(alias);
+      if (name) return name;
+    }
+  }
+  for (const [from, to] of Object.entries(INSPECTION_TYPE_ALIASES)) {
+    if (normalizeTypeLookupKey(from) === norm) {
+      const name = maintenanceNameOfKey(to);
+      if (name) return name;
+    }
+  }
+  return "";
+}
+
+const TYPE_STOPWORDS = new Set([
+  "co",
+  "va",
+  "cua",
+  "trong",
+  "tren",
+  "la",
+  "duoc",
+  "chua",
+  "dam",
+  "bao",
+  "voi",
+  "cho",
+  "mot",
+  "cac",
+  "nay",
+  "khi",
+  "bi",
+  "ra",
+  "vao",
+  "tai",
+  "den",
+  "tu",
+  "nen",
+  "duong",
+  "mat",
+  "hang",
+  "muc"
+]);
+
+function significantTokens(norm) {
+  return String(norm || "")
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 2 && !TYPE_STOPWORDS.has(t));
+}
+
+/**
+ * Khớp loại tuần đường (tên dài / master data) với hàng danh mục:
+ * lấy cột Công việc BDTX của hàng khớp tốt nhất.
+ */
+function fuzzyCatalogMaintenanceName(norm) {
+  if (!norm || norm.length < 4) return "";
+  const typeTokens = significantTokens(norm);
+  if (!typeTokens.length) return "";
+  const typeSet = new Set(typeTokens);
+
+  let bestKey = "";
+  let bestScore = 0;
+  let bestLen = 0;
+
+  for (const k of allInspectionTypeKeys()) {
+    const kn = normalizeTypeLookupKey(k);
+    if (kn.length < 4) continue;
+    let score = 0;
+    if (kn === norm) {
+      score = kn.length + 40;
+    } else if (norm.includes(kn) || kn.includes(norm)) {
+      const keyTokens = significantTokens(kn);
+      const extra = typeTokens.filter((t) => !keyTokens.includes(t)).length;
+      if (extra > 1 && kn.length < 12) continue;
+      score = kn.length + 20;
+    } else {
+      const keyTokens = significantTokens(kn);
+      if (!keyTokens.length) continue;
+      const overlap = keyTokens.filter((t) => typeSet.has(t)).length;
+      const coverage = overlap / keyTokens.length;
+      if (keyTokens.length <= 2 && coverage < 1) continue;
+      if (keyTokens.length >= 3 && overlap < keyTokens.length) continue;
+      if (overlap < 3 && coverage < 0.85) continue;
+      score = overlap * 10 + coverage * 5;
+    }
+    if (score > bestScore || (score === bestScore && kn.length > bestLen)) {
+      bestScore = score;
+      bestLen = kn.length;
+      bestKey = k;
+    }
+  }
+  return bestKey ? maintenanceNameOfKey(bestKey) : "";
+}
+
+/** Tên công việc bảo dưỡng (BDTX) — đúng cột «Công việc BDTX» theo khóa loại tuần đường. */
 export function getMaintenanceNameForType(type) {
   const key = String(type || "").trim();
   if (!key) return "";
-  return loadQualityCatalog()[key]?.maintenanceName || DEFAULT_TYPE_MAINTENANCE[key] || "";
+
+  const variants = [key, stripXuLyPrefix(key)].filter(
+    (v, i, arr) => v && arr.indexOf(v) === i
+  );
+
+  for (const variant of variants) {
+    const direct = maintenanceNameOfKey(variant);
+    if (direct) return direct;
+
+    const alias = INSPECTION_TYPE_ALIASES[variant];
+    if (alias) {
+      const viaAlias = maintenanceNameOfKey(alias);
+      if (viaAlias) return viaAlias;
+    }
+
+    const byNorm = lookupMaintenanceByNormalized(normalizeTypeLookupKey(variant));
+    if (byNorm) return byNorm;
+  }
+
+  // Đã là giá trị cột Công việc BDTX → giữ nguyên (ô HĐ / combobox).
+  for (const variant of variants) {
+    const lower = normalizeTypeLookupKey(variant);
+    for (const k of allInspectionTypeKeys()) {
+      const maint = maintenanceNameOfKey(k);
+      if (maint && normalizeTypeLookupKey(maint) === lower) return maint;
+    }
+  }
+
+  for (const variant of variants) {
+    const fuzzy = fuzzyCatalogMaintenanceName(normalizeTypeLookupKey(variant));
+    if (fuzzy) return fuzzy;
+  }
+
+  return "";
 }
 
 /** Số ngày phải xử lý của loại công việc (deadline đưa vào sổ BDTX). */
@@ -508,7 +859,7 @@ export function getTypesByGroup() {
 
 /** Nhóm hạng mục dùng danh mục MASTER DATA (BDTX). */
 export function isMasterDataSection(section) {
-  return BAO_DUONG_GROUPS.includes(String(section || "").trim());
+  return BAO_DUONG_GROUPS.includes(normalizeBaoDuongGroup(section));
 }
 
 /**
@@ -516,7 +867,7 @@ export function isMasterDataSection(section) {
  * extraTypes: loại cũ trên sổ / Firebase bổ sung cuối danh sách nếu chưa có.
  */
 export function listFormTypesForSection(section, extraTypes = []) {
-  const g = String(section || "").trim();
+  const g = normalizeBaoDuongGroup(section);
   if (!g) return [];
 
   if (!isMasterDataSection(g)) {
@@ -546,10 +897,12 @@ export function listFormTypesForSection(section, extraTypes = []) {
 
 /** Danh sách loại công việc (đang dùng) thuộc một nhóm — để đổ vào form nhập liệu. */
 export function listTypesForGroup(group) {
-  const g = String(group || "").trim();
+  const g = normalizeBaoDuongGroup(group);
   if (!g) return [];
   return Object.entries(loadQualityCatalog())
-    .filter(([, val]) => val.group === g && val.isActive !== false)
+    .filter(
+      ([, val]) => normalizeBaoDuongGroup(val.group) === g && val.isActive !== false
+    )
     .sort((a, b) => {
       const sa = a[1].sortOrder ?? 0;
       const sb = b[1].sortOrder ?? 0;
@@ -564,12 +917,12 @@ export function listTypesForGroup(group) {
  * Không dùng tên loại tuần đường / sổ nhật ký.
  */
 export function listMaintenanceWorksForGroup(group) {
-  const g = String(group || "").trim();
+  const g = normalizeBaoDuongGroup(group);
   if (!g) return [];
   const seen = new Set();
   const out = [];
   for (const [type, val] of Object.entries(loadQualityCatalog())) {
-    if (val.group !== g || val.isActive === false) continue;
+    if (normalizeBaoDuongGroup(val.group) !== g || val.isActive === false) continue;
     const name = String(val.maintenanceName || type || "").trim();
     if (!name || seen.has(name)) continue;
     seen.add(name);
@@ -606,16 +959,16 @@ export function getGroupForMaintenanceWork(workName) {
   const name = String(workName || "").trim();
   if (!name) return "";
   const catalog = loadQualityCatalog();
-  if (catalog[name]?.group) return catalog[name].group;
+  if (catalog[name]?.group) return normalizeBaoDuongGroup(catalog[name].group);
   for (const val of Object.values(catalog)) {
     if (String(val.maintenanceName || "").trim() === name && val.group) {
-      return val.group;
+      return normalizeBaoDuongGroup(val.group);
     }
   }
   return DEFAULT_TYPE_GROUP[name] || "";
 }
 
-/** Nhãn đầu việc thống kê: ưu tiên tên công việc BDTX trên master data. */
+/** Nhãn đầu việc thống kê KL: cột «Công việc BDTX» trên danh mục; không có thì giữ tên tuần đường. */
 export function resolveMaintenanceWorkLabel(inspectionOrWork) {
   const key = String(inspectionOrWork || "").trim();
   if (!key) return "";
@@ -643,7 +996,8 @@ export function upsertQualityTypes(partial) {
     changed = true;
   }
   if (!changed) return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+  localStorage.setItem(storageKeyFor(), JSON.stringify(saved));
+  setLocalUpdatedAt(Date.now());
   cache = null;
   loadQualityCatalog();
   dispatchQualityChanged();

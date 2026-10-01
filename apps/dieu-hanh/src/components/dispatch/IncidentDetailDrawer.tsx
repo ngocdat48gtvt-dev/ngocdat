@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { Loader2, MapPin, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialog } from '@/components/ui/dialog'
 import { useDispatch } from '@/context/DispatchContext'
@@ -27,10 +27,10 @@ import {
 } from '@/lib/incidentUtils'
 import { updateReportImageSelection } from '@/services/incidentsService'
 import { removeIncidentImage } from '@/services/incidentPhotoService'
+import { incidentNeedsMetadataRecovery } from '@/lib/incidentMetadataParse'
 import {
-  cleanupDuplicatePhotosOnCloud,
-  incidentNeedsPhotoCleanup,
-} from '@/services/incidentPhotoCleanupService'
+  recoverIncidentMetadata,
+} from '@/services/incidentMetadataRecoveryService'
 import {
   canAssignRework,
   getIncidentRework,
@@ -59,6 +59,7 @@ export function IncidentDetailDrawer({
   const [reportSlots, setReportSlots] = useState<ReportImageSlot[]>([])
   const [localIncident, setLocalIncident] = useState(incident)
   const [deletingUrl, setDeletingUrl] = useState<string | null>(null)
+  const [metadataRecovering, setMetadataRecovering] = useState(false)
 
   const beforeAll = localIncident ? beforeConstructionImages(localIncident) : []
   const afterAll = localIncident ? afterConstructionImages(localIncident) : []
@@ -74,38 +75,48 @@ export function IncidentDetailDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incident?.id, open, incident])
 
-  /** Tự dọn URL trùng trên Firestore — giữ ảnh gốc (upload sớm nhất). */
-  useEffect(() => {
-    if (!open || !incident || !user) return
-    if (!incidentNeedsPhotoCleanup(incident)) return
-    if (!isCompanyAdmin && incident.ownerUid !== user.uid) return
+  const canEditPhotos =
+    !!user &&
+    !!localIncident &&
+    (isCompanyAdmin || localIncident.ownerUid === user.uid)
+  const needsMetadataRecovery =
+    !!localIncident && incidentNeedsMetadataRecovery(localIncident)
 
-    let cancelled = false
-    void (async () => {
-      try {
-        const result = await cleanupDuplicatePhotosOnCloud(
-          incident.ownerUid,
-          incident.id,
-          incident,
-        )
-        if (cancelled || !result) return
-        setLocalIncident({
-          ...incident,
-          beforeImages: result.beforeImages,
-          afterImages: result.afterImages,
-        })
-        if (result.removed > 0) {
-          toast.success(`Đã gọn ${result.removed} ảnh trùng (giữ bản gốc)`)
-          reload()
-        }
-      } catch {
-        /* gallery vẫn dedupe để hiển thị */
-      }
-    })()
-    return () => {
-      cancelled = true
+  async function handleRecoverMetadata() {
+    if (!localIncident || !canEditPhotos || metadataRecovering) return
+    if (!needsMetadataRecovery) {
+      toast.info('Không suy được lý trình từ mã sự cố hoặc đường dẫn ảnh')
+      return
     }
-  }, [incident, open, isCompanyAdmin, user, reload])
+
+    setMetadataRecovering(true)
+    try {
+      const result = await recoverIncidentMetadata(
+        localIncident.ownerUid,
+        localIncident.id,
+        localIncident,
+      )
+      if (!result) {
+        toast.info('Không khôi phục được lý trình')
+        return
+      }
+      setLocalIncident({
+        ...localIncident,
+        ...result.patch,
+      })
+      const km = result.patch.km
+      toast.success(
+        km
+          ? `Đã ghi lý trình ${km}${result.patch.road ? ` · ${result.patch.road}` : ''}`
+          : 'Đã cập nhật thông tin sự cố',
+      )
+      reload()
+    } catch {
+      toast.error('Khôi phục lý trình thất bại')
+    } finally {
+      setMetadataRecovering(false)
+    }
+  }
 
   async function persistReportSlots(nextSlots: ReportImageSlot[]) {
     if (!localIncident) return
@@ -164,6 +175,7 @@ export function IncidentDetailDrawer({
         ...localIncident,
         beforeImages: patch.beforeImages,
         afterImages: patch.afterImages,
+        updates: patch.updates,
         reportImageOrder: patch.reportImageOrder,
         selectedBefore: patch.selectedBefore,
         selectedAfter: patch.selectedAfter,
@@ -171,8 +183,9 @@ export function IncidentDetailDrawer({
       setReportSlots(patch.slots)
       toast.success('Đã xóa ảnh')
       reload()
-    } catch {
-      toast.error('Không xóa được ảnh')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : ''
+      toast.error(msg && !msg.includes('Firebase') ? msg : 'Không xóa được ảnh')
     } finally {
       setDeletingUrl(null)
     }
@@ -225,6 +238,24 @@ export function IncidentDetailDrawer({
             >
               <RefreshCw className="h-4 w-4" />
               Yêu cầu bổ sung
+            </Button>
+          ) : null}
+
+          {canEditPhotos && needsMetadataRecovery ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              disabled={metadataRecovering}
+              onClick={() => void handleRecoverMetadata()}
+            >
+              {metadataRecovering ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <MapPin className="h-4 w-4" />
+              )}
+              Khôi phục lý trình
             </Button>
           ) : null}
 

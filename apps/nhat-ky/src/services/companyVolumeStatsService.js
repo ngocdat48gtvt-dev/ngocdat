@@ -27,7 +27,7 @@ function resolveRoadDisplayName(road, reportMeta, roadId) {
  * Tải KL theo danh mục sổ ADMIN đã gán cho từng USER.
  * Không gộp office_books lạc (đã xóa khỏi danh mục) — tránh đường lạ lẫn user.
  */
-export async function fetchCompanyVolumeSources(companyId) {
+export async function fetchCompanyVolumeSources(companyId, { dateFrom = "", dateTo = "" } = {}) {
   if (!companyId) {
     return { sources: [], users: [], error: "Thiếu companyId." };
   }
@@ -42,7 +42,10 @@ export async function fetchCompanyVolumeSources(companyId) {
     await Promise.all(
       catalogRoads.map(async (road) => {
         const roadId = road.id;
-        const storage = await fetchOfficeBookAsStorage(user.uid, roadId);
+        const storage = await fetchOfficeBookAsStorage(user.uid, roadId, {
+          dateFrom,
+          dateTo
+        });
         const meta = storage.reportMeta || {};
 
         sources.push({

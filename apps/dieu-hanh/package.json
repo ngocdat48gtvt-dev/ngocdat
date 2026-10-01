@@ -8,7 +8,9 @@
     "start": "vite --host 127.0.0.1 --port 5174",
     "build": "tsc -b && vite build",
     "deploy:website": "node scripts/deploy-website.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "cleanup:photos:dry": "node scripts/cleanup-duplicate-photos.mjs",
+    "cleanup:photos": "node scripts/cleanup-duplicate-photos.mjs --apply"
   },
   "dependencies": {
     "@quanlysuco/shared": "file:../../packages/shared",
@@ -32,6 +34,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "firebase-admin": "^14.2.0",
     "tailwindcss": "^4.3.0",
     "typescript": "~6.0.2",
     "vite": "^8.0.12"

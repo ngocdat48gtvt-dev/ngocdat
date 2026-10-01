@@ -4,18 +4,20 @@ import {
   formatLyTrinh,
   migrateEntry
 } from "./nhatKyFormat";
-import { formatUnitLabel, formatSideLabel, shouldExportBaoDuong } from "./baoDuongFormat";
+import { formatUnitLabel, formatSideLabel, shouldExportBaoDuong, formatWorkNameFromEntry } from "./baoDuongFormat";
+import { expandEntriesForVolumeBooks } from "./mergeDiaryEntries";
 import {
   BAO_DUONG_GROUPS,
   getGroupForMaintenanceWork,
-  getGroupForType,
-  resolveMaintenanceWorkLabel
+  getGroupForType
 } from "./baoDuongQualityStore";
 import {
   ATGT_SECTION,
   inferEntryUnit,
   resolveEntryQuantity
 } from "./incidentUtils";
+import { formatBookDecimal } from "./bookNumberFormat";
+import { diaryBusinessFingerprint } from "./officeBooksConflictMerge";
 
 export function normalizeStatsUnit(unit) {
   const u = String(unit || "")
@@ -53,7 +55,7 @@ function enrichContract(contract) {
 }
 
 export function entryWorkKey(entry) {
-  const type = normalizeWorkType(resolveMaintenanceWorkLabel(entryIncidentType(entry)));
+  const type = normalizeWorkType(formatWorkNameFromEntry(entry));
   const unit = normalizeStatsUnit(inferEntryUnit(entry));
   return `${entry.section || ""}|${type}|${unit}`;
 }
@@ -69,10 +71,9 @@ export function parseQuantity(value) {
 }
 
 export function formatStatsNumber(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return "0";
-  if (Math.abs(n - Math.round(n)) < 0.001) return String(Math.round(n));
-  return n.toLocaleString("vi-VN", { maximumFractionDigits: 2 });
+  const formatted = formatBookDecimal(value, { allowZero: true });
+  if (formatted) return formatted;
+  return "0,00";
 }
 
 /** Ngày local dạng YYYY-MM-DD — không dùng toISOString() (lệch UTC → lùi 1 ngày ở VN). */
@@ -122,15 +123,63 @@ function inDateRange(date, dateFrom, dateTo) {
   return true;
 }
 
+function volumeDetailItemKey(item) {
+  return [
+    String(item?.date || "").trim(),
+    String(item?.kmFrom || "").trim(),
+    String(item?.kmTo || "").trim(),
+    String(item?.side || "").trim().toUpperCase(),
+    String(item?.length || "").trim(),
+    String(item?.width || "").trim(),
+    String(item?.height || "").trim(),
+    String(item?.quantity ?? "").trim(),
+    String(item?.unit || "").trim().toLowerCase(),
+    String(item?.workType || "").trim().toLowerCase(),
+    String(item?.section || "").trim().toLowerCase()
+  ].join("|");
+}
+
+/** Bỏ dòng chi tiết trùng (cùng ngày/lý trình/kích thước/KL). */
+export function dedupeVolumeDetailItems(items) {
+  const seen = new Map();
+  for (const item of items || []) {
+    const key = volumeDetailItemKey(item);
+    if (!seen.has(key)) seen.set(key, item);
+  }
+  return [...seen.values()];
+}
+
+/**
+ * Khử trùng entry trước khi thống kê KL (bỏ qua khác biệt ghi chú/recordId).
+ */
+export function dedupeEntriesForVolume(entries) {
+  const seen = new Map();
+  for (const entry of entries || []) {
+    if (entry?.deletedAt) continue;
+    const fp = diaryBusinessFingerprint(entry);
+    const prev = seen.get(fp);
+    if (!prev) {
+      seen.set(fp, entry);
+      continue;
+    }
+    const score = (e) =>
+      (String(e?.recordId || "").trim() ? 1 : 0) +
+      (String(e?.plannedRepairDate || "").trim() ? 1 : 0) +
+      (String(e?.resolved || "").trim() ? 0.5 : 0);
+    if (score(entry) >= score(prev)) seen.set(fp, entry);
+  }
+  return [...seen.values()];
+}
+
 /**
  * Tổng hợp khối lượng thực hiện theo sổ bảo dưỡng (BDTX):
  * chỉ dòng đủ điều kiện xuất sổ, lọc theo ngày thực hiện (plannedRepairDate).
  */
 export function buildVolumeStats(entries, contractVolumes, options = {}) {
   const { dateFrom = "", dateTo = "", sectionFilter = "" } = options;
-  const bdtxEntries = (entries || [])
-    .map(migrateEntry)
-    .filter((e) => shouldExportBaoDuong(e));
+  const bdtxEntries = dedupeEntriesForVolume(
+    expandEntriesForVolumeBooks(entries || []).map(migrateEntry)
+  ).filter((e) => shouldExportBaoDuong(e));
   const enrichedContracts = (contractVolumes || []).map(enrichContract);
   const contractMap = Object.fromEntries(
     enrichedContracts
@@ -154,7 +203,7 @@ export function buildVolumeStats(entries, contractVolumes, options = {}) {
       groups.set(key, {
         key,
         section: entry.section || "",
-        workType: resolveMaintenanceWorkLabel(entryIncidentType(entry)),
+        workType: formatWorkNameFromEntry(entry),
         unit: normalizeStatsUnit(unit),
         unitLabel: formatUnitLabel(normalizeStatsUnit(unit)),
         entryCount: 0,
@@ -174,6 +223,16 @@ export function buildVolumeStats(entries, contractVolumes, options = {}) {
         section: row.section
       })
     );
+  }
+
+  // Phòng trường hợp expand/gộp vẫn tạo item trùng.
+  for (const row of groups.values()) {
+    const unique = dedupeVolumeDetailItems(row.items);
+    if (unique.length !== row.items.length) {
+      row.items = unique;
+      row.entryCount = unique.length;
+      row.totalDone = unique.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
+    }
   }
 
   for (const contract of enrichedContracts) {
@@ -275,7 +334,7 @@ export function toVolumeDetailItem(entry, extras = {}) {
     quantityLabel: formatStatsNumber(qty),
     workType:
       extras.workType ||
-      resolveMaintenanceWorkLabel(entryIncidentType(entry)) ||
+      formatWorkNameFromEntry(entry) ||
       "",
     section: extras.section || entry.section || "",
     note: String(entry.note || entry.content || "").trim(),
@@ -308,7 +367,8 @@ export function collectSelectedVolumeDetails(rows, selectedKeys) {
       });
     }
   }
-  out.sort((a, b) => {
+  const unique = dedupeVolumeDetailItems(out);
+  unique.sort((a, b) => {
     const sa = SECTION_ORDER[a.section] ?? 999;
     const sb = SECTION_ORDER[b.section] ?? 999;
     if (sa !== sb) return sa - sb;
@@ -319,7 +379,7 @@ export function collectSelectedVolumeDetails(rows, selectedKeys) {
     if (a.date !== b.date) return String(a.date).localeCompare(String(b.date));
     return String(a.kmFrom).localeCompare(String(b.kmFrom));
   });
-  return out;
+  return unique;
 }
 
 /**
@@ -402,7 +462,7 @@ export function buildAtgtDiaryVolumeStats(entries, options = {}) {
   const { dateFrom = "", dateTo = "", kindFilter = "" } = options;
   const groups = new Map();
 
-  for (const entry of (entries || []).map(migrateEntry)) {
+  for (const entry of dedupeEntriesForVolume((entries || []).map(migrateEntry))) {
     if (entry.section !== ATGT_SECTION) continue;
     if (!inDateRange(entry.date, dateFrom, dateTo)) continue;
 
@@ -446,6 +506,15 @@ export function buildAtgtDiaryVolumeStats(entries, options = {}) {
     );
   }
 
+  for (const row of groups.values()) {
+    const unique = dedupeVolumeDetailItems(row.items);
+    if (unique.length !== row.items.length) {
+      row.items = unique;
+      row.entryCount = unique.length;
+      row.totalDone = unique.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
+    }
+  }
+
   const rows = [...groups.values()].map((row) => ({
     ...row,
     items: row.items.sort((a, b) => {
@@ -484,8 +553,10 @@ export function buildAtgtDiaryVolumeStats(entries, options = {}) {
 export function suggestWorkTypesFromEntries(entries) {
   const seen = new Set();
   const list = [];
-  for (const entry of (entries || []).map(migrateEntry).filter(shouldExportBaoDuong)) {
-    const type = resolveMaintenanceWorkLabel(entryIncidentType(entry));
+  for (const entry of expandEntriesForVolumeBooks(entries || [])
+    .map(migrateEntry)
+    .filter(shouldExportBaoDuong)) {
+    const type = formatWorkNameFromEntry(entry);
     if (!type || !entry.section) continue;
     const key = `${entry.section}|${type}`;
     if (seen.has(key)) continue;

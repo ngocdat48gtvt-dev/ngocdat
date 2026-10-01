@@ -2,13 +2,7 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 
-set "KEY_FILE=%~dp0..\quanlysuco-6797e-firebase-adminsdk-fbsvc-47f6dc4fa5.json"
-if not exist "%KEY_FILE%" (
-  echo [LOI] Khong tim thay service account key: %KEY_FILE%
-  pause
-  exit /b 1
-)
-set "GOOGLE_APPLICATION_CREDENTIALS=%KEY_FILE%"
+set "FIREBASE_PROJECT_ID=quanlysuco-6797e"
 
 if not exist "node_modules\" call npm install
 

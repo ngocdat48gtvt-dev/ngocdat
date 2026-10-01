@@ -25,6 +25,7 @@ import {
   setIncidentsDossierRoundBulk,
   softDeleteIncident,
   softDeleteIncidentsBulk,
+  updateIncidentRecord,
 } from '@/services/incidentsService'
 import { exportIncidentPhotosZip } from '@/services/incidentPhotoZipService'
 import { useColumnOrder } from '@/hooks/useColumnOrder'
@@ -33,6 +34,7 @@ import { IncidentDetailDrawer } from './IncidentDetailDrawer'
 import { IncidentEditDialog } from './IncidentEditDialog'
 import { ReworkAssignDialog } from './ReworkAssignDialog'
 import { ResizableTh } from './ResizableTh'
+import { DatePickerVi } from '@/components/ui/DatePickerVi'
 import { Badge, Button, Skeleton } from '@/components/ui/primitives'
 import { Table, THead, TR, TD } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
@@ -40,6 +42,7 @@ import type { IncidentRecord } from '@/types/incident'
 
 const STORAGE_KEY = 'qlsc-dispatch-ops-col-widths-v8'
 const ORDER_STORAGE_KEY = 'qlsc-dispatch-ops-col-order-v1'
+const PAGE_SIZE = 100
 
 type ColId =
   | 'select'
@@ -71,6 +74,26 @@ function dossierLabel(round?: number): string {
   const n = Number(round)
   if (!Number.isFinite(n) || n <= 0) return 'Chưa trình'
   return `Lần ${Math.floor(n)}`
+}
+
+function normalizeViDate(value: string): string | null {
+  const raw = value.trim()
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw)
+  const normalized = iso ? `${iso[3]}/${iso[2]}/${iso[1]}` : raw
+  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(normalized)
+  if (!match) return null
+  const day = Number(match[1])
+  const month = Number(match[2])
+  const year = Number(match[3])
+  const date = new Date(year, month - 1, day)
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null
+  }
+  return `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`
 }
 
 const BASE_COLS: ColId[] = [
@@ -172,7 +195,7 @@ const highVolumeLocationClass =
   'bg-red-200 dark:bg-red-900/50 font-semibold text-red-950 dark:text-red-100 group-hover:bg-red-300 dark:group-hover:bg-red-900/65'
 
 export function IncidentOperationsTable() {
-  const { sorted, loading, reload, isCompanyAdmin, creatorLabel } = useDispatch()
+  const { sorted, filters, loading, reload, isCompanyAdmin, creatorLabel } = useDispatch()
   const { user, profile } = useAuth()
   const assignedBy =
     profile?.displayName?.trim() || user?.email?.trim() || 'Admin'
@@ -191,6 +214,23 @@ export function IncidentOperationsTable() {
   const [checkedKeys, setCheckedKeys] = useState<Set<string>>(() => new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
   const [bulkRound, setBulkRound] = useState('1')
+  const [bulkOccurredDate, setBulkOccurredDate] = useState('')
+  const [bulkCompletedDate, setBulkCompletedDate] = useState('')
+  const [page, setPage] = useState(1)
+
+  const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
+  const visibleRows = useMemo(
+    () => sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [sorted, page],
+  )
+
+  useEffect(() => {
+    setPage(1)
+  }, [filters])
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount))
+  }, [pageCount])
 
   const pinnedStart = useMemo(
     (): ColId[] => (isCompanyAdmin ? ['select'] : []),
@@ -315,6 +355,67 @@ export function IncidentOperationsTable() {
       reload()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Cập nhật thất bại')
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  async function handleBulkSetDates() {
+    if (checkedIncidents.length === 0) return
+    const occurred = bulkOccurredDate.trim()
+      ? normalizeViDate(bulkOccurredDate)
+      : null
+    const completed = bulkCompletedDate.trim()
+      ? normalizeViDate(bulkCompletedDate)
+      : null
+    if (!occurred && !completed) {
+      toast.error('Nhập ít nhất một ngày cần cập nhật')
+      return
+    }
+    if (bulkOccurredDate.trim() && !occurred) {
+      toast.error('Ngày xảy ra không hợp lệ (dd/MM/yyyy)')
+      return
+    }
+    if (bulkCompletedDate.trim() && !completed) {
+      toast.error('Ngày hoàn thành không hợp lệ (dd/MM/yyyy)')
+      return
+    }
+    if (
+      !window.confirm(
+        `Cập nhật ngày cho ${checkedIncidents.length} sự cố đã chọn?`,
+      )
+    ) {
+      return
+    }
+
+    setBulkBusy(true)
+    let ok = 0
+    let fail = 0
+    try {
+      for (const inc of checkedIncidents) {
+        try {
+          await updateIncidentRecord(
+            inc.ownerUid,
+            inc.id,
+            {
+              ...(occurred ? { date: occurred } : {}),
+              ...(completed ? { completedDate: completed } : {}),
+            },
+            { companyId: inc.companyId || companyId },
+          )
+          ok++
+        } catch {
+          fail++
+        }
+      }
+      if (ok > 0) toast.success(`Đã cập nhật ngày cho ${ok} sự cố`)
+      if (fail > 0) toast.error(`${fail} sự cố cập nhật thất bại`)
+      if (ok > 0) {
+        setBulkOccurredDate('')
+        setBulkCompletedDate('')
+        setCheckedKeys(new Set())
+        reload()
+      }
     } finally {
       setBulkBusy(false)
     }
@@ -788,6 +889,35 @@ export function IncidentOperationsTable() {
               Gán lần trình
             </Button>
             <div className="mx-1 h-5 w-px bg-border" />
+            <span className="text-xs text-muted-foreground">Xảy ra:</span>
+            <div className="w-36">
+              <DatePickerVi
+                compact
+                value={bulkOccurredDate}
+                onChange={setBulkOccurredDate}
+                minYear={2020}
+                maxYear={2035}
+              />
+            </div>
+            <span className="text-xs text-muted-foreground">Hoàn thành:</span>
+            <div className="w-36">
+              <DatePickerVi
+                compact
+                value={bulkCompletedDate}
+                onChange={setBulkCompletedDate}
+                minYear={2020}
+                maxYear={2035}
+              />
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              disabled={bulkBusy}
+              onClick={() => void handleBulkSetDates()}
+            >
+              Cập nhật ngày
+            </Button>
+            <div className="mx-1 h-5 w-px bg-border" />
             <Button
               type="button"
               variant="outline"
@@ -812,6 +942,37 @@ export function IncidentOperationsTable() {
               <Trash2 className="h-3.5 w-3.5" />
               Xóa đã chọn
             </Button>
+          </div>
+        ) : null}
+        {sorted.length > PAGE_SIZE ? (
+          <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
+            <span>
+              Hiển thị {(page - 1) * PAGE_SIZE + 1}–
+              {Math.min(page * PAGE_SIZE, sorted.length)} / {sorted.length} sự cố
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                Trang trước
+              </Button>
+              <span className="tabular-nums">
+                {page}/{pageCount}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={page >= pageCount}
+                onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+              >
+                Trang sau
+              </Button>
+            </div>
           </div>
         ) : null}
         {loading ? (
@@ -883,7 +1044,7 @@ export function IncidentOperationsTable() {
                     </TD>
                   </TR>
                 ) : (
-                  sorted.map((inc) => {
+                  visibleRows.map((inc) => {
                     const rowKey = `${inc.ownerUid}-${inc.id}`
                     const busy = deletingId === rowKey
                     const chainageKey = chainageDedupeKey(inc)

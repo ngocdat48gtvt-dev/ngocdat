@@ -8,8 +8,15 @@ import { DispatchOperationsPage } from '@/pages/dispatch/DispatchOperationsPage'
 import { DispatchCatalogPage } from '@/pages/dispatch/DispatchCatalogPage'
 import { DispatchReworkPage } from '@/pages/dispatch/DispatchReworkPage'
 import { DispatchTrashPage } from '@/pages/dispatch/DispatchTrashPage'
-import { LoginPage } from '@/pages/LoginPage'
 import { Skeleton } from '@/components/ui/primitives'
+
+const PORTAL_HOME_URL = '/quan-ly-duong-bo.html'
+
+function PortalRedirect({ denied = false }: { denied?: boolean }) {
+  const target = denied ? `${PORTAL_HOME_URL}?denied=dieu-hanh` : `${PORTAL_HOME_URL}?login=1`
+  window.location.replace(target)
+  return null
+}
 
 function ProtectedRoute() {
   const { user, loading, canAccess } = useAuth()
@@ -21,7 +28,8 @@ function ProtectedRoute() {
       </div>
     )
   }
-  if (!user || !canAccess) return <Navigate to="/login" replace />
+  if (!user) return <PortalRedirect />
+  if (!canAccess) return <PortalRedirect denied />
   return <Outlet />
 }
 
@@ -29,7 +37,7 @@ export default function App() {
   return (
     <>
       <Routes>
-        <Route path="/login" element={<LoginPage />} />
+        <Route path="/login" element={<PortalRedirect />} />
         <Route path="/" element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
             <Route element={<DispatchLayout />}>
@@ -41,7 +49,7 @@ export default function App() {
             </Route>
           </Route>
         </Route>
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <Toaster richColors position="top-right" />
     </>

@@ -4,13 +4,22 @@ import GptcDetailSheet from "../components/GptcDetailSheet";
 import GptcPrintPages from "../components/GptcPrintPages";
 import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
 import { useOfficePermissions } from "../hooks/useOfficePermissions";
+import { useAuth } from "../context/AuthContext";
+import RoutesViewSidebarControls from "../components/RoutesViewSidebarControls";
 import { useGptcSync } from "../hooks/useGptcSync";
-import { makeEmptyEntry, makeEmptyPermit, reindexPermits } from "../utils/gptcStore";
+import { makeEmptyEntry, makeEmptyPermit, markEntryDeleted, markPermitDeleted, reindexPermits } from "../utils/gptcStore";
 import { applyPermitUpdates, buildPasteUpdates, countFilledPermits, isPermitRowFilled, resolvePasteOrigin } from "../utils/gptcSummaryGrid";
 import { packGptcDetailPages, packGptcSummaryPrintPages } from "../utils/gptcDetailFormat";
 import { printGptcPages } from "../utils/gptcPrint";
+import { exportGptcExcel } from "../utils/gptcExcel";
+import {
+  removeGptcLinksFromNhatKy,
+  syncGptcLedgerToNhatKy
+} from "../utils/gptcNhatKySync";
 
-const SIDEBAR_WIDTH = 260;
+import SidebarResizer from "../components/SidebarResizer";
+import { useResizableSidebar } from "../hooks/useResizableSidebar";
+import { safeSetLocalStorage } from "../utils/nhatKyFormat";
 const MARGIN_KEY = "gptc-print-margins-v1";
 const DEFAULT_MARGINS = { top: 8, right: 10, bottom: 8, left: 10 };
 
@@ -35,22 +44,39 @@ function loadMargins() {
   }
 }
 
-export default function SoCapPhepThiCong({ readOnly = false }) {
-  const { activeRoad, activeRoadId, ownerUid, browseMode } = useRoadWorkspace();
+export default function SoCapPhepThiCong({
+  readOnly = false,
+  bootTarget = null,
+  onBootConsumed
+}) {
+  const { activeRoad, activeRoadId, ownerUid, browseMode, offlineMode, storageKey } = useRoadWorkspace();
+  const { profile } = useAuth();
+  const { sidebarStyle, onResizeStart } = useResizableSidebar({ defaultWidth: 260 });
   const { canEditOfficeData } = useOfficePermissions();
   const roadName = (activeRoad?.roadName || activeRoad?.label || "").trim();
   const tenTuyen = roadName || "";
-  const canPush = canEditOfficeData && !browseMode && !readOnly;
+  const canPush = canEditOfficeData && !browseMode && !offlineMode && !readOnly;
 
   const { ledger, setLedger, ready, flushPush } = useGptcSync({
     uid: ownerUid,
+    companyId: profile?.companyId || "",
     roadId: activeRoadId,
     roadName,
     tenTuyen,
     enabled: !!activeRoadId && !!ownerUid,
     canPush,
-    browseMode
+    browseMode,
+    offlineMode,
+    nhatKyStorageKey: storageKey
   });
+
+  // Tuyến đường trên sổ = các đường đã chọn (Chọn đường), không nhập tay.
+  // skipPush: chỉ gắn tên local, không đẩy sổ trống lên cloud.
+  useEffect(() => {
+    if (!ready || !ledger || !tenTuyen || readOnly || !canPush) return;
+    if (String(ledger.tenTuyen || "").trim() === tenTuyen) return;
+    setLedger((prev) => ({ ...prev, tenTuyen }), { skipPush: true });
+  }, [ready, tenTuyen, ledger?.tenTuyen, readOnly, canPush, setLedger]);
 
   const [view, setView] = useState("summary");
   const [selectedId, setSelectedId] = useState("");
@@ -59,11 +85,34 @@ export default function SoCapPhepThiCong({ readOnly = false }) {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
+  /** summary | detail */
+  const [printScope, setPrintScope] = useState("summary");
   const [margins, setMargins] = useState(loadMargins);
+  const [exportingExcel, setExportingExcel] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem(MARGIN_KEY, JSON.stringify(margins));
+    safeSetLocalStorage(MARGIN_KEY, margins);
   }, [margins]);
+
+  // Tick đúp từ nhật ký → mở BM02 đúng công trình / dòng
+  useEffect(() => {
+    if (!ready || !ledger || !bootTarget?.permitId) return;
+    const permitId = String(bootTarget.permitId).trim();
+    const entryId = String(bootTarget.entryId || "").trim();
+    const found = (ledger.permits || []).some((p) => p.id === permitId);
+    if (!found) {
+      setMessage("Không tìm thấy công trình cấp phép tương ứng.");
+      setTimeout(() => setMessage(""), 3500);
+      onBootConsumed?.();
+      return;
+    }
+    setPrintOpen(false);
+    setSelectedId(permitId);
+    setSelectedEntryId(entryId);
+    setView("detail");
+    onBootConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ chạy khi bootTarget đổi
+  }, [ready, ledger, bootTarget]);
 
   const selectedPermit = useMemo(
     () => (ledger?.permits || []).find((p) => p.id === selectedId) || null,
@@ -77,13 +126,38 @@ export default function SoCapPhepThiCong({ readOnly = false }) {
 
   const printPageCount = useMemo(() => {
     if (!ledger) return 0;
-    let n = packGptcSummaryPrintPages(ledger.permits, margins).length;
-    (ledger.permits || []).forEach((p) => {
-      if (!isPermitRowFilled(p)) return;
-      n += packGptcDetailPages(p.entries || [], margins).length;
-    });
-    return n;
-  }, [ledger, margins]);
+    if (printScope === "detail") {
+      let n = 0;
+      (ledger.permits || []).forEach((p) => {
+        if (!isPermitRowFilled(p)) return;
+        n += packGptcDetailPages(p.entries || [], margins).length;
+      });
+      return n;
+    }
+    return packGptcSummaryPrintPages(ledger.permits, margins).length;
+  }, [ledger, margins, printScope]);
+
+  const printScopeLabel = printScope === "detail" ? "BM02 · Chi tiết" : "BM01 · Tổng hợp";
+  const printActionLabel = printScope === "detail" ? "In sổ chi tiết" : "In biểu tổng hợp";
+  const excelActionLabel =
+    printScope === "detail" ? "Xuất Excel chi tiết" : "Xuất Excel tổng hợp";
+
+  async function handleExportExcel() {
+    if (!ledger || exportingExcel) return;
+    setExportingExcel(true);
+    try {
+      const { filename } = await exportGptcExcel(ledger, {
+        scope: printScope,
+        margins
+      });
+      flash(`Đã xuất ${filename}`);
+    } catch (err) {
+      console.error(err);
+      window.alert(err?.message || "Không xuất được Excel. Thử lại.");
+    } finally {
+      setExportingExcel(false);
+    }
+  }
 
   function flash(msg) {
     setMessage(msg);
@@ -148,24 +222,56 @@ export default function SoCapPhepThiCong({ readOnly = false }) {
     flash("Đã thêm dòng công trình — nhập trực tiếp trên bảng");
   }
 
-  function removeSelectedPermit() {
-    if (!selectedId) {
+  async function removePermit(permitId) {
+    const id = String(permitId || "").trim();
+    if (!id) {
       flash("Chọn dòng công trình (click một lần) rồi bấm Xóa");
       return;
     }
-    if (!window.confirm("Xóa công trình này và toàn bộ sổ chi tiết?")) return;
-    markDirty();
-    const id = selectedId;
-    setLedger((prev) => ({
-      ...prev,
-      permits: reindexPermits((prev.permits || []).filter((p) => p.id !== id))
-    }));
-    setSelectedId("");
-    setSelectedEntryId("");
-    if (view === "detail") {
-      setView("summary");
+    if (
+      !window.confirm(
+        "Bạn có chắc chắn muốn xóa công trình này?\n• Biểu tổng hợp (BM01): xóa dòng công trình\n• Sổ chi tiết (BM02): xóa toàn bộ theo dõi\n• Sổ nhật ký: xóa các dòng liên quan"
+      )
+    ) {
+      return;
     }
-    flash("Đã xóa công trình");
+    markDirty();
+    const entryIds = (ledger?.permits || [])
+      .filter((p) => p.id === id)
+      .flatMap((p) => (p.entries || []).map((e) => e.id).filter(Boolean));
+
+    const nextLedger = markPermitDeleted(ledger, id, entryIds);
+
+    // 1) Cập nhật sổ CPTC (BM01+BM02) + prune NK theo ledger mới
+    setLedger(() => nextLedger);
+
+    // 2) Xóa cứng mọi dòng NK gắn CT / dòng BM02 (phòng sót id)
+    if (storageKey) {
+      removeGptcLinksFromNhatKy(storageKey, { permitIds: [id], entryIds });
+      try {
+        syncGptcLedgerToNhatKy(nextLedger, storageKey);
+      } catch (err) {
+        console.warn("Prune NK sau xóa CT thất bại.", err);
+      }
+    }
+
+    if (selectedId === id) {
+      setSelectedId("");
+      setSelectedEntryId("");
+      if (view === "detail") setView("summary");
+    }
+
+    // 3) Đẩy cloud ngay — allowEmpty khi user chủ động xóa CT
+    try {
+      await flushPush?.({ allowEmpty: true });
+      flash("Đã xóa công trình (BM01 + BM02 + nhật ký) và đồng bộ cloud");
+    } catch {
+      flash("Đã xóa cục bộ (BM01 + BM02 + nhật ký). Chưa đẩy được cloud — mở lại trang có thể hiện lại nếu cloud còn bản cũ.");
+    }
+  }
+
+  function removeSelectedPermit() {
+    void removePermit(selectedId);
   }
 
   function openDetail(id) {
@@ -215,23 +321,38 @@ export default function SoCapPhepThiCong({ readOnly = false }) {
     flash("Đã thêm dòng — nhập trực tiếp trên bảng");
   }
 
-  function removeSelectedEntry() {
+  async function removeSelectedEntry() {
     if (!selectedId) return;
     if (!selectedEntryId) {
       flash("Chọn dòng theo dõi (click một lần) rồi bấm Xóa dòng");
       return;
     }
-    if (!window.confirm("Xóa dòng theo dõi này?")) return;
+    if (
+      !window.confirm(
+        "Xóa dòng theo dõi này?\nDòng tương ứng trên sổ nhật ký tuần đường (nếu có) cũng sẽ bị xóa."
+      )
+    ) {
+      return;
+    }
     markDirty();
     const entryId = selectedEntryId;
-    setLedger((prev) => ({
-      ...prev,
-      permits: (prev.permits || []).map((p) =>
-        p.id === selectedId ? { ...p, entries: (p.entries || []).filter((e) => e.id !== entryId) } : p
-      )
-    }));
+    const nextLedger = markEntryDeleted(ledger, selectedId, entryId);
+    setLedger(() => nextLedger);
+    if (storageKey) {
+      removeGptcLinksFromNhatKy(storageKey, { entryIds: [entryId] });
+      try {
+        syncGptcLedgerToNhatKy(nextLedger, storageKey);
+      } catch (err) {
+        console.warn("Prune NK sau xóa dòng BM02 thất bại.", err);
+      }
+    }
     setSelectedEntryId("");
-    flash("Đã xóa dòng");
+    try {
+      await flushPush?.({ allowEmpty: true });
+      flash("Đã xóa dòng (kèm nhật ký) và đồng bộ cloud");
+    } catch {
+      flash("Đã xóa dòng cục bộ (kèm nhật ký). Chưa đẩy được cloud.");
+    }
   }
 
   async function saveAll() {
@@ -264,7 +385,7 @@ export default function SoCapPhepThiCong({ readOnly = false }) {
     >
       <aside
         className="nhaplieu-sidebar sonhatky-sidebar demxe-sidebar no-print"
-        style={{ width: SIDEBAR_WIDTH, minWidth: SIDEBAR_WIDTH, maxWidth: SIDEBAR_WIDTH }}
+        style={sidebarStyle}
       >
         <div className="sidebar-sticky-head">
           <h2 className="sidebar-title">Cấp phép thi công</h2>
@@ -285,15 +406,6 @@ export default function SoCapPhepThiCong({ readOnly = false }) {
                 value={ledger.year}
                 onChange={(e) => updateMeta("year", e.target.value)}
               />
-              <label className="entry-form-label" htmlFor="gptc-road">
-                Tuyến đường
-              </label>
-              <input
-                id="gptc-road"
-                className="sidebar-input"
-                value={ledger.tenTuyen}
-                onChange={(e) => updateMeta("tenTuyen", e.target.value)}
-              />
             </div>
           )}
 
@@ -301,40 +413,64 @@ export default function SoCapPhepThiCong({ readOnly = false }) {
             type="button"
             className={`btn-secondary sonhatky-edit-btn${printOpen ? " active" : ""}`}
             style={{ marginTop: 10, width: "100%" }}
-            onClick={() => setPrintOpen((v) => !v)}
+            onClick={() => {
+              setPrintOpen((v) => !v);
+              if (!printOpen) {
+                setPrintScope(view === "detail" ? "detail" : "summary");
+              }
+            }}
           >
-            {printOpen ? "Đóng xem trước in" : "Xem trước in toàn sổ"}
+            {printOpen ? "Đóng xem trước in" : "Xem trước in"}
           </button>
+          <RoutesViewSidebarControls />
 
           {printOpen ? (
             <div className="sidebar-scroll" style={{ marginTop: 8 }}>
               <div className="print-form-panel">
-                <div className="print-form-label">In sổ cấp phép</div>
+                <div className="print-form-label">Phạm vi in</div>
+                <div className="gptc-print-scope-tabs">
+                  <button
+                    type="button"
+                    className={printScope === "summary" ? "active" : ""}
+                    onClick={() => setPrintScope("summary")}
+                  >
+                    BM01 tổng hợp
+                  </button>
+                  <button
+                    type="button"
+                    className={printScope === "detail" ? "active" : ""}
+                    onClick={() => setPrintScope("detail")}
+                  >
+                    BM02 chi tiết
+                  </button>
+                </div>
                 <ul className="print-form-tips">
                   <li>Khổ A4 ngang (297 × 210 mm)</li>
-                  <li>Tờ 1: BM01 bảng tổng hợp</li>
-                  <li>Tiếp theo: BM02 từng công trình</li>
+                  <li>
+                    {printScope === "detail"
+                      ? "Chỉ in các biểu theo dõi chi tiết (BM02)"
+                      : "In biểu tổng hợp (BM01), hàng trống đến hết trang"}
+                  </li>
                   <li>Kéo lề xanh trên tờ đầu bằng chuột</li>
-                  <li>{printPageCount} tờ in</li>
+                  <li>
+                    {printPageCount} tờ · {printScopeLabel}
+                  </li>
+                  <li>Nút «Xuất Excel» tải file .xlsx theo phạm vi đang chọn</li>
                 </ul>
               </div>
             </div>
-          ) : (
-            <p className="gptc-sidebar-hint">
-              BM01: click ô để nhập
-              <br />
-              Double-click dòng → BM02
-            </p>
-          )}
+          ) : null}
         </div>
       </aside>
+
+      <SidebarResizer onMouseDown={onResizeStart} />
 
       <main className="nhaplieu-review-pane demxe-main">
         {printOpen ? (
           <div className="sonhatky-print-preview-pane landscape-print-preview-pane">
             <div className="sonhatky-print-toolbar print-toolbar no-print">
               <div className="print-toolbar-main">
-                <div className="print-toolbar-kicker">Xem trước in · A4 ngang</div>
+                <div className="print-toolbar-kicker">Xem trước in · A4 ngang · {printScopeLabel}</div>
                 <div className="print-toolbar-chips">
                   <span className="print-chip">Năm {ledger.year}</span>
                   <span className="print-chip">{filledPermitCount} CT</span>
@@ -344,18 +480,29 @@ export default function SoCapPhepThiCong({ readOnly = false }) {
                   </span>
                 </div>
               </div>
-              <button
-                type="button"
-                className="btn-primary btn-primary--compact print-toolbar-action"
-                onClick={() => printGptcPages(margins)}
-              >
-                In toàn sổ
-              </button>
+              <div className="print-toolbar-actions">
+                <button
+                  type="button"
+                  className="btn-secondary btn-primary--compact print-toolbar-action"
+                  disabled={exportingExcel}
+                  onClick={() => void handleExportExcel()}
+                >
+                  {exportingExcel ? "Đang xuất…" : excelActionLabel}
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary btn-primary--compact print-toolbar-action"
+                  onClick={() => printGptcPages(margins, printScope)}
+                >
+                  {printActionLabel}
+                </button>
+              </div>
             </div>
             <GptcPrintPages
               ledger={ledger}
               margins={margins}
               onMarginsChange={setMargins}
+              scope={printScope}
             />
           </div>
         ) : (
@@ -389,9 +536,6 @@ export default function SoCapPhepThiCong({ readOnly = false }) {
                   <button type="button" className="btn-secondary btn-primary--compact" onClick={removeSelectedPermit}>
                     Xóa công trình
                   </button>
-                  <span className="gptc-action-hint">
-                    Click ô để nhập · Double-click dòng để mở sổ chi tiết
-                  </span>
                 </>
               ) : (
                 <>
@@ -404,9 +548,6 @@ export default function SoCapPhepThiCong({ readOnly = false }) {
                   <button type="button" className="btn-secondary btn-primary--compact" onClick={removeSelectedEntry}>
                     Xóa dòng
                   </button>
-                  <span className="gptc-action-hint">
-                    Click ô để nhập (Excel) · Đủ trang sẽ tự thêm trang mới
-                  </span>
                 </>
               ))}
               {!readOnly && (
@@ -438,6 +579,7 @@ export default function SoCapPhepThiCong({ readOnly = false }) {
                   colWidths={ledger.summaryColWidths}
                   onRowSelect={setSelectedId}
                   onOpenDetail={openDetail}
+                  onDeletePermit={removePermit}
                   onChangePermit={updatePermitField}
                   onColWidthsChange={updateColWidths}
                   onPasteGrid={handlePasteGrid}

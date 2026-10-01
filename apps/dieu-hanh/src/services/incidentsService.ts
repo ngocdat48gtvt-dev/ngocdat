@@ -25,8 +25,37 @@ import {
   isTrashExpired,
 } from '@/lib/trashUtils'
 import { db } from '@/firebase/firebase'
-import type { IncidentRecord, IncidentUpdate, TrashIncidentRecord } from '@/types/incident'
+import type {
+  IncidentRecord,
+  IncidentUpdate,
+  TrashIncidentRecord,
+  TrashedDuplicatePhoto,
+} from '@/types/incident'
 import { fetchCompanyMemberUids } from '@/services/usersService'
+
+function parseTrashedDuplicatePhotos(raw: unknown): TrashedDuplicatePhoto[] {
+  if (!Array.isArray(raw)) return []
+  const out: TrashedDuplicatePhoto[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const row = item as Record<string, unknown>
+    const url = String(row.url ?? '').trim()
+    if (!url.startsWith('http')) continue
+    const kind = row.kind === 'before' ? 'before' : 'after'
+    const trashedAtMs =
+      typeof row.trashedAtMs === 'number'
+        ? row.trashedAtMs
+        : deletedAtToMs(row.trashedAt) ?? Date.now()
+    out.push({
+      url,
+      kind,
+      trashedAtMs,
+      reason: String(row.reason ?? 'duplicate'),
+      size: typeof row.size === 'number' ? row.size : undefined,
+    })
+  }
+  return out
+}
 
 function mapDocCore(snap: QueryDocumentSnapshot): IncidentRecord {
   const data = snap.data()
@@ -54,6 +83,8 @@ function mapDocCore(snap: QueryDocumentSnapshot): IncidentRecord {
     uuid: data.uuid as string | undefined,
     beforeImages: (data.beforeImages as string[] | undefined) ?? [],
     afterImages: (data.afterImages as string[] | undefined) ?? [],
+    trashedDuplicatePhotos: parseTrashedDuplicatePhotos(data.trashedDuplicatePhotos),
+    deletedImageUrls: (data.deletedImageUrls as string[] | undefined) ?? [],
     selectedBefore: data.selectedBefore as string | undefined,
     selectedAfter: data.selectedAfter as string | undefined,
     reportImageOrder: data.reportImageOrder as string | undefined,

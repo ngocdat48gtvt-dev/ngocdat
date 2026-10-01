@@ -21,7 +21,7 @@ export function normalizeDetailColWidths(raw) {
   });
 }
 
-export const DEFAULT_SUMMARY_COL_WIDTHS = [36, 150, 105, 105, 120, 170, 88, 88, 88];
+export const DEFAULT_SUMMARY_COL_WIDTHS = [36, 148, 96, 96, 118, 168, 90, 90, 88];
 
 export function normalizeSummaryColWidths(raw) {
   const base = [...DEFAULT_SUMMARY_COL_WIDTHS];

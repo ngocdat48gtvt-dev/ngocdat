@@ -122,6 +122,14 @@ export function findQuarterByDate(quarters, dateIso) {
   return quarters.find((q) => q.dates.includes(dateIso)) || null;
 }
 
+/** Ngày đếm chuẩn: 5, 6, 7 của tháng cuối quý (III/VI/IX/XII). */
+export function isQuarterCountDate(dateIso) {
+  const day = String(dateIso || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+  const y = parseInt(day.slice(0, 4), 10);
+  return !!findQuarterByDate(buildYearQuarters(y), day);
+}
+
 /** Đợt đếm chuẩn = đúng ngày 5–7 tháng cuối quý. */
 export function isStandardQuarterBatch(batchStartIso, year) {
   const quarters = buildYearQuarters(year);

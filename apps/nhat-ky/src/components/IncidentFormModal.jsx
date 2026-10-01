@@ -6,9 +6,11 @@ import {
   updateIncident
 } from "../services/incidentsService";
 import { uploadAndAttachPhotos } from "../services/incidentImageService";
+import { resolveDisplayImageUrl } from "../services/imageUrlService";
 import {
   beforeConstructionImages,
-  afterConstructionImages
+  afterConstructionImages,
+  webDisplayImageUrls
 } from "../utils/incidentUtils";
 import { displayToIso } from "../utils/dateLocale";
 
@@ -72,6 +74,69 @@ function fromIncident(inc) {
     completedDate: toIso(inc.completedDate),
     note: inc.note || ""
   };
+}
+
+function ExistingThumb({ url }) {
+  const [src, setSrc] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    void resolveDisplayImageUrl(url).then(({ url: resolved }) => {
+      if (!cancelled) setSrc(resolved || null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [url]);
+  if (!src) {
+    return <span className="incident-form-thumb incident-form-thumb--empty">…</span>;
+  }
+  return <img className="incident-form-thumb" src={src} alt="" />;
+}
+
+function LocalThumb({ file }) {
+  const [src, setSrc] = useState("");
+  useEffect(() => {
+    const objectUrl = URL.createObjectURL(file);
+    setSrc(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
+  if (!src) return null;
+  return <img className="incident-form-thumb" src={src} alt={file.name} />;
+}
+
+function PhotoBlock({ title, count, existingUrls, files, onFilesChange, inputId }) {
+  return (
+    <div className="incident-form-photo-block">
+      <p className="incident-form-photo-title">
+        {title}
+        {count > 0 ? ` (${count})` : ""}
+      </p>
+      <div className="incident-form-thumbs">
+        {existingUrls.map((url) => (
+          <ExistingThumb key={url} url={url} />
+        ))}
+        {files.map((file, i) => (
+          <LocalThumb key={`${file.name}-${file.size}-${i}`} file={file} />
+        ))}
+        {existingUrls.length === 0 && files.length === 0 ? (
+          <span className="incident-form-photo-empty">Chưa có ảnh</span>
+        ) : null}
+      </div>
+      <label className="incident-form-photo-add" htmlFor={inputId}>
+        <span>+ Thêm ảnh {title.toLowerCase()}</span>
+        <input
+          id={inputId}
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={(e) => onFilesChange(Array.from(e.target.files || []))}
+        />
+      </label>
+      {files.length > 0 ? (
+        <p className="incident-form-photo-pending">Sẽ thêm {files.length} ảnh mới khi lưu</p>
+      ) : null}
+    </div>
+  );
 }
 
 export default function IncidentFormModal({
@@ -189,13 +254,17 @@ export default function IncidentFormModal({
 
   if (!open) return null;
 
-  const existingBefore = incident ? beforeConstructionImages(incident) : [];
-  const existingAfter = incident ? afterConstructionImages(incident) : [];
+  const existingBefore = incident
+    ? webDisplayImageUrls(beforeConstructionImages(incident))
+    : [];
+  const existingAfter = incident
+    ? webDisplayImageUrls(afterConstructionImages(incident))
+    : [];
 
   return (
     <div className="incident-drawer-overlay" onClick={onClose}>
       <div
-        className="incident-drawer incident-form-modal"
+        className="incident-drawer incident-form-modal incident-form-modal--wide"
         role="dialog"
         aria-modal="true"
         onClick={(e) => e.stopPropagation()}
@@ -233,7 +302,7 @@ export default function IncidentFormModal({
                 className="sidebar-input"
                 value={form.km}
                 onChange={(e) => setField("km", e.target.value)}
-                placeholder="VD: 8+995"
+                placeholder="VD: Km8+995"
               />
             </label>
 
@@ -244,7 +313,7 @@ export default function IncidentFormModal({
                 value={form.groupName}
                 onChange={(e) => setField("groupName", e.target.value)}
               >
-                <option value="">— Chọn nhóm —</option>
+                <option value="">Chọn nhóm…</option>
                 {groupOptions.map((g) => (
                   <option key={g} value={g}>
                     {g}
@@ -291,6 +360,38 @@ export default function IncidentFormModal({
                 className="sidebar-input"
                 value={form.date}
                 onChange={(iso) => setField("date", iso)}
+                hideCalendarButton
+              />
+            </label>
+
+            <label className="incident-form-field">
+              <span className="entry-form-label">Ngày hoàn thành</span>
+              <ViDateInput
+                className="sidebar-input"
+                value={form.completedDate}
+                onChange={(iso) => setField("completedDate", iso)}
+                hideCalendarButton
+              />
+            </label>
+
+            <label className="incident-form-field">
+              <span className="entry-form-label">Tiến độ (%)</span>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                className="sidebar-input"
+                value={form.progress}
+                onChange={(e) => {
+                  const p = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                  setForm((prev) => {
+                    let completedDate = prev.completedDate;
+                    if (p >= 90 && !String(completedDate || "").trim()) {
+                      completedDate = new Date().toISOString().slice(0, 10);
+                    }
+                    return { ...prev, progress: p, completedDate };
+                  });
+                }}
               />
             </label>
 
@@ -304,6 +405,7 @@ export default function IncidentFormModal({
                 onChange={(e) => setField("dai", e.target.value)}
               />
             </label>
+
             <label className="incident-form-field">
               <span className="entry-form-label">Rộng</span>
               <input
@@ -314,6 +416,7 @@ export default function IncidentFormModal({
                 onChange={(e) => setField("rong", e.target.value)}
               />
             </label>
+
             <label className="incident-form-field">
               <span className="entry-form-label">Cao</span>
               <input
@@ -343,61 +446,35 @@ export default function IncidentFormModal({
               </select>
             </label>
 
-            <label className="incident-form-field">
-              <span className="entry-form-label">Tiến độ (%)</span>
-              <input
-                type="number"
-                min="0"
-                max="100"
+            <label className="incident-form-field incident-form-field--full">
+              <span className="entry-form-label">Ghi chú</span>
+              <textarea
                 className="sidebar-input"
-                value={form.progress}
-                onChange={(e) => setField("progress", e.target.value)}
-              />
-            </label>
-
-            <label className="incident-form-field">
-              <span className="entry-form-label">Ngày hoàn thành</span>
-              <ViDateInput
-                className="sidebar-input"
-                value={form.completedDate}
-                onChange={(iso) => setField("completedDate", iso)}
+                rows={3}
+                value={form.note}
+                onChange={(e) => setField("note", e.target.value)}
+                placeholder="Ghi chú (nếu có)"
               />
             </label>
           </div>
 
-          <label className="incident-form-field incident-form-field--full">
-            <span className="entry-form-label">Ghi chú</span>
-            <textarea
-              className="sidebar-input"
-              rows={2}
-              value={form.note}
-              onChange={(e) => setField("note", e.target.value)}
-            />
-          </label>
-
           <div className="incident-form-photos">
-            <label className="incident-form-field">
-              <span className="entry-form-label">
-                Ảnh hiện trạng {existingBefore.length > 0 ? `(đã có ${existingBefore.length})` : ""}
-              </span>
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={(e) => setBeforeFiles(Array.from(e.target.files || []))}
-              />
-            </label>
-            <label className="incident-form-field">
-              <span className="entry-form-label">
-                Ảnh sau xử lý {existingAfter.length > 0 ? `(đã có ${existingAfter.length})` : ""}
-              </span>
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={(e) => setAfterFiles(Array.from(e.target.files || []))}
-              />
-            </label>
+            <PhotoBlock
+              title="Ảnh hiện trạng"
+              count={existingBefore.length}
+              existingUrls={existingBefore}
+              files={beforeFiles}
+              onFilesChange={setBeforeFiles}
+              inputId="incform-before-files"
+            />
+            <PhotoBlock
+              title="Ảnh sau xử lý"
+              count={existingAfter.length}
+              existingUrls={existingAfter}
+              files={afterFiles}
+              onFilesChange={setAfterFiles}
+              inputId="incform-after-files"
+            />
           </div>
 
           <div className="incident-form-actions">

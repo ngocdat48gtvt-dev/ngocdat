@@ -2,15 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
 import { ViMonthInput } from "../components/ViDateInput";
+import EntryRoutePicker from "../components/EntryRoutePicker";
 import PhieuCauPrintPages from "../components/PhieuCauPrintPages";
 import {
-  loadCauRegistry,
-  setCauRegistry,
-  cauScope,
+  loadCauRegistryForRoute,
+  resolveCauScope,
+  writeCauScope,
   CAU_REGISTRY_EVENT
 } from "../utils/cauRegistryStore";
-import { fetchAllCau } from "../services/cauRegistryService";
+import { hydrateCauRegistriesFromCloud } from "../services/cauRegistryService";
 import { fetchCauInspections } from "../services/cauInspectionService";
+import { pickActiveRoute, getRoadRoutes, routeDisplayLabel } from "../utils/roadsCatalog";
 import {
   loadCauInspectionSheet,
   saveCauInspectionSheet,
@@ -22,15 +24,16 @@ import {
   CAU_INSPECTION_EVENT,
   daysInMonth
 } from "../utils/cauInspectionStore";
-import { loadStorage, formatYearMonthVN } from "../utils/nhatKyFormat";
+import { loadStorage, formatYearMonthVN, safeSetLocalStorage } from "../utils/nhatKyFormat";
 import {
   PHIEU_CAU_COL_KEYS,
   getPhieuCauColWidths,
   usePhieuCauColWidths
 } from "../hooks/usePhieuCauColWidths";
 import { printPhieuCauPages } from "../utils/phieuCauPrint";
+import SidebarResizer from "../components/SidebarResizer";
+import { useResizableSidebar } from "../hooks/useResizableSidebar";
 
-const SIDEBAR_WIDTH = 340;
 const MARGIN_KEY = "phieu-cau-print-margins-v1";
 const DEFAULT_MARGINS = { top: 5, right: 6, bottom: 5, left: 6 };
 
@@ -268,9 +271,38 @@ function CauSheetTable({
 /** Phiếu kiểm tra cầu — A4 ngang, 2 trang; form trái gọn kiểu sổ trực ĐBGT. */
 export default function PhieuKiemTraCau({ readOnly = false, storageTick = 0 }) {
   const { profile } = useAuth();
-  const { activeRoad, activeRoadId, storageKey, ownerUid, browseMode } = useRoadWorkspace();
+  const {
+    activeRoad,
+    activeRoadId,
+    storageKey,
+    ownerUid,
+    browseMode,
+    activeRouteId,
+    routes,
+    catalogRoad
+  } = useRoadWorkspace();
   const uid = ownerUid || profile?.uid || "";
   const roadLabel = (activeRoad?.roadName || activeRoad?.label || "").trim();
+  const routeList = useMemo(
+    () => (routes?.length ? routes : getRoadRoutes(catalogRoad || activeRoad)),
+    [routes, catalogRoad, activeRoad]
+  );
+  const activeRoute = useMemo(
+    () => pickActiveRoute(routeList, activeRouteId),
+    [routeList, activeRouteId]
+  );
+  const routeId = activeRoute?.id || activeRouteId || "";
+  const multiRoute = routeList.length > 1;
+  /** Scope đọc danh sách cầu theo nhánh (sau hydrate ưu tiên key nhánh). */
+  const cauListScope = useMemo(() => {
+    if (!uid || !activeRoadId) return "";
+    if (multiRoute && routeId) {
+      return writeCauScope(uid, activeRoadId, routeId, routeList);
+    }
+    return resolveCauScope(uid, activeRoadId, routeId, routeList);
+  }, [uid, activeRoadId, routeId, multiRoute, routeList]);
+
+  const { sidebarStyle, onResizeStart } = useResizableSidebar({ defaultWidth: 340 });
   const { widths: colWidths, startColumnResize } = usePhieuCauColWidths();
 
   const [bridges, setBridges] = useState([]);
@@ -285,12 +317,18 @@ export default function PhieuKiemTraCau({ readOnly = false, storageTick = 0 }) {
   const [printColWidths, setPrintColWidths] = useState(getPhieuCauColWidths);
 
   useEffect(() => {
-    localStorage.setItem(MARGIN_KEY, JSON.stringify(margins));
+    safeSetLocalStorage(MARGIN_KEY, margins);
   }, [margins]);
 
   useEffect(() => {
     if (printOpen) setPrintColWidths(getPhieuCauColWidths());
   }, [printOpen]);
+
+  useEffect(() => {
+    // Đổi nhánh → xóa list cũ ngay, tránh hiện cầu nhánh trước
+    setBridges([]);
+    setBridgeId("");
+  }, [cauListScope]);
 
   useEffect(() => {
     let cancelled = false;
@@ -300,26 +338,24 @@ export default function PhieuKiemTraCau({ readOnly = false, storageTick = 0 }) {
         if (!cancelled) setBridges([]);
         return;
       }
-      const scope = cauScope(uid, activeRoadId);
-      let list = loadCauRegistry(scope);
 
-      // ADMIN/VIEWER browse (hoặc local trống): lấy danh sách cầu từ cloud của user
-      if (browseMode || !list.length) {
+      // Hydrate theo catalog (đủ routes) — không dùng activeRoad gộp
+      const roadForHydrate = catalogRoad || activeRoad;
+      if (roadForHydrate) {
         try {
-          const cloud = await fetchAllCau(uid);
-          if (cancelled) return;
-          const byName = cloud[roadLabel] || [];
-          if (byName.length) {
-            setCauRegistry(scope, byName);
-            list = byName;
-          }
+          await hydrateCauRegistriesFromCloud(uid, [roadForHydrate], {
+            force: browseMode
+          });
         } catch {
           /* giữ list local */
         }
       }
+      if (cancelled) return;
 
-      // Fallback: suy ra cầu từ phiếu đã lưu trên cloud
-      if (!list.length) {
+      let list = loadCauRegistryForRoute(uid, activeRoadId, activeRoute, routeList);
+
+      // Chỉ sổ 1 nhánh mới suy cầu từ phiếu cloud (tránh lẫn cầu mọi nhánh)
+      if (!list.length && !multiRoute) {
         try {
           const sheets = await fetchCauInspections(uid, activeRoadId);
           if (cancelled) return;
@@ -345,18 +381,43 @@ export default function PhieuKiemTraCau({ readOnly = false, storageTick = 0 }) {
     void reloadBridges();
     function onRegistry() {
       if (!uid || !activeRoadId) return;
-      setBridges(loadCauRegistry(cauScope(uid, activeRoadId)));
+      setBridges(loadCauRegistryForRoute(uid, activeRoadId, activeRoute, routeList));
     }
     window.addEventListener(CAU_REGISTRY_EVENT, onRegistry);
     return () => {
       cancelled = true;
       window.removeEventListener(CAU_REGISTRY_EVENT, onRegistry);
     };
-  }, [uid, activeRoadId, roadLabel, browseMode, storageTick]);
+  }, [
+    uid,
+    activeRoadId,
+    catalogRoad,
+    activeRoad,
+    browseMode,
+    storageTick,
+    cauListScope,
+    multiRoute,
+    routeId,
+    routeList,
+    activeRoute
+  ]);
 
   useEffect(() => {
-    if (!bridgeId && bridges[0]?.id) setBridgeId(bridges[0].id);
+    if (!bridges.length) {
+      if (bridgeId) setBridgeId("");
+      return;
+    }
+    if (!bridges.some((b) => b.id === bridgeId)) {
+      setBridgeId(bridges[0].id);
+    }
   }, [bridges, bridgeId]);
+
+  const branchLabel = useMemo(() => {
+    if (routeList.length > 1 && activeRoute) {
+      return routeDisplayLabel(activeRoute) || activeRoute.roadName || "—";
+    }
+    return roadLabel || "—";
+  }, [routeList.length, activeRoute, roadLabel]);
 
   const selected = useMemo(
     () => bridges.find((b) => b.id === bridgeId) || null,
@@ -522,10 +583,16 @@ export default function PhieuKiemTraCau({ readOnly = false, storageTick = 0 }) {
     <div className={`phieu-cau-page${printOpen ? " phieu-cau-page--print" : ""}`}>
       <aside
         className="phieu-cau-sidebar no-print"
-        style={{ width: SIDEBAR_WIDTH, minWidth: SIDEBAR_WIDTH, maxWidth: SIDEBAR_WIDTH }}
+        style={sidebarStyle}
       >
         <div className="sidebar-sticky-head">
           <h2 className="sidebar-title">Phiếu kiểm tra cầu</h2>
+          <EntryRoutePicker label="Đường / nhánh" />
+          {routeList.length > 1 ? (
+            <p className="section-guide section-guide--compact">
+              Danh sách cầu theo nhánh: <strong>{branchLabel}</strong>
+            </p>
+          ) : null}
           <div className="sonhatky-date-toolbar phieu-cau-date-toolbar">
             <div className="sonhatky-day-buttons">
               <button
@@ -671,6 +738,8 @@ export default function PhieuKiemTraCau({ readOnly = false, storageTick = 0 }) {
           </div>
         )}
       </aside>
+
+      <SidebarResizer onMouseDown={onResizeStart} />
 
       <main className="phieu-cau-main">
         {printOpen ? (

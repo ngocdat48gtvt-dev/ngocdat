@@ -1,4 +1,5 @@
 import { formatDisplayDate, formatLyTrinh, kmToMeters } from "./nhatKyFormat";
+import { formatBookKmTitleLine } from "./roadsCatalog";
 
 export const TNGT_SECTION = "Tai nạn giao thông";
 
@@ -80,9 +81,17 @@ export function defaultExportTngt() {
   return true;
 }
 
+/** Nhận diện cả bản ghi TNGT cũ bị thiếu/sai tên section khi đã có dữ liệu đặc thù. */
+export function isTngtEntry(entry) {
+  const section = String(entry?.section || "").trim();
+  const type = String(entry?.type || "").trim().toLowerCase();
+  if (section === TNGT_SECTION || section === "An toàn giao thông") return true;
+  if (type === TNGT_SECTION.toLowerCase()) return true;
+  return entry?.exportTngt === true && Boolean(String(entry?.tngtCauseDetail || "").trim());
+}
+
 export function shouldExportTngt(entry) {
-  const section = entry?.section;
-  if (section !== TNGT_SECTION && section !== "An toàn giao thông") return false;
+  if (!isTngtEntry(entry)) return false;
   if (entry.exportTngt === false) return false;
   return entry.exportTngt !== false;
 }
@@ -138,9 +147,14 @@ function formatVehicleDamage(entry) {
 
 /** Nội dung cột 3 sổ tuần đường — lý trình ở cột 2, ngày theo ngày nhật ký. */
 export function formatTngtDiaryContent(entry) {
-  const cause = entry?.tngtCauseDetail?.trim() || entry?.content?.trim() || entry?.type || "";
+  const detail = String(entry?.tngtCauseDetail || "").trim();
+  const legacyContent = String(entry?.content || "").trim();
+  const cause = detail || legacyContent || entry?.type || "";
   const lines = [];
   if (cause) lines.push(cause);
+  // Một số bản ghi cũ lưu phần tiếp theo của diễn biến trong content.
+  // Giữ lại nếu khác nội dung chính để không làm mất chữ khi mở/sửa dữ liệu cũ.
+  if (detail && legacyContent && legacyContent !== detail) lines.push(legacyContent);
   lines.push(`- Thiệt hại về người: ${formatHumanDamage(entry)}`);
   lines.push(`- Thiệt hại về KCHTGT: ${formatRoadDamage(entry)}`);
   lines.push(`- Thiệt hại về phương tiện: ${formatVehicleDamage(entry)}`);
@@ -158,14 +172,7 @@ export function formatMonthTitle(yearMonth) {
 }
 
 export function formatTngtKmLine(reportMeta) {
-  const range = String(reportMeta?.kmRange || "")
-    .replace(/\bkm/gi, "Km")
-    .replace(/\s*-\s*/g, " Đến ")
-    .trim();
-  const road = String(reportMeta?.roadName || "").trim();
-  if (!range && !road) return "";
-  if (!road) return `Đoạn ${range}`;
-  return `Đoạn ${range}/${road}`;
+  return formatBookKmTitleLine(reportMeta);
 }
 
 function formatNum(value) {
@@ -217,7 +224,7 @@ export const TNGT_SHEET_LAYOUT = {
   sheetHeightMm: 210,
   paddingVerticalMm: 20,
   topBlockMm: 28,
-  theadMm: 22,
+  theadMm: 38,
   dataRowMinMm: 8,
   emptyRowMm: 7,
   minEmptyRows: 4,

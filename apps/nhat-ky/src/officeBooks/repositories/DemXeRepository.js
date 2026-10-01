@@ -4,20 +4,30 @@ import {
   demXeScope,
   loadDemXeLedger,
   normalizeLedger,
+  resolveDemXeScope,
   saveDemXeLedger,
-  setDemXeLedger
+  setDemXeLedger,
+  writeDemXeScope
 } from "../../utils/demXeStore";
 import { MODULE_KEYS, OFFICE_BOOK_SCHEMA_VERSION } from "../constants";
 
 /**
  * Module dem_xe — SSOT qua demXeStore (localStorage, tương thích ngược).
- * Sau này thay implementation bằng office_books Firestore, UI không đổi.
+ * Nhiều nhánh: scope local + byRoute trên cloud theo routeId.
  */
 export const DemXeRepository = {
   moduleKey: MODULE_KEYS.DEM_XE,
 
-  scope(uid, roadId) {
-    return demXeScope(uid, roadId);
+  scope(uid, roadId, routeId = "") {
+    return demXeScope(uid, roadId, routeId);
+  },
+
+  resolveScope(uid, roadId, routeId, routes = []) {
+    return resolveDemXeScope(uid, roadId, routeId, routes);
+  },
+
+  writeScope(uid, roadId, routeId, routes = []) {
+    return writeDemXeScope(uid, roadId, routeId, routes);
   },
 
   load(scope) {
@@ -46,13 +56,13 @@ export const DemXeRepository = {
     };
   },
 
-  async fetchRemote(uid, roadId, roadName) {
+  async fetchRemote(uid, roadId, roadName, opts = {}) {
     if (!uid || !roadId) return null;
-    return fetchDemXeForRoad(uid, roadId, roadName);
+    return fetchDemXeForRoad(uid, roadId, roadName, opts);
   },
 
-  async pushRemote(uid, roadId, ledger, roadName = "") {
+  async pushRemote(uid, roadId, ledger, roadName = "", opts = {}) {
     if (!uid || !roadId) return;
-    await pushDemXeForRoad(uid, roadId, ledger, roadName);
+    await pushDemXeForRoad(uid, roadId, ledger, roadName, opts);
   }
 };

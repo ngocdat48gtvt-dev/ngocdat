@@ -9,6 +9,15 @@ export interface IncidentUpdate {
   createdBy: string
 }
 
+/** Ảnh trùng/cache đã dọn — còn trong thùng rác, có thể khôi phục. */
+export interface TrashedDuplicatePhoto {
+  url: string
+  kind: 'before' | 'after'
+  trashedAtMs: number
+  reason: string
+  size?: number
+}
+
 export type ReworkStatus = 'NONE' | 'ASSIGNED' | 'PENDING_APPROVAL' | 'APPROVED'
 
 export type ReworkHistoryType =
@@ -68,6 +77,12 @@ export interface IncidentRecord {
   uuid?: string
   beforeImages?: string[]
   afterImages?: string[]
+  /**
+   * Ảnh dọn trùng (cache/hash) đưa vào thùng rác — giữ Storage 7 ngày để khôi phục.
+   */
+  trashedDuplicatePhotos?: TrashedDuplicatePhoto[]
+  /** Tombstone URL đã xóa — app không kéo lại từ updates[]. */
+  deletedImageUrls?: string[]
   /** Ảnh hiện trạng đã chọn để ghép báo cáo Word (URL hoặc "token:<tên>"). */
   selectedBefore?: string
   /** Ảnh sau xử lý đã chọn để ghép báo cáo Word (URL hoặc "token:<tên>"). */

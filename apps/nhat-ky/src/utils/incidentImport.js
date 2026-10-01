@@ -1,5 +1,6 @@
-import { formatDisplayDate, formatLyTrinh, loadStorage, migrateEntry, reconcileImportMap, sortEntriesOnDate, SECTIONS, parseKmParts, formatKmParts, addMetersToKm } from "./nhatKyFormat";
+import { formatDisplayDate, formatLyTrinh, loadStorage, migrateEntry, reconcileImportMap, saveStorage, sortEntriesOnDate, SECTIONS, VISIBLE_SECTIONS, parseKmParts, formatKmParts, addMetersToKm } from "./nhatKyFormat";
 import { computeVolume } from "./incidentUtils";
+import { activeDiaryEntries } from "./officeBooksConflictMerge";
 import {
   loadImportMap as loadImportMapRemote,
   persistImportMap
@@ -8,7 +9,7 @@ import {
 export const NHAT_KY_SECTION_TITLES = new Set(SECTIONS.map((s) => s.title));
 
 export function getImportSectionOptions() {
-  const manual = SECTIONS.map((s) => ({
+  const manual = VISIBLE_SECTIONS.map((s) => ({
     value: s.title,
     label: `${s.num}. ${s.title}`,
     part: s.part
@@ -42,17 +43,18 @@ const MAT_DUONG_GROUP_KEYS = ["mặt đường", "mat duong", "hư hỏng mặt 
 );
 const ATGT_GROUP_KEYS = ["atgt", "an toan giao thong", "he thong atgt"].map(normalizeGroupKey);
 
-/** Loại app → loại ghi trong nhật ký (Nền đường) */
+/** Loại app → loại ghi trong nhật ký (Nền đường). Giữ nguyên các loại Sa bồi (không gộp vào Sụt lún). */
 const NEN_DUONG_TYPE_MAP = Object.fromEntries(
   Object.entries({
-    "sạt đường": "Sạt taluy",
+    "sạt đường": "Sạt taluy dương",
     "sụt dương": "Sụt lún",
     "sụt âm": "Sụt lún",
-    "sa bồi lề mặt đường": "Sụt lún",
-    "sa bồi rãnh đất": "Sụt lún",
-    "sa bồi rãnh xây": "Sụt lún",
-    "sa bồi cống": "Sụt lún",
-    "sa bồi hố thu nước": "Sụt lún"
+    "sa bồi lề mặt đường": "Sa bồi lề mặt đường",
+    "sa bồi rãnh đất": "Sa bồi rãnh đất",
+    "sa bồi rãnh xây": "Sa bồi rãnh xây",
+    "sa bồi cống": "Sa bồi cống",
+    "sa bồi hố thu nước": "Sa bồi hố thu nước",
+    "sa bồi mặt đường": "Sa bồi mặt đường"
   }).map(([k, v]) => [normalizeGroupKey(k), v])
 );
 
@@ -226,8 +228,8 @@ function entrySyncDiffers(existing, merged) {
  */
 export async function syncImportedIncidentsToNhatKy(incidents, storageKey, uid) {
   const incidentById = Object.fromEntries(incidents.map((inc) => [inc.id, inc]));
-  const parsed = loadStorage(storageKey);
-  let entries = (parsed.entries || []).map(migrateEntry);
+  const parsed = loadStorage(storageKey, { includeDeleted: true });
+  let entries = activeDiaryEntries((parsed.entries || []).map(migrateEntry));
   const importMap = { ...(parsed.importMap || {}) };
   let updated = 0;
   const touchedDates = new Set();
@@ -256,6 +258,7 @@ export async function syncImportedIncidentsToNhatKy(incidents, storageKey, uid) 
       km: incident.km || merged.kmFrom,
       type: merged.type,
       groupName: incident.groupName || record.groupName || "",
+      storageKey: record.storageKey || storageKey,
       syncedAt: new Date().toISOString()
     };
   }
@@ -266,16 +269,12 @@ export async function syncImportedIncidentsToNhatKy(incidents, storageKey, uid) 
     entries = sortEntriesOnDate(entries, dateIso);
   }
 
-  const finalMap = reconcileImportMap(entries, importMap);
-  localStorage.setItem(
-    storageKey,
-    JSON.stringify({
-      ...parsed,
-      entries,
-      importMap: finalMap
-    })
-  );
-  await persistImportMap(uid, storageKey, finalMap);
+  const finalMap = reconcileImportMap(entries, importMap, storageKey);
+  // Dùng saveStorage để giữ tombstone xóa (không ghi đè raw localStorage).
+  saveStorage(entries, parsed.dayMeta || {}, parsed.reportMeta || {}, storageKey);
+  const after = loadStorage(storageKey);
+  // Ghi lại importMap đã reconcile (saveStorage cũng reconcile theo entries).
+  await persistImportMap(uid, storageKey, after.importMap || finalMap);
 
   return { updated, entries };
 }
@@ -309,11 +308,8 @@ export async function importIncidentsToNhatKy(
   const idSet = new Set(selectedIds);
   const sectionOverride = sectionMode === "auto" ? null : sectionMode;
   const importMap = { ...(await loadImportMapRemote(uid, storageKey)) };
-  const raw = localStorage.getItem(storageKey);
-  const parsed = raw
-    ? JSON.parse(raw)
-    : { entries: [], dayMeta: {}, reportMeta: {} };
-  const entries = Array.isArray(parsed.entries) ? parsed.entries.map(migrateEntry) : [];
+  const parsed = loadStorage(storageKey, { includeDeleted: true });
+  const entries = (parsed.entries || []).map(migrateEntry);
   const skipped = [];
   let added = 0;
 
@@ -344,23 +340,17 @@ export async function importIncidentsToNhatKy(
       km: inc.km || entry.kmFrom,
       type: entry.type,
       groupName: inc.groupName || "",
+      storageKey,
       importedAt: new Date().toISOString()
     };
     added += 1;
   }
 
-  const sortedEntries = sortEntriesOnDate(entries, nhatKyDateIso);
-  const finalMap = reconcileImportMap(sortedEntries, importMap);
+  const live = activeDiaryEntries(entries);
+  const sortedLive = sortEntriesOnDate(live, nhatKyDateIso);
+  const finalMap = reconcileImportMap(sortedLive, importMap, storageKey);
 
-  localStorage.setItem(
-    storageKey,
-    JSON.stringify({
-      ...parsed,
-      entries: sortedEntries,
-      importMap: finalMap
-    })
-  );
-
+  saveStorage(sortedLive, parsed.dayMeta || {}, parsed.reportMeta || {}, storageKey);
   await persistImportMap(uid, storageKey, finalMap);
 
   return { added, skipped, importMap: finalMap };

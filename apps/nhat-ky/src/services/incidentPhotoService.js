@@ -27,9 +27,13 @@ async function deleteStorageUrl(url) {
 /** Xóa một ảnh khỏi sự cố (Firestore + Storage nếu là URL). */
 export async function removeIncidentImage(uid, docId, incident, kind, url) {
   const patch = computeRemoveIncidentImagePatch(incident, kind, url);
+  if (!patch.removed) {
+    throw new Error("Không tìm thấy ảnh trong dữ liệu sự cố để xóa.");
+  }
   await updateDoc(doc(db, "users", uid, "incidents", docId), {
     beforeImages: patch.beforeImages,
     afterImages: patch.afterImages,
+    updates: patch.updates,
     reportImageOrder: patch.reportImageOrder,
     selectedBefore: patch.selectedBefore,
     selectedAfter: patch.selectedAfter,

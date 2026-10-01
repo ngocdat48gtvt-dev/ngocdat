@@ -4,8 +4,14 @@ import {
   migrateEntry,
   EMPTY_REPORT_META,
   normalizeKmInput,
-  addMetersToKm
+  addMetersToKm,
+  kmToMeters
 } from "./nhatKyFormat";
+import { expandEntriesForVolumeBooks } from "./mergeDiaryEntries";
+import { formatBookKmTitleLine } from "./roadsCatalog";
+import { formatBookDecimal } from "./bookNumberFormat";
+import { inferEntryUnit, resolveEntryQuantity } from "./incidentUtils";
+import { getMaintenanceNameForType } from "./baoDuongQualityStore";
 
 export { EMPTY_REPORT_META };
 
@@ -38,13 +44,7 @@ export function formatMatDuongMonthTitle(yearMonth) {
 }
 
 export function formatMatDuongKmLine(reportMeta) {
-  const range = String(reportMeta?.kmRange || "")
-    .replace(/\bkm/gi, "Km")
-    .replace(/\s*-\s*/g, " đến ")
-    .trim();
-  const road = String(reportMeta?.roadName || "").replace(/\./g, "").trim();
-  if (!range && !road) return "";
-  return `Lý trình: ${range}/${road}`;
+  return formatBookKmTitleLine(reportMeta);
 }
 
 /** Hằng số bố cục trang A4 ngang — dùng chung preview + in. */
@@ -52,17 +52,21 @@ export const MAT_DUONG_SHEET_LAYOUT = {
   sheetWidthMm: 297,
   sheetHeightMm: 210,
   paddingVerticalMm: 22,
-  topBlockMm: 34,
-  theadMm: 24,
-  /** Chiều cao hàng dữ liệu tối thiểu (mm) */
-  dataRowMinMm: 8.6,
+  /** Header công ty + tiêu đề + dòng Km — khớp CSS Times 13pt. */
+  topBlockMm: 31,
+  /** 3 hàng thead. */
+  theadMm: 21,
+  /** Chiều cao hàng dữ liệu 1 dòng (mm) — khớp preview/in + viền đáy. */
+  dataRowMinMm: 8.0,
   emptyRowMm: 7.2,
   minEmptyRows: 4,
+  /** Hàng tiêu đề nhánh đường (khi gộp nhiều tuyến). */
+  routeHeaderMm: 7.5,
   /**
-   * Chừa đáy đủ lớn để hàng cuối luôn nguyên viền dưới
-   * (tránh ngắt giữa hàng → mất border như trang 1).
+   * Ngắt trang cách lề dưới đúng 1 cm (10 mm).
+   * Lề dưới margins.bottom đã trừ riêng — đây là khoảng trống thêm trong vùng in.
    */
-  safetyMm: 14
+  safetyMm: 10
 };
 
 export function matDuongBodyBudgetMm(margins) {
@@ -79,6 +83,13 @@ export function matDuongBodyBudgetMm(margins) {
 
 export function estimateMatDuongDataRowMm(entry) {
   const L = MAT_DUONG_SHEET_LAYOUT;
+  if (entry?._matDuongMaintenanceSummary) {
+    const lines = Math.max(
+      1,
+      Math.ceil(String(entry.maintenanceText || "").length / 55)
+    );
+    return Math.max(L.dataRowMinMm, 5.4 + (lines - 1) * 3.7) + 0.35;
+  }
   const damage = formatDamageLevel(entry);
   const note = entry?.inspectorNote?.trim() || "";
 
@@ -93,27 +104,29 @@ export function estimateMatDuongDataRowMm(entry) {
     return n;
   }
 
-  const lines = Math.max(1, countLines(damage, 26), countLines(note, 20));
-  // +0.4mm viền/border-collapse để không cắt cạnh dưới hàng
-  return Math.max(L.dataRowMinMm, 5.5 + (lines - 1) * 3.8) + 0.4;
+  const lines = Math.max(1, countLines(damage, 28), countLines(note, 22));
+  return Math.max(L.dataRowMinMm, 5.4 + (lines - 1) * 3.7) + 0.35;
 }
 
 /**
  * Đệm hàng trống — chia đều phần còn lại sau dữ liệu (cùng công thức preview/in).
+ * @param {object} [opts]
+ * @param {number} [opts.routeHeaderCount] — số hàng tiêu đề nhánh đường trên tờ.
  */
-export function computeMatDuongPadRows(entries, margins) {
+export function computeMatDuongPadRows(entries, margins, opts = {}) {
   const L = MAT_DUONG_SHEET_LAYOUT;
   const budgetMm = matDuongBodyBudgetMm(margins);
-  const dataMm = (entries || []).reduce(
-    (sum, e) => sum + estimateMatDuongDataRowMm(e),
-    0
-  );
+  const headerMm = (Number(opts.routeHeaderCount) || 0) * (L.routeHeaderMm || 7.5);
+  const dataMm =
+    (entries || []).reduce((sum, e) => sum + estimateMatDuongDataRowMm(e), 0) +
+    headerMm;
   const remainMm = Math.max(0, budgetMm - dataMm);
 
-  if (remainMm < 3) {
+  if (remainMm < 2.5) {
     return { count: 0, rowHeightMm: L.emptyRowMm, remainMm: 0 };
   }
 
+  // Giãn đều hàng trống để đáy bảng sát budget (= gần căn lề dưới).
   const count = Math.max(
     entries?.length ? 1 : L.minEmptyRows,
     Math.floor(remainMm / L.emptyRowMm)
@@ -136,7 +149,6 @@ export function packMatDuongPages(entries, margins) {
   let used = 0;
   list.forEach((entry) => {
     const h = estimateMatDuongDataRowMm(entry);
-    // Ngắt sang tờ mới TRƯỚC khi thêm hàng không còn đủ chỗ (kể cả viền)
     if (bucket.length > 0 && used + h > budgetMm) {
       pages.push(bucket);
       bucket = [];
@@ -159,17 +171,129 @@ export function entryInMonth(entry, yearMonth) {
 }
 
 export function filterMatDuongEntries(entries, yearMonth) {
-  return entries
+  // Gộp chỉ trên sổ tuần đường — dòng kiểm tra mặt đường luôn tách từng vị trí.
+  const expanded = expandEntriesForVolumeBooks(entries || [])
     .map(migrateEntry)
-    .map(withMatDuongKmTo)
-    .filter(
-      (e) =>
-        shouldExportMatDuong(e) && entryInMonth(e, yearMonth)
-    )
-    .sort((a, b) => {
-      if (a.date !== b.date) return a.date.localeCompare(b.date);
-      return String(a.kmFrom).localeCompare(String(b.kmFrom));
-    });
+    .map(withMatDuongKmTo);
+
+  // Ngày kiểm tra = ngày tuần đường; lúc phát hiện luôn ghi “Chưa”.
+  const inspectionRows = expanded
+    .filter((e) => shouldExportMatDuong(e) && entryInMonth(e, yearMonth))
+    .map((e) => ({
+      ...e,
+      resolvedStatus: "chua",
+      _matDuongRowKind: "inspection"
+    }));
+
+  // Khi thực hiện BDTX: gom cùng ngày + cùng công việc + cùng tuyến,
+  // cộng khối lượng và đếm số vị trí để tạo một dòng kết quả riêng.
+  const groups = new Map();
+  expanded.forEach((e) => {
+    if (!shouldExportMatDuong(e)) return;
+    const repairDate = String(e.plannedRepairDate || "").trim();
+    if (!repairDate || !repairDate.startsWith(yearMonth)) return;
+
+    const type = String(e.type || "").trim();
+    const sourceType = String(e.sourceIncidentType || "").trim();
+    const work =
+      getMaintenanceNameForType(type) ||
+      getMaintenanceNameForType(sourceType) ||
+      type ||
+      sourceType ||
+      "Sửa chữa mặt đường";
+    const unit = inferEntryUnit(e) || e.unit || "m2";
+    const routeKey = String(e.routeId || e.roadName || "").trim();
+    const key = [repairDate, work.toLocaleLowerCase("vi"), unit, routeKey].join("|");
+    if (!groups.has(key)) {
+      groups.set(key, {
+        repairDate,
+        work,
+        unit,
+        routeId: e.routeId || "",
+        roadName: e.roadName || "",
+        quantity: 0,
+        count: 0,
+        minKm: Infinity,
+        maxKm: -Infinity,
+        inspectorSign: "",
+        inspectorNote: ""
+      });
+    }
+    const group = groups.get(key);
+    group.quantity += resolveEntryQuantity(e) || 0;
+    group.count += 1;
+    if (!group.inspectorSign && String(e.inspectorSign || "").trim()) {
+      group.inspectorSign = String(e.inspectorSign).trim();
+    }
+    if (!group.inspectorNote && String(e.inspectorNote || "").trim()) {
+      group.inspectorNote = String(e.inspectorNote).trim();
+    }
+    const fromM = e.kmFrom ? kmToMeters(e.kmFrom) : NaN;
+    const resolvedTo = resolveEntryKmTo(e);
+    const toM = resolvedTo ? kmToMeters(resolvedTo) : NaN;
+    if (Number.isFinite(fromM)) {
+      group.minKm = Math.min(group.minKm, fromM);
+      group.maxKm = Math.max(group.maxKm, fromM);
+    }
+    if (Number.isFinite(toM)) {
+      group.minKm = Math.min(group.minKm, toM);
+      group.maxKm = Math.max(group.maxKm, toM);
+    }
+  });
+
+  const maintenanceRows = [...groups.values()].map((group) => {
+    const kmFrom = Number.isFinite(group.minKm) ? metersToKm(group.minKm) : "";
+    const kmTo = Number.isFinite(group.maxKm) ? metersToKm(group.maxKm) : kmFrom;
+    const fromLabel = formatKmCell(kmFrom);
+    const toLabel = formatKmCell(kmTo);
+    const range =
+      fromLabel && toLabel && fromLabel !== toLabel
+        ? `từ ${fromLabel} đến ${toLabel}`
+        : `tại ${fromLabel || toLabel || "lý trình đã ghi"}`;
+    const action =
+      group.work.charAt(0).toLocaleLowerCase("vi") + group.work.slice(1);
+    const quantity = formatBookDecimal(group.quantity) || "0";
+    const unitLabel =
+      group.unit === "m2" || group.unit === "m²"
+        ? "m²"
+        : group.unit === "m3" || group.unit === "m³"
+          ? "m³"
+          : group.unit;
+    return {
+      _matDuongMaintenanceSummary: true,
+      _matDuongRowKind: "maintenance",
+      section: MAT_DUONG_SECTION,
+      date: group.repairDate,
+      plannedRepairDate: group.repairDate,
+      routeId: group.routeId,
+      roadName: group.roadName,
+      kmFrom,
+      kmTo,
+      resolvedStatus: "co",
+      inspectorSign: group.inspectorSign,
+      inspectorNote: group.inspectorNote,
+      maintenanceText:
+        `Đã ${action}, ${range}, khối lượng ${quantity} ${unitLabel}` +
+        `/ ${group.count} vị trí.`
+    };
+  });
+
+  return [...inspectionRows, ...maintenanceRows].sort((a, b) => {
+    if (a.date !== b.date) return String(a.date).localeCompare(String(b.date));
+    if (a._matDuongRowKind !== b._matDuongRowKind) {
+      // Cùng ngày: kết quả đã sửa/đã xử lý xếp trước các điểm phát sinh mới.
+      return a._matDuongRowKind === "maintenance" ? -1 : 1;
+    }
+    return String(a.kmFrom).localeCompare(String(b.kmFrom));
+  });
+}
+
+function metersToKm(totalM) {
+  if (!Number.isFinite(totalM) || totalM < 0) return "";
+  const rounded = Math.round(totalM);
+  const km = Math.floor(rounded / 1000);
+  const m = rounded % 1000;
+  return `${km}+${String(m).padStart(3, "0")}`;
 }
 
 export function formatKmCell(value) {
@@ -225,18 +349,15 @@ export function withMatDuongKmTo(entry) {
 
 export function entryToMatDuongRow(entry) {
   const status = inferResolvedStatus(entry);
-  const damageCell = formatDamageLevel(entry);
-  const kmTo = resolveEntryKmTo(entry);
-
   return {
     date: formatDisplayDate(entry.date),
     kmFrom: formatKmCell(entry.kmFrom),
-    kmTo: formatKmCell(kmTo),
+    kmTo: formatKmCell(resolveEntryKmTo(entry)),
     side: entry.side || "",
-    length: entry.length || "",
-    width: entry.width || "",
-    area: calcAreaM2(entry),
-    damageLevel: damageCell,
+    length: formatBookDecimal(entry.length) || "",
+    width: formatBookDecimal(entry.width) || "",
+    area: formatBookDecimal(calcAreaM2(entry)) || "",
+    damageLevel: formatDamageLevel(entry),
     resolvedCo: status === "co" ? "X" : "",
     resolvedChua: status === "chua" ? "X" : "",
     inspectorSign: entry.inspectorSign || "",

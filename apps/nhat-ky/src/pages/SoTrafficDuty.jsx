@@ -6,7 +6,8 @@ import {
   loadStorage,
   saveStorage,
   formatYearMonthVN,
-  migrateEntry
+  migrateEntry,
+  safeSetLocalStorage
 } from "../utils/nhatKyFormat";
 import {
   filterTrafficDutyEntries,
@@ -15,11 +16,14 @@ import {
   scrubLegacyTrafficDutyAutoFill
 } from "../utils/trafficDutyFormat";
 import { printTrafficDutyPages } from "../utils/trafficDutyPrint";
+import { exportTrafficDutyExcel } from "../utils/trafficDutyExcel";
 import { getTrafficDutyColWidths } from "../hooks/useTrafficDutyColWidths";
 import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
 import { resolveReportMetaFromRoad } from "../utils/roadsCatalog";
+import RoutesViewSidebarControls from "../components/RoutesViewSidebarControls";
 
-const SIDEBAR_WIDTH = 280;
+import SidebarResizer from "../components/SidebarResizer";
+import { useResizableSidebar } from "../hooks/useResizableSidebar";
 const MARGIN_KEY = "traffic-duty-print-margins-v1";
 const DEFAULT_MARGINS = { top: 8, right: 10, bottom: 8, left: 10 };
 
@@ -45,7 +49,8 @@ function loadMargins() {
 }
 
 export default function SoTrafficDuty({ onGoEdit, storageTick = 0, readOnly = false }) {
-  const { storageKey, activeRoad } = useRoadWorkspace();
+  const { storageKey, activeRoad, filterByRouteView } = useRoadWorkspace();
+  const { sidebarStyle, onResizeStart } = useResizableSidebar({ defaultWidth: 280 });
   const now = new Date();
   const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
@@ -65,6 +70,7 @@ export default function SoTrafficDuty({ onGoEdit, storageTick = 0, readOnly = fa
   const [printOpen, setPrintOpen] = useState(false);
   const [margins, setMargins] = useState(loadMargins);
   const [colWidths, setColWidths] = useState(getTrafficDutyColWidths);
+  const [exportingExcel, setExportingExcel] = useState(false);
 
   const initial = loadStorage(storageKey);
   const [entries, setEntries] = useState(() =>
@@ -100,20 +106,27 @@ export default function SoTrafficDuty({ onGoEdit, storageTick = 0, readOnly = fa
   ]);
 
   useEffect(() => {
-    localStorage.setItem(MARGIN_KEY, JSON.stringify(margins));
+    safeSetLocalStorage(MARGIN_KEY, margins);
   }, [margins]);
 
   useEffect(() => {
     if (printOpen) setColWidths(getTrafficDutyColWidths());
   }, [printOpen]);
 
-  const data = filterTrafficDutyEntries(entries, yearMonth);
+  const data = useMemo(
+    () => filterByRouteView(filterTrafficDutyEntries(entries, yearMonth)),
+    [entries, yearMonth, filterByRouteView]
+  );
 
   const rowItems = useMemo(() => {
-    return data.map((entry) => ({
-      entry,
-      globalIndex: entries.findIndex((e) => entryMatches(e, entry))
-    }));
+    return data.map((entry) => {
+      const loc = locateEntryInList(entries, entry);
+      return {
+        entry,
+        globalIndex: loc.globalIndex,
+        sourceIndex: loc.sourceIndex
+      };
+    });
   }, [data, entries]);
 
   const printPageCount = useMemo(
@@ -133,7 +146,7 @@ export default function SoTrafficDuty({ onGoEdit, storageTick = 0, readOnly = fa
     setSaveMessage("");
   }
 
-  function updateEntry(globalIndex, field, value) {
+  function updateEntry(globalIndex, field, value, sourceIndex = -1) {
     if (readOnly || globalIndex < 0) return;
     setEntries((prev) => {
       const next = [...prev];
@@ -141,15 +154,31 @@ export default function SoTrafficDuty({ onGoEdit, storageTick = 0, readOnly = fa
       if (field === "leaderNote") {
         patch.resolved = "";
       }
-      next[globalIndex] = { ...next[globalIndex], ...patch };
+      const parent = next[globalIndex];
+      if (
+        sourceIndex >= 0 &&
+        Array.isArray(parent?.mergedSources) &&
+        parent.mergedSources[sourceIndex]
+      ) {
+        const sources = parent.mergedSources.map((s, j) =>
+          j === sourceIndex ? { ...s, ...patch } : s
+        );
+        next[globalIndex] = { ...parent, mergedSources: sources };
+      } else {
+        next[globalIndex] = { ...parent, ...patch };
+      }
       return next;
     });
     markDirty();
   }
 
-  function handleApplySameDay(globalIndex, field, value) {
+  function handleApplySameDay(globalIndex, field, value, sourceIndex = -1) {
     if (readOnly) return;
-    const sourceDate = entries[globalIndex]?.date;
+    const parent = entries[globalIndex];
+    const sourceDate =
+      sourceIndex >= 0 && parent?.mergedSources?.[sourceIndex]
+        ? parent.mergedSources[sourceIndex].date
+        : parent?.date;
     if (!sourceDate || !String(value || "").trim()) return;
 
     if (field === "reportRecipient") {
@@ -164,30 +193,44 @@ export default function SoTrafficDuty({ onGoEdit, storageTick = 0, readOnly = fa
     const entryField = trafficDutyEntryField(field);
     if (!entryField) return;
 
-    const indicesOnDay = new Set(
-      rowItems
-        .filter((item) => item.entry.date === sourceDate)
-        .map((item) => item.globalIndex)
-    );
+    const targets = rowItems.filter((item) => item.entry.date === sourceDate);
 
-    setEntries((prev) =>
-      prev.map((entry, idx) =>
-        indicesOnDay.has(idx)
-          ? {
-              ...entry,
-              [entryField]: value,
-              ...(entryField === "leaderNote" ? { resolved: "" } : {})
-            }
-          : entry
-      )
-    );
+    setEntries((prev) => {
+      let next = prev;
+      for (const item of targets) {
+        if (item.globalIndex < 0) continue;
+        const patch = {
+          [entryField]: value,
+          ...(entryField === "leaderNote" ? { resolved: "" } : {})
+        };
+        next = next.map((entry, idx) => {
+          if (idx !== item.globalIndex) return entry;
+          if (
+            item.sourceIndex >= 0 &&
+            Array.isArray(entry?.mergedSources) &&
+            entry.mergedSources[item.sourceIndex]
+          ) {
+            const sources = entry.mergedSources.map((s, j) =>
+              j === item.sourceIndex ? { ...s, ...patch } : s
+            );
+            return { ...entry, mergedSources: sources };
+          }
+          return { ...entry, ...patch };
+        });
+      }
+      return next;
+    });
     markDirty();
   }
 
-  function handleCellChange(globalIndex, field, value) {
+  function handleCellChange(globalIndex, field, value, sourceIndex = -1) {
     if (readOnly) return;
     if (field === "reportRecipient") {
-      const date = entries[globalIndex]?.date;
+      const parent = entries[globalIndex];
+      const date =
+        sourceIndex >= 0 && parent?.mergedSources?.[sourceIndex]
+          ? parent.mergedSources[sourceIndex].date
+          : parent?.date;
       if (!date) return;
       setDayMetaMap((prev) => ({
         ...prev,
@@ -199,7 +242,7 @@ export default function SoTrafficDuty({ onGoEdit, storageTick = 0, readOnly = fa
 
     const entryField = trafficDutyEntryField(field);
     if (!entryField) return;
-    updateEntry(globalIndex, entryField, value);
+    updateEntry(globalIndex, entryField, value, sourceIndex);
   }
 
   function handleSave() {
@@ -210,6 +253,81 @@ export default function SoTrafficDuty({ onGoEdit, storageTick = 0, readOnly = fa
     setTimeout(() => setSaveMessage(""), 3500);
   }
 
+  /** Sidebar: đổ «Người trực» vào mọi dòng có dữ liệu của tháng đang xem. */
+  function applyMonthDutyPerson(name) {
+    if (readOnly) return;
+    const value = String(name || "");
+    setReportMeta((prev) => ({ ...prev, trafficDutyPerson: value }));
+    const targets = rowItems.filter(
+      (item) => Number.isInteger(item.globalIndex) && item.globalIndex >= 0
+    );
+    if (targets.length) {
+      setEntries((prev) => {
+        let next = prev;
+        for (const item of targets) {
+          next = next.map((entry, idx) => {
+            if (idx !== item.globalIndex) return entry;
+            if (
+              item.sourceIndex >= 0 &&
+              Array.isArray(entry?.mergedSources) &&
+              entry.mergedSources[item.sourceIndex]
+            ) {
+              const sources = entry.mergedSources.map((s, j) =>
+                j === item.sourceIndex ? { ...s, dutyPerson: value } : s
+              );
+              return { ...entry, mergedSources: sources };
+            }
+            return { ...entry, dutyPerson: value };
+          });
+        }
+        return next;
+      });
+    }
+    markDirty();
+  }
+
+  /** Sidebar: đổ «Người nhận báo cáo» vào mọi ngày có dữ liệu trong tháng. */
+  function applyMonthReportRecipient(name) {
+    if (readOnly) return;
+    const value = String(name || "");
+    setReportMeta((prev) => ({ ...prev, trafficDutyLeaderSign: value }));
+    const dates = new Set(
+      rowItems.map((item) => item.entry?.date).filter(Boolean)
+    );
+    if (dates.size) {
+      setDayMetaMap((prev) => {
+        const next = { ...prev };
+        dates.forEach((d) => {
+          next[d] = { ...(next[d] || {}), leaderSign: value };
+        });
+        return next;
+      });
+    }
+    markDirty();
+  }
+
+  async function handleExportExcel() {
+    if (exportingExcel) return;
+    setExportingExcel(true);
+    try {
+      const { filename } = await exportTrafficDutyExcel({
+        yearMonth,
+        reportMeta,
+        entries: data,
+        dayMetaMap,
+        margins,
+        widths: colWidths
+      });
+      setSaveMessage(`Đã xuất ${filename}`);
+      setTimeout(() => setSaveMessage(""), 4000);
+    } catch (err) {
+      console.error(err);
+      window.alert(err?.message || "Không xuất được Excel. Thử lại.");
+    } finally {
+      setExportingExcel(false);
+    }
+  }
+
   return (
     <div
       className={`nhaplieu-workspace sonhatky-workspace${
@@ -218,11 +336,7 @@ export default function SoTrafficDuty({ onGoEdit, storageTick = 0, readOnly = fa
     >
       <aside
         className="nhaplieu-sidebar sonhatky-sidebar traffic-duty-sidebar no-print"
-        style={{
-          width: SIDEBAR_WIDTH,
-          minWidth: SIDEBAR_WIDTH,
-          maxWidth: SIDEBAR_WIDTH
-        }}
+        style={sidebarStyle}
       >
         <div className="sidebar-sticky-head">
           <h2 className="sidebar-title">Sổ trực ĐBGT</h2>
@@ -289,6 +403,36 @@ export default function SoTrafficDuty({ onGoEdit, storageTick = 0, readOnly = fa
               Thêm sự cố (Nhập liệu)
             </button>
           )}
+
+          {!readOnly && (
+            <div className="traffic-duty-month-names">
+              <div className="print-form-label">Người trực / Người nhận BC (tháng này)</div>
+              <label className="sidebar-field">
+                <span className="sidebar-field-label">Người trực</span>
+                <input
+                  type="text"
+                  className="sidebar-input"
+                  value={reportMeta?.trafficDutyPerson || ""}
+                  placeholder="VD: Nguyễn Văn A"
+                  onChange={(e) => applyMonthDutyPerson(e.target.value)}
+                />
+              </label>
+              <label className="sidebar-field">
+                <span className="sidebar-field-label">Người nhận báo cáo</span>
+                <input
+                  type="text"
+                  className="sidebar-input"
+                  value={reportMeta?.trafficDutyLeaderSign || ""}
+                  placeholder="VD: Trần Văn B"
+                  onChange={(e) => applyMonthReportRecipient(e.target.value)}
+                />
+              </label>
+              <p className="traffic-duty-month-names-hint">
+                Điền tên → tự điền vào mọi dòng có dữ liệu của tháng đang xem. Có thể sửa từng ô trên bảng.
+              </p>
+            </div>
+          )}
+
           <button
             type="button"
             className={`btn-secondary sonhatky-edit-btn sonhatky-edit-btn--sub${
@@ -298,6 +442,7 @@ export default function SoTrafficDuty({ onGoEdit, storageTick = 0, readOnly = fa
           >
             {printOpen ? "Đóng xem trước in" : "In sổ trực ĐBGT"}
           </button>
+          <RoutesViewSidebarControls />
         </div>
 
         {printOpen && (
@@ -314,6 +459,8 @@ export default function SoTrafficDuty({ onGoEdit, storageTick = 0, readOnly = fa
           </div>
         )}
       </aside>
+
+      <SidebarResizer onMouseDown={onResizeStart} />
 
       <main className="nhaplieu-review-pane">
         {!printOpen ? (
@@ -345,13 +492,23 @@ export default function SoTrafficDuty({ onGoEdit, storageTick = 0, readOnly = fa
                   </span>
                 </div>
               </div>
-              <button
-                type="button"
-                className="btn-primary btn-primary--compact print-toolbar-action"
-                onClick={() => printTrafficDutyPages(margins, colWidths)}
-              >
-                In tháng này
-              </button>
+              <div className="print-toolbar-actions">
+                <button
+                  type="button"
+                  className="btn-secondary btn-primary--compact print-toolbar-action"
+                  disabled={exportingExcel}
+                  onClick={() => void handleExportExcel()}
+                >
+                  {exportingExcel ? "Đang xuất…" : "Xuất Excel"}
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary btn-primary--compact print-toolbar-action"
+                  onClick={() => printTrafficDutyPages(margins, colWidths)}
+                >
+                  In tháng này
+                </button>
+              </div>
             </div>
             <TrafficDutyPrintPages
               yearMonth={yearMonth}
@@ -380,4 +537,22 @@ function entryMatches(a, b) {
     a.type === b.type &&
     a.section === b.section
   );
+}
+
+/** Tìm vị trí bản ghi (kể cả trong mergedSources khi đã gộp trên sổ tuần đường). */
+function locateEntryInList(entries, target) {
+  for (let i = 0; i < (entries || []).length; i += 1) {
+    const e = entries[i];
+    if (Array.isArray(e?.mergedSources) && e.mergedSources.length >= 2) {
+      for (let j = 0; j < e.mergedSources.length; j += 1) {
+        if (entryMatches(e.mergedSources[j], target)) {
+          return { globalIndex: i, sourceIndex: j };
+        }
+      }
+    }
+    if (entryMatches(e, target)) {
+      return { globalIndex: i, sourceIndex: -1 };
+    }
+  }
+  return { globalIndex: -1, sourceIndex: -1 };
 }

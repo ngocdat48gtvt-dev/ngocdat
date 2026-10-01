@@ -121,10 +121,17 @@ export function useCauInspectionSync({
           }
         }
 
-        const adoptRemoteUnit = Boolean(remoteUnit && (browseMode || !localMeta.unitName));
+        // Ưu tiên tên đơn vị / tờ từ cloud khi browse, local trống, hoặc cloud ≥ local
+        const preferCloud = browseMode || !localCount || remoteCount >= localCount;
+        const adoptRemoteUnit = Boolean(
+          remoteUnit && (preferCloud || !localMeta.unitName)
+        );
 
         if (remoteCount) {
-          const merged = browseMode ? { ...remoteSheets } : { ...remoteSheets, ...local };
+          // Cloud thắng xung đột cùng id; giữ tờ chỉ có ở local khi local nhiều hơn
+          const merged = preferCloud
+            ? { ...local, ...remoteSheets }
+            : { ...remoteSheets, ...local };
           applyRemoteSheets(uid, roadId, merged);
           if (adoptRemoteUnit) {
             persistCauRoadUnitName(uid, roadId, remoteUnit);

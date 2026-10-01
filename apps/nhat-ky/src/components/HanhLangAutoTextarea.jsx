@@ -1,6 +1,6 @@
 import { useRef, useEffect, useCallback } from "react";
 
-/** Textarea tự giãn chiều cao theo nội dung — giống ô đồng bộ cột 7. */
+/** Textarea tự giãn chiều cao theo nội dung — form nhập hoặc ô bảng Excel. */
 export default function HanhLangAutoTextarea({
   name,
   value,
@@ -8,21 +8,29 @@ export default function HanhLangAutoTextarea({
   placeholder,
   rows = 2,
   className = "",
-  readOnly = false
+  readOnly = false,
+  ariaLabel,
+  variant = "form"
 }) {
   const ref = useRef(null);
-  const linePx = 22;
+  const linePx = variant === "excel" ? 20 : 22;
+  const minPx = variant === "excel" ? 28 : rows * linePx;
 
   const adjustHeight = useCallback(() => {
     const el = ref.current;
     if (!el) return;
     el.style.height = "0";
-    el.style.height = `${Math.max(el.scrollHeight, rows * linePx)}px`;
-  }, [rows]);
+    el.style.height = `${Math.max(el.scrollHeight, minPx)}px`;
+  }, [minPx]);
 
   useEffect(() => {
     adjustHeight();
   }, [value, adjustHeight]);
+
+  const baseClass =
+    variant === "excel"
+      ? "matduong-excel-auto"
+      : "tngt-entry-input hanh-lang-entry-auto";
 
   return (
     <textarea
@@ -30,9 +38,10 @@ export default function HanhLangAutoTextarea({
       name={name}
       value={value || ""}
       placeholder={placeholder}
-      rows={rows}
+      rows={variant === "excel" ? 1 : rows}
       readOnly={readOnly}
-      className={`tngt-entry-input hanh-lang-entry-auto ${className}`.trim()}
+      aria-label={ariaLabel}
+      className={`${baseClass} ${className}`.trim()}
       onChange={(e) => {
         onChange?.(e);
         adjustHeight();

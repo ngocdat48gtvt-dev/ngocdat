@@ -2,17 +2,20 @@ import { useEffect, useMemo, useState } from "react";
 import MatDuongSheet from "../components/MatDuongSheet";
 import MatDuongPrintPages from "../components/MatDuongPrintPages";
 import { ViMonthInput } from "../components/ViDateInput";
-import { loadStorage, formatYearMonthVN } from "../utils/nhatKyFormat";
+import { loadStorage, formatYearMonthVN, safeSetLocalStorage } from "../utils/nhatKyFormat";
 import {
   filterMatDuongEntries,
   packMatDuongPages
 } from "../utils/matDuongFormat";
 import { printMatDuongPages } from "../utils/matDuongPrint";
+import { exportMatDuongExcel } from "../utils/matDuongExcel";
 import { getMatDuongColWidths } from "../hooks/useMatDuongColWidths";
 import { useRoadWorkspace } from "../context/RoadWorkspaceContext";
 import { resolveReportMetaFromRoad } from "../utils/roadsCatalog";
+import RoutesViewSidebarControls from "../components/RoutesViewSidebarControls";
+import SidebarResizer from "../components/SidebarResizer";
+import { useResizableSidebar } from "../hooks/useResizableSidebar";
 
-const SIDEBAR_WIDTH = 300;
 const MARGIN_KEY = "matduong-print-margins-v1";
 const DEFAULT_MARGINS = { top: 8, right: 10, bottom: 8, left: 10 };
 
@@ -38,12 +41,14 @@ function clampMm(v, fallback) {
 }
 
 export default function SoMatDuong({ storageTick = 0, readOnly = false }) {
-  const { storageKey, activeRoad } = useRoadWorkspace();
+  const { storageKey, activeRoad, filterByRouteView } = useRoadWorkspace();
+  const { sidebarStyle, onResizeStart } = useResizableSidebar({ defaultWidth: 300 });
   const now = new Date();
   const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
   const [yearMonth, setYearMonth] = useState(defaultMonth);
   const [printOpen, setPrintOpen] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
   const [margins, setMargins] = useState(loadMargins);
   const [colWidths, setColWidths] = useState(getMatDuongColWidths);
 
@@ -52,14 +57,17 @@ export default function SoMatDuong({ storageTick = 0, readOnly = false }) {
     () => resolveReportMetaFromRoad(stored.reportMeta, activeRoad),
     [stored.reportMeta, activeRoad]
   );
-  const data = filterMatDuongEntries(stored.entries, yearMonth);
+  const data = useMemo(
+    () => filterByRouteView(filterMatDuongEntries(stored.entries, yearMonth)),
+    [stored.entries, yearMonth, filterByRouteView]
+  );
   const printPageCount = useMemo(
     () => packMatDuongPages(data, margins).length,
     [data, margins]
   );
 
   useEffect(() => {
-    localStorage.setItem(MARGIN_KEY, JSON.stringify(margins));
+    safeSetLocalStorage(MARGIN_KEY, margins);
   }, [margins]);
 
   useEffect(() => {
@@ -76,6 +84,25 @@ export default function SoMatDuong({ storageTick = 0, readOnly = false }) {
     printMatDuongPages(margins, colWidths);
   }
 
+  async function runExportExcel() {
+    if (exportingExcel) return;
+    setExportingExcel(true);
+    try {
+      await exportMatDuongExcel({
+        entries: data,
+        yearMonth,
+        reportMeta,
+        margins,
+        widths: colWidths
+      });
+    } catch (error) {
+      console.error(error);
+      window.alert("Không xuất được Excel. Vui lòng thử lại.");
+    } finally {
+      setExportingExcel(false);
+    }
+  }
+
   const kmHint =
     reportMeta.kmRange || reportMeta.roadName
       ? `Tuyến: ${reportMeta.roadName || "…"} · ${reportMeta.kmRange || "…"}`
@@ -89,11 +116,7 @@ export default function SoMatDuong({ storageTick = 0, readOnly = false }) {
     >
       <aside
         className="nhaplieu-sidebar sonhatky-sidebar no-print"
-        style={{
-          width: SIDEBAR_WIDTH,
-          minWidth: SIDEBAR_WIDTH,
-          maxWidth: SIDEBAR_WIDTH
-        }}
+        style={sidebarStyle}
       >
         <div className="sidebar-sticky-head">
           <h2 className="sidebar-title">Sổ mặt đường</h2>
@@ -139,6 +162,7 @@ export default function SoMatDuong({ storageTick = 0, readOnly = false }) {
           >
             {printOpen ? "Đóng xem trước in" : "In sổ mặt đường"}
           </button>
+          <RoutesViewSidebarControls />
         </div>
 
         {printOpen && (
@@ -155,6 +179,8 @@ export default function SoMatDuong({ storageTick = 0, readOnly = false }) {
           </div>
         )}
       </aside>
+
+      <SidebarResizer onMouseDown={onResizeStart} />
 
       <main className="nhaplieu-review-pane">
         {!printOpen ? (
@@ -183,13 +209,23 @@ export default function SoMatDuong({ storageTick = 0, readOnly = false }) {
                   </span>
                 </div>
               </div>
-              <button
-                type="button"
-                className="btn-primary btn-primary--compact print-toolbar-action"
-                onClick={runPrint}
-              >
-                In tháng này
-              </button>
+              <div className="print-toolbar-actions">
+                <button
+                  type="button"
+                  className="btn-secondary btn-secondary--compact print-toolbar-action"
+                  disabled={exportingExcel}
+                  onClick={() => void runExportExcel()}
+                >
+                  {exportingExcel ? "Đang xuất…" : "Xuất Excel"}
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary btn-primary--compact print-toolbar-action"
+                  onClick={runPrint}
+                >
+                  In tháng này
+                </button>
+              </div>
             </div>
             <MatDuongPrintPages
               yearMonth={yearMonth}

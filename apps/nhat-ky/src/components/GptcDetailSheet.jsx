@@ -1,16 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatDisplayDate } from "../utils/nhatKyFormat";
+import { displayToIso, isoToDisplay } from "../utils/dateLocale";
 import { normalizeDetailColWidths } from "../utils/gptcSummaryGrid";
 import {
   GPTC_DETAIL_LAYOUT,
-  gptcDetailRowsPerPage,
+  estimateGptcDetailRowMm,
   packGptcDetailPages
 } from "../utils/gptcDetailFormat";
+import GptcAutoTextarea from "./GptcAutoTextarea";
+import ViDateInput from "./ViDateInput";
 
 function formatEntryDate(iso) {
   if (!iso) return "";
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(iso)) return iso;
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(iso)) {
+    const parsed = displayToIso(iso);
+    return parsed ? isoToDisplay(parsed) : iso;
+  }
   return formatDisplayDate(iso);
+}
+
+/** Giá trị ô ngày BM02 → ISO cho ViDateInput. */
+function ngayToIso(ngay) {
+  const raw = String(ngay || "").trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  return displayToIso(raw) || "";
 }
 
 const COL_LABELS = [
@@ -63,9 +78,31 @@ function DetailTableHead({ editable, widths, onResizeStart }) {
   );
 }
 
-function CellInput({ value, editable, placeholder, onChange }) {
+function CellInput({ value, editable, placeholder, onChange, autoGrow, dateField }) {
   if (!editable) {
     return <span className="gptc-cell-text">{value || ""}</span>;
+  }
+  if (dateField) {
+    return (
+      <ViDateInput
+        value={ngayToIso(value)}
+        onChange={(iso) => onChange(iso ? isoToDisplay(iso) : "")}
+        placeholder=""
+        hideCalendarButton
+        className="gptc-cell-input gptc-cell-input--date"
+        aria-label="Chọn ngày tháng năm"
+      />
+    );
+  }
+  if (autoGrow) {
+    return (
+      <GptcAutoTextarea
+        value={value || ""}
+        onChange={onChange}
+        placeholder={placeholder}
+        className="gptc-cell-input--detail-auto"
+      />
+    );
   }
   return (
     <textarea
@@ -89,32 +126,36 @@ function DetailPage({
   editable,
   widths,
   rowHMm,
+  rowHeightsMm,
   selectedEntryId,
   onRowSelect,
   onChangeSlot,
   onResizeStart,
   showProjectEdit
 }) {
+  const autoGrow = Boolean(editable);
+
   return (
     <div
-      className="gptc-sheet gptc-sheet--landscape gptc-sheet--detail gptc-print-section"
+      className={`gptc-sheet gptc-sheet--landscape gptc-sheet--detail gptc-print-section${
+        autoGrow ? " gptc-sheet--detail-auto" : ""
+      }`}
       data-print-section="gptc-detail"
       data-print-permit={permit.id}
       data-detail-page={pageIndex + 1}
-      style={{ "--gptc-row-h": `${rowHMm}mm` }}
+      style={{ "--gptc-row-h": `${rowHMm || GPTC_DETAIL_LAYOUT.rowMm}mm` }}
     >
       <h2 className="gptc-sheet-title gptc-sheet-title--bm02">
         BIỂU THEO DÕI DIỄN BIẾN TRONG QUÁ TRÌNH THI CÔNG CÔNG TRÌNH CẤP PHÉP
       </h2>
 
       <div className="gptc-detail-project-line">
-        <span className="gptc-detail-project-label">Công trình:</span>
         {editable && showProjectEdit ? (
-          <input
-            type="text"
-            className="gptc-cell-input gptc-project-name-input"
+          <GptcAutoTextarea
             value={permit.tenCongTrinh || ""}
-            onChange={(e) => onChangeSlot?.("__permit__", "tenCongTrinh", e.target.value)}
+            placeholder="Tên công trình (đồng bộ cột 2 biểu tổng hợp BM01)"
+            onChange={(v) => onChangeSlot?.("__permit__", "tenCongTrinh", v)}
+            className="gptc-project-name-input gptc-project-name-input--wrap"
           />
         ) : (
           <span className="gptc-detail-project-name">
@@ -130,7 +171,11 @@ function DetailPage({
       ) : null}
 
       <div className="gptc-table-scroll gptc-table-scroll--fill">
-        <table className="gptc-official-table gptc-detail-table gptc-detail-table--excel">
+        <table
+          className={`gptc-official-table gptc-detail-table${
+            autoGrow ? " gptc-detail-table--auto" : " gptc-detail-table--excel"
+          }`}
+        >
           <DetailTableHead
             editable={editable && pageIndex === 0}
             widths={widths}
@@ -140,24 +185,46 @@ function DetailPage({
             {pageRows.map((row, i) => {
               const slotIndex = rowOffset + i;
               const active = row && selectedEntryId === row.id;
+              const hMm = autoGrow
+                ? null
+                : Array.isArray(rowHeightsMm) && rowHeightsMm[i] != null
+                  ? rowHeightsMm[i]
+                  : row
+                    ? estimateGptcDetailRowMm(row)
+                    : rowHMm || GPTC_DETAIL_LAYOUT.rowMm;
               return (
                 <tr
                   key={row?.id || `slot-${slotIndex}`}
                   className={`gptc-detail-row${active ? " gptc-detail-row--active" : ""}${
                     !row ? " gptc-detail-row--empty" : ""
                   }`}
+                  style={autoGrow ? undefined : { height: `${hMm}mm` }}
                   onClick={() => row && onRowSelect?.(row.id)}
                 >
                   {FIELDS.map((field, col) => (
-                    <td key={field} className={`${COL_CLASSES[col]} gptc-data-cell`}>
+                    <td
+                      key={field}
+                      className={`${COL_CLASSES[col]} gptc-data-cell`}
+                      style={
+                        autoGrow
+                          ? undefined
+                          : {
+                              height: `${hMm}mm`,
+                              minHeight: `${hMm}mm`,
+                              maxHeight: `${hMm}mm`
+                            }
+                      }
+                    >
                       <CellInput
                         editable={editable}
+                        autoGrow={autoGrow && field !== "ngay"}
+                        dateField={field === "ngay"}
                         value={
                           field === "ngay" && !editable
                             ? formatEntryDate(row?.ngay)
                             : row?.[field] || ""
                         }
-                        placeholder={field === "ngay" && editable ? "dd/mm/yyyy" : ""}
+                        placeholder=""
                         onChange={(v) => onChangeSlot?.(slotIndex, field, v)}
                       />
                     </td>
@@ -190,7 +257,6 @@ export default function GptcDetailSheet({
   const resizeRef = useRef(null);
   const [resizing, setResizing] = useState(false);
   const widths = colWidths?.length === 4 ? colWidths : normalizeDetailColWidths(colWidths);
-  const rowHMm = GPTC_DETAIL_LAYOUT.rowMm;
 
   const startResize = useCallback(
     (colIndex, e) => {
@@ -244,7 +310,6 @@ export default function GptcDetailSheet({
       onChangeSlot(slotIndex, field, value);
       return;
     }
-    // Fallback cũ: chỉ sửa entry đã có
     const row = permit?.entries?.[slotIndex];
     if (row) onChangeEntry?.(row.id, field, value);
   }
@@ -253,35 +318,39 @@ export default function GptcDetailSheet({
     return (
       <div className="gptc-sheet gptc-sheet--landscape gptc-sheet--detail gptc-sheet--empty">
         <p className="section-guide">
-          <strong>Double-click</strong> một dòng công trình ở biểu tổng hợp để mở sổ theo dõi chi tiết (BM02).
+          Bấm nút <strong>Xem chi tiết</strong> ở cột ngoài khung in trên biểu tổng hợp để mở sổ theo dõi (BM02).
         </p>
       </div>
     );
   }
 
-  const R = gptcDetailRowsPerPage(margins);
-  const pageCount = pages.length;
-
+  let rowOffset = 0;
   return (
     <div className="gptc-detail-pages">
-      {pages.map((pageRows, pageIndex) => (
-        <DetailPage
-          key={`${permit.id}-p${pageIndex}`}
-          permit={permit}
-          pageRows={pageRows}
-          pageIndex={pageIndex}
-          pageCount={pageCount}
-          rowOffset={pageIndex * R}
-          editable={editable}
-          widths={widths}
-          rowHMm={rowHMm}
-          selectedEntryId={selectedEntryId}
-          onRowSelect={onRowSelect}
-          onChangeSlot={handleSlotChange}
-          onResizeStart={startResize}
-          showProjectEdit={pageIndex === 0}
-        />
-      ))}
+      {pages.map((page, pageIndex) => {
+        const pageRows = page.rows;
+        const offset = rowOffset;
+        rowOffset += pageRows.length;
+        return (
+          <DetailPage
+            key={`${permit.id}-p${pageIndex}`}
+            permit={permit}
+            pageRows={pageRows}
+            pageIndex={pageIndex}
+            pageCount={pages.length}
+            rowOffset={offset}
+            editable={editable}
+            widths={widths}
+            rowHMm={page.rowHeightMm || GPTC_DETAIL_LAYOUT.rowMm}
+            rowHeightsMm={page.rowHeightsMm}
+            selectedEntryId={selectedEntryId}
+            onRowSelect={onRowSelect}
+            onChangeSlot={handleSlotChange}
+            onResizeStart={startResize}
+            showProjectEdit={pageIndex === 0}
+          />
+        );
+      })}
     </div>
   );
 }

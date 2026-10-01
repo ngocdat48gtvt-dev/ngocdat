@@ -3,12 +3,22 @@ import {
   formatContentCol,
   formatDisplayDate,
   displayDayWeather,
-  SECTIONS,
+  VISIBLE_SECTIONS,
   compareEntriesByTypeAndKm,
   migrateEntry,
   getDayMeta,
   formatSectionHeading
 } from "./nhatKyFormat";
+import { annotateDeferredLeaderNotes } from "./baoDuongFormat";
+
+/** Số hàng trống (ước lượng) giữa chức danh và tên trong ô ký. */
+export const SIGN_NAME_GAP_ROWS = 3 * 0.8 * 0.85 * 0.8;
+
+/** Khoảng cố định (px) giữa «Tuần đường» và tên. */
+export const SIGN_SPACE_PX = Math.round(107 * 0.8 * 0.85 * 0.8);
+
+/** Chiều cao tối thiểu ô ký in (px). */
+export const SIGN_CELL_CSS_PX = Math.round(140 * 0.85);
 
 /** Danh sách ngày ISO inclusive từ → đến. */
 export function eachIsoDateInclusive(fromIso, toIso) {
@@ -44,7 +54,8 @@ export function buildNhatKyPrintRows(date, items, dayMeta) {
     c6: ""
   });
 
-  for (const section of SECTIONS) {
+  let leaderPlaced = false;
+  for (const section of VISIBLE_SECTIONS) {
     const sectionItems = allItems
       .filter((x) => x.section === section.title)
       .sort(compareEntriesByTypeAndKm);
@@ -74,6 +85,11 @@ export function buildNhatKyPrintRows(date, items, dayMeta) {
       continue;
     }
 
+    const { anns, placed } = annotateDeferredLeaderNotes(sectionItems, {
+      alreadyPlaced: leaderPlaced
+    });
+    leaderPlaced = placed;
+
     sectionItems.forEach((item, i) => {
       rows.push({
         kind: "entry",
@@ -82,7 +98,7 @@ export function buildNhatKyPrintRows(date, items, dayMeta) {
         c2: formatLocationCol(item),
         c3: formatContentCol(item, ""),
         c4: item.resolved || item.solution || "",
-        c5: item.leaderNote || "",
+        c5: anns[i]?.note || item.leaderNote || "",
         c6: item.inspectorNote || item.note || ""
       });
     });

@@ -2,6 +2,7 @@ import { VEHICLE_TYPES, weekdayVN, splitDisplayDate } from "../utils/demXeConsta
 import { sumCounts, parseCount } from "../utils/demXeCompute";
 import { formatDemXeTime, parseDemXeTime } from "../utils/demXeFormFormat";
 import { countingHoursForDate } from "../utils/demXeQuarters";
+import DemXeTallyMarks from "./DemXeTallyMarks";
 
 function ExcelInput({
   value,
@@ -30,14 +31,14 @@ function ExcelInput({
 
 function renderInfoCell(label, value, edit, editable) {
   return (
-    <>
-      <span className="demxe-info-cell__label">{label}</span>{" "}
+    <div className="demxe-info-cell__inner">
+      <span className="demxe-info-cell__label">{label}</span>
       {editable && edit ? (
         <span className="demxe-info-cell__edit">{edit}</span>
       ) : (
         <span className="demxe-info-cell__value">{value || ""}</span>
       )}
-    </>
+    </div>
   );
 }
 
@@ -165,7 +166,11 @@ export default function DemXeCountSheet({
           />
           <tr>
             <td className="demxe-info-cell">
-              Ngày {day || "....."} tháng {month || "....."} năm {year || "......."}
+              <div className="demxe-info-cell__inner">
+                <span className="demxe-info-cell__value">
+                  Ngày {day || "....."} tháng {month || "....."} năm {year || "......."}
+                </span>
+              </div>
             </td>
             <td className="demxe-info-cell">
               {renderInfoCell("Ngày trong tuần:", weekday, null, false)}
@@ -197,12 +202,12 @@ export default function DemXeCountSheet({
         </tbody>
       </table>
 
-      {/* Hình 3 — bảng chủng loại xe, cách hình 2 = 1,5 cm */}
+      {/* Hình 3 — bảng chủng loại xe; cột đếm = ô gạch (5 xe/ô, 15 ô/hàng) */}
       <table className="demxe-official-table demxe-count-data-table">
         <colgroup>
-          <col style={{ width: "40%" }} />
-          <col style={{ width: "45%" }} />
-          <col style={{ width: "15%" }} />
+          <col style={{ width: "38%" }} />
+          <col style={{ width: "52%" }} />
+          <col style={{ width: "10%" }} />
         </colgroup>
         <thead>
           <tr className="demxe-data-header-row">
@@ -217,20 +222,26 @@ export default function DemXeCountSheet({
             const val = raw === "" || raw == null ? "" : raw;
             const display = val === "" ? "" : String(parseCount(val) || val);
             return (
-              <tr key={v.key}>
+              <tr key={v.key} className="demxe-count-data-row">
                 <td className="demxe-col-type">{v.label}</td>
-                <td className={`demxe-xcell demxe-col-count${editable ? " demxe-xcell--edit" : ""}`}>
-                  {editable ? (
-                    <ExcelInput
-                      value={val}
-                      onChange={(n) => setCount(v.key, n)}
-                      inputMode="numeric"
-                      align="center"
-                      ariaLabel={`Số lượng ${v.label}`}
-                    />
-                  ) : (
-                    display
-                  )}
+                <td
+                  className={`demxe-xcell demxe-col-count demxe-col-count--tally${
+                    editable ? " demxe-xcell--edit" : ""
+                  }`}
+                >
+                  <div className="demxe-count-cell">
+                    <DemXeTallyMarks count={val} />
+                    {editable ? (
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        className="demxe-count-num-input"
+                        value={val}
+                        onChange={(e) => setCount(v.key, e.target.value)}
+                        aria-label={`Số lượng ${v.label}`}
+                      />
+                    ) : null}
+                  </div>
                 </td>
                 <td className="demxe-col-sum demxe-xcell demxe-xcell--readonly">{display}</td>
               </tr>
@@ -240,7 +251,7 @@ export default function DemXeCountSheet({
             <td className="demxe-col-type">
               <strong>CỘNG</strong>
             </td>
-            <td className="demxe-col-count" />
+            <td className="demxe-col-count demxe-col-count--tally" />
             <td className="demxe-col-sum demxe-xcell demxe-xcell--readonly">
               <strong>{total || ""}</strong>
             </td>

@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ExcelJS from "exceljs";
 import { useAuth } from "../context/AuthContext";
+import { useOfficePermissions } from "../hooks/useOfficePermissions";
 import ViDateInput from "../components/ViDateInput";
-import CompanyVolumeTable from "../components/CompanyVolumeTable";
+import CompanyVolumeTable, {
+  buildCompanySectionBlocks
+} from "../components/CompanyVolumeTable";
 import VolumeDetailFormModal from "../components/VolumeDetailFormModal";
-import { BAO_DUONG_GROUPS } from "../utils/baoDuongQualityStore";
+import {
+  applyRemoteQualityCatalog,
+  BAO_DUONG_GROUPS,
+  BAO_DUONG_QUALITY_EVENT,
+  setQualityCatalogOwnerUid
+} from "../utils/baoDuongQualityStore";
 import {
   collectSelectedVolumeDetails,
   defaultDateRange,
@@ -17,10 +25,16 @@ import {
   companyVolumeFilterOptions
 } from "../utils/companyVolumeStats";
 import { fetchCompanyVolumeSources } from "../services/companyVolumeStatsService";
+import { fetchDataNoiNghiep } from "../services/dataNoiNghiepService";
 import {
   fetchBaoCaoContracts,
   pushBaoCaoContracts
 } from "../services/baoCaoContractsService";
+import {
+  fallbackCompaniesFromIds,
+  fetchCompaniesByIds,
+  fetchPrimaryAdminUid
+} from "../services/officeBrowseService";
 
 /** Dropdown lọc nhiều giá trị — tick chọn (cùng chiều cao control toolbar). */
 function CheckMultiFilter({ label, options, selected, onChange, allLabel = "Tất cả" }) {
@@ -111,12 +125,12 @@ function statusExportLabel(r) {
 async function downloadCompanyVolumeExcel(rows, dateFrom, dateTo) {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("KL chung");
+  const COL_COUNT = 11;
   ws.columns = [
     { header: "STT", key: "stt", width: 6 },
-    { header: "Hạt", key: "hat", width: 10 },
+    { header: "Tuần đường", key: "hat", width: 10 },
     { header: "Đường", key: "road", width: 28 },
     { header: "USER", key: "user", width: 22 },
-    { header: "Hạng mục", key: "section", width: 22 },
     { header: "Đầu việc", key: "work", width: 28 },
     { header: "ĐVT", key: "unit", width: 8 },
     { header: "Đã làm", key: "done", width: 10 },
@@ -126,24 +140,45 @@ async function downloadCompanyVolumeExcel(rows, dateFrom, dateTo) {
     { header: "Trạng thái", key: "status", width: 12 }
   ];
 
-  rows.forEach((r, i) => {
-    const road =
-      r.kmRange && r.roadName ? `${r.roadName} ${r.kmRange}` : r.roadName || r.kmRange || "";
-    ws.addRow({
-      stt: i + 1,
-      hat: r.hat,
-      road,
-      user: r.userName,
-      section: r.section,
-      work: r.workType,
-      unit: r.unitLabel || r.unit,
-      done: r.totalDone,
-      contract: r.contractQty ?? "",
-      remain: r.remaining ?? "",
-      pct: r.percent != null ? Math.round(r.percent * 10) / 10 : "",
-      status: statusExportLabel(r)
+  for (const block of buildCompanySectionBlocks(rows)) {
+    const secRow = ws.addRow([block.label]);
+    ws.mergeCells(secRow.number, 1, secRow.number, COL_COUNT);
+    secRow.getCell(1).font = { bold: true };
+    secRow.getCell(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFE2E8F0" }
+    };
+
+    block.rows.forEach((r, i) => {
+      const road =
+        r.kmRange && r.roadName ? `${r.roadName} ${r.kmRange}` : r.roadName || r.kmRange || "";
+      const row = ws.addRow({
+        stt: i + 1,
+        hat: r.hat,
+        road,
+        user: r.userName,
+        work: r.workType,
+        unit: r.unitLabel || r.unit,
+        done: r.totalDone,
+        contract: r.contractQty ?? "",
+        remain: r.remaining ?? "",
+        pct: r.percent != null ? Math.round(r.percent * 10) / 10 : "",
+        status: statusExportLabel(r)
+      });
+      ["done", "contract", "remain", "pct"].forEach((key) => {
+        const cell = row.getCell(key);
+        const n = Number(cell.value);
+        if (!Number.isFinite(n) || cell.value === "" || cell.value == null) return;
+        if (Number.isInteger(n) && key !== "pct") {
+          cell.numFmt = "0";
+        } else {
+          cell.value = n.toFixed(key === "pct" ? 1 : 2).replace(".", ",");
+          cell.numFmt = "@";
+        }
+      });
     });
-  });
+  }
 
   ws.getRow(1).font = { bold: true };
   ws.getRow(1).alignment = { horizontal: "center", vertical: "middle" };
@@ -163,6 +198,7 @@ async function downloadCompanyVolumeExcel(rows, dateFrom, dateTo) {
 
 export default function ThongKeKhoiLuongChung({ onBack }) {
   const { profile } = useAuth();
+  const { isSoXd } = useOfficePermissions();
   const defaults = defaultDateRange();
   const [dateFrom, setDateFrom] = useState(defaults.dateFrom);
   const [dateTo, setDateTo] = useState(defaults.dateTo);
@@ -179,24 +215,82 @@ export default function ThongKeKhoiLuongChung({ onBack }) {
   const [exporting, setExporting] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
   const saveTimer = useRef(null);
+  const [catalogTick, setCatalogTick] = useState(0);
+  const [companies, setCompanies] = useState([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState("");
+  const [contractAdminUid, setContractAdminUid] = useState("");
+
+  useEffect(() => {
+    const onCatalog = () => setCatalogTick((n) => n + 1);
+    window.addEventListener(BAO_DUONG_QUALITY_EVENT, onCatalog);
+    return () => window.removeEventListener(BAO_DUONG_QUALITY_EVENT, onCatalog);
+  }, []);
+
+  useEffect(() => {
+    if (!isSoXd) {
+      setCompanies([]);
+      setSelectedCompanyId("");
+      return undefined;
+    }
+    let cancelled = false;
+    const fallback = fallbackCompaniesFromIds(profile?.soXdAccess?.companyIds);
+    if (fallback.length) {
+      setCompanies(fallback);
+      setSelectedCompanyId((prev) => prev || fallback[0].companyId);
+    }
+    void fetchCompaniesByIds(profile?.soXdAccess?.companyIds)
+      .then((list) => {
+        if (cancelled) return;
+        const next = list.length ? list : fallback;
+        setCompanies(next);
+        setSelectedCompanyId((prev) => {
+          if (prev && next.some((c) => c.companyId === prev)) return prev;
+          return next[0]?.companyId || "";
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setCompanies(fallback);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isSoXd, profile?.soXdAccess]);
+
+  const reportCompanyId = isSoXd ? selectedCompanyId : profile?.companyId;
 
   const load = useCallback(async () => {
+    if (isSoXd && !reportCompanyId) {
+      setSources([]);
+      setContractByKey({});
+      setContractAdminUid("");
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError("");
     try {
-      const [{ sources: list }, contracts] = await Promise.all([
-        fetchCompanyVolumeSources(profile?.companyId),
-        fetchBaoCaoContracts(profile?.uid)
+      const adminUid = isSoXd
+        ? await fetchPrimaryAdminUid(reportCompanyId)
+        : profile?.uid;
+      const [{ sources: list }, contracts, masterData] = await Promise.all([
+        fetchCompanyVolumeSources(reportCompanyId, { dateFrom, dateTo }),
+        fetchBaoCaoContracts(adminUid),
+        fetchDataNoiNghiep(adminUid)
       ]);
+      if (adminUid) setQualityCatalogOwnerUid(adminUid);
+      if (masterData.exists) {
+        applyRemoteQualityCatalog(masterData.catalog, masterData.updatedAtMs);
+      }
       setSources(list);
       setContractByKey(contracts);
+      setContractAdminUid(adminUid || "");
     } catch (err) {
       setError(err?.message || "Không tải được dữ liệu tổng hợp.");
       setSources([]);
     } finally {
       setLoading(false);
     }
-  }, [profile?.companyId, profile?.uid]);
+  }, [profile, dateFrom, dateTo, isSoXd, reportCompanyId]);
 
   useEffect(() => {
     void load();
@@ -235,7 +329,8 @@ export default function ThongKeKhoiLuongChung({ onBack }) {
         userFilters,
         sectionFilters
       }),
-    [sources, dateFrom, dateTo, hatFilters, roadFilters, userFilters, sectionFilters]
+    // catalogTick: đổi tên Công việc BDTX trên danh mục → dựng lại bảng
+    [sources, dateFrom, dateTo, hatFilters, roadFilters, userFilters, sectionFilters, catalogTick]
   );
 
   const rows = useMemo(
@@ -266,13 +361,14 @@ export default function ThongKeKhoiLuongChung({ onBack }) {
   }
 
   async function handleContractChange(key, value) {
+    if (isSoXd) return;
     const trimmed = String(value ?? "").trim();
     const next = { ...contractByKey };
     if (!trimmed) delete next[key];
     else next[key] = trimmed;
     setContractByKey(next);
     try {
-      await pushBaoCaoContracts(profile?.uid, next);
+      await pushBaoCaoContracts(contractAdminUid || profile?.uid, next);
       setSaveMsg("Đã lưu KL hợp đồng.");
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => setSaveMsg(""), 2500);
@@ -303,7 +399,9 @@ export default function ThongKeKhoiLuongChung({ onBack }) {
           <div>
             <h1 className="stats-company-title">Thống kê khối lượng chung</h1>
             <p className="stats-company-sub">
-              Gộp đầu việc cùng đường · tick chọn để xem / xuất chi tiết · nhập HĐ rồi Enter để lưu.
+              {isSoXd
+                ? "Sở Xây dựng — xem báo cáo công ty được chọn (không sửa KL hợp đồng)."
+                : "Gộp đầu việc cùng đường · tick chọn để xem / xuất chi tiết · nhập HĐ rồi Enter để lưu."}
             </p>
           </div>
         </div>
@@ -329,6 +427,26 @@ export default function ThongKeKhoiLuongChung({ onBack }) {
 
       <div className="stats-toolbar stats-toolbar--company">
         <div className="stats-toolbar-filters stats-toolbar-filters--company">
+          {isSoXd && (
+            <label className="stats-company-field">
+              <span className="stats-company-field-label">Công ty</span>
+              <select
+                className="stats-company-control"
+                value={selectedCompanyId}
+                onChange={(e) => setSelectedCompanyId(e.target.value)}
+              >
+                {companies.length === 0 ? (
+                  <option value="">Chưa cấp công ty</option>
+                ) : (
+                  companies.map((c) => (
+                    <option key={c.companyId} value={c.companyId}>
+                      {c.companyName}
+                    </option>
+                  ))
+                )}
+              </select>
+            </label>
+          )}
           <label className="stats-company-field">
             <span className="stats-company-field-label">Từ ngày</span>
             <ViDateInput
@@ -373,7 +491,7 @@ export default function ThongKeKhoiLuongChung({ onBack }) {
           </div>
           <CheckMultiFilter
             label=""
-            allLabel="Tất cả hạt"
+            allLabel="Tất cả tuần đường"
             options={hatOptions}
             selected={hatFilters}
             onChange={setHatFilters}
@@ -413,7 +531,7 @@ export default function ThongKeKhoiLuongChung({ onBack }) {
 
       {!loading && rows.length === 0 ? (
         <p className="stats-empty-hint">
-          Không có khối lượng trong khoảng lọc. Kiểm tra ngày / hạt hoặc dữ liệu USER trên cloud.
+          Không có khối lượng trong khoảng lọc. Kiểm tra ngày / tuần đường hoặc dữ liệu USER trên cloud.
         </p>
       ) : (
         !loading && (
@@ -435,7 +553,7 @@ export default function ThongKeKhoiLuongChung({ onBack }) {
             <CompanyVolumeTable
               rows={rows}
               onContractChange={handleContractChange}
-              editable
+              editable={!isSoXd}
               selectedKeys={selectedKeys}
               onToggleSelect={toggleSelect}
               onToggleSelectAll={toggleSelectAll}

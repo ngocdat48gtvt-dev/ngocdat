@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { onAuthStateChanged, signOut, type User } from 'firebase/auth'
+import { onAuthStateChanged, type User } from 'firebase/auth'
 import { auth } from '@/firebase/firebase'
 import { DIEU_HANH_PORTAL, initPortalAuth } from '@/lib/portalAuth'
 import { loadCompanyProfile, type CompanyUserProfile } from '@/services/authService'
@@ -31,12 +31,7 @@ export function useAuth() {
       }
       try {
         const p = await loadCompanyProfile(u.uid)
-        if (p && p.role !== 'ADMIN') {
-          await signOut(auth)
-          setProfile(null)
-          setCatalogOwnerUid('')
-          setUser(null)
-        } else if (p) {
+        if (p) {
           setProfile(p)
           const owner = await resolveCompanyCatalogOwnerUid({
             uid: u.uid,

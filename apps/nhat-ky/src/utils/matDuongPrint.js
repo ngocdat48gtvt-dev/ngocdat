@@ -38,8 +38,8 @@ html, body {
 .sheet {
   page: matDuongPrintPage;
   width: 297mm;
-  height: 209.8mm;
-  max-height: 209.8mm;
+  height: 210mm;
+  max-height: 210mm;
   padding: ${top}mm ${right}mm ${bottom}mm ${left}mm;
   overflow: hidden;
   page-break-after: always;
@@ -75,6 +75,11 @@ html, body {
   line-height: 1.45;
 }
 .matduong-head-line { margin: 0 0 1px; }
+.matduong-head-line--company {
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+}
 .matduong-motto {
   text-decoration: underline;
   text-underline-offset: 5px;
@@ -103,7 +108,7 @@ html, body {
   border: none;
   table-layout: fixed;
   font-family: "Times New Roman", Times, serif;
-  font-size: 12pt;
+  font-size: 11.4pt; /* 12pt × 0.95 — chữ trong khung bảng */
   line-height: 1.35;
   margin-top: 2px;
 }
@@ -125,24 +130,29 @@ ${colRules}
 .matduong-table td:last-child {
   border-right: 0.5pt solid #808080;
 }
-.matduong-table thead tr:last-child th,
-.matduong-table tbody tr:last-child td {
+.matduong-table thead th[rowspan],
+.matduong-table thead tr:last-child th {
+  border-bottom: 0.5pt solid #808080;
+}
+/* Mỗi hàng thân có đường đáy — không phụ thuộc :last-child (tránh mất nét khi cắt trang). */
+.matduong-table tbody td {
+  border-top: none;
   border-bottom: 0.5pt solid #808080;
 }
 .matduong-table th {
   font-weight: 700;
   background: #fff;
-  font-size: 12pt;
+  font-size: 10.8pt; /* 11.4pt × 0.95 — tiêu đề cột */
   line-height: 1.3;
 }
 .matduong-header-num th {
-  font-size: 12pt;
+  font-size: 10.8pt;
   padding: 2px 3px;
 }
 .matduong-header-side {
   display: block;
   font-weight: 600;
-  font-size: 12pt;
+  font-size: 10.8pt;
 }
 .matduong-col-damage,
 .matduong-col-note {
@@ -152,6 +162,11 @@ ${colRules}
 .matduong-col-date,
 .matduong-col-side {
   white-space: nowrap;
+}
+.matduong-resolved-co,
+.matduong-resolved-chua {
+  font-weight: 400;
+  font-size: 0.8em;
 }
 .no-print { display: none !important; }
 .col-resize-handle { display: none !important; }

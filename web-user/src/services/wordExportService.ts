@@ -4,6 +4,7 @@ import {
   ImageRun,
   Packer,
   PageBreak,
+  PageOrientation,
   Paragraph,
   Table,
   TableCell,
@@ -14,6 +15,7 @@ import {
 } from 'docx'
 import type { IncidentRecord } from '@/types/incident'
 import type { WordPhotoSelection } from '@/lib/wordPhotoSelection'
+import { downloadBlob } from '@/lib/downloadBlob'
 import {
   buildPhotoMaps,
   buildWordFilename,
@@ -235,7 +237,7 @@ export async function exportIncidentsWord(
             size: {
               width: 16840,
               height: 11900,
-              orientation: 'landscape',
+              orientation: PageOrientation.LANDSCAPE,
             },
             margin: {
               top: 1134,
@@ -252,10 +254,5 @@ export async function exportIncidentsWord(
 
   const blob = await Packer.toBlob(doc)
   const filename = buildWordFilename(sorted)
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
+  await downloadBlob(blob, filename)
 }
