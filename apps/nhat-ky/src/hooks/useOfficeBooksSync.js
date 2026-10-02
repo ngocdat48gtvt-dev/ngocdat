@@ -558,8 +558,30 @@ export function useOfficeBooksSync({
       dateTo: focusDate
     })
       .then((remote) => {
-        if (cancelled || !(remote.remoteDayCount > 0)) return;
-        mergeRemoteSafelyIntoLocalStorage(storageKey, remote);
+        if (cancelled) return;
+        if (browseMode) {
+          // Máy xem không có sửa chờ đẩy: cache/dấu xóa local không được che cloud.
+          // Chỉ thay ngày đang đọc, giữ các ngày khác đã tải của cùng sổ.
+          const current = loadStorage(storageKey, { includeDeleted: true });
+          const entries = (current.entries || []).filter(
+            (entry) => String(entry.date || "") !== focusDate
+          );
+          const dayMeta = { ...(current.dayMeta || {}) };
+          delete dayMeta[focusDate];
+          for (const day of remote.remoteDays || []) {
+            entries.push(...activeDiaryEntries(day.entries || []));
+            if (day.dayMeta && Object.keys(day.dayMeta).length) {
+              dayMeta[day.date] = day.dayMeta;
+            }
+          }
+          saveStorage(entries, dayMeta, current.reportMeta, storageKey, {
+            silent: true,
+            replaceAll: true
+          });
+        } else {
+          if (!(remote.remoteDayCount > 0)) return;
+          mergeRemoteSafelyIntoLocalStorage(storageKey, remote);
+        }
         applyCatalogMeta();
         onHydratedRef.current?.();
       })
@@ -569,7 +591,7 @@ export function useOfficeBooksSync({
     return () => {
       cancelled = true;
     };
-  }, [enabled, uid, roadId, storageKey, focusDate, applyCatalogMeta]);
+  }, [enabled, uid, roadId, storageKey, focusDate, browseMode, applyCatalogMeta]);
 
   // Đổi tên công ty trên danh mục → ghi lại local + báo UI
   useEffect(() => {
