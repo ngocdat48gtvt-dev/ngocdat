@@ -546,18 +546,12 @@ export function useOfficeBooksSync({
     reloadTick
   ]);
 
-  // Đọc trực tiếp ngày người dùng đang mở — chỉ khi local chưa có ngày đó
-  // (tránh ghi lại cả sổ mỗi lần đổi ngày → QuotaExceeded trên Chrome).
+  // Luôn đọc lại ngày đang mở: local có ngày không có nghĩa đã đủ dòng cloud.
+  // Gộp với local để giữ các dòng chưa đẩy và dấu xóa khi đổi ngày.
   useEffect(() => {
     if (!enabled || !uid || !roadId || !storageKey || !/^\d{4}-\d{2}-\d{2}$/.test(focusDate)) {
       return undefined;
     }
-    const local = loadStorage(storageKey, { includeDeleted: true });
-    const hasDay =
-      (local.entries || []).some((e) => String(e.date || "") === focusDate) ||
-      Boolean(local.dayMeta?.[focusDate]);
-    if (hasDay) return undefined;
-
     let cancelled = false;
     void fetchOfficeBookAsStorage(uid, roadId, {
       dateFrom: focusDate,
