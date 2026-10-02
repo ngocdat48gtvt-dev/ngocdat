@@ -149,7 +149,9 @@ function dedupeKey(entry) {
 export function dedupeDiaryEntriesByFingerprint(entries) {
   const seen = new Map();
   const tombstones = [];
-  (entries || []).forEach((entry) => {
+  (entries || []).forEach((original) => {
+    const entry = original?._syncConflicts
+      ? { ...original, _syncConflicts: compactConflicts(original._syncConflicts) } : original;
     if (entry?.deletedAt) {
       tombstones.push(entry);
       return;
@@ -182,10 +184,29 @@ export function alignLegacyRecordIds(entries, baselineEntries) {
 function conflict(field, localValue, remoteValue) {
   return {
     field,
-    localValue: clone(localValue),
-    remoteValue: clone(remoteValue),
+    localValue: conflictPayload(localValue),
+    remoteValue: conflictPayload(remoteValue),
     detectedAt: new Date().toISOString()
   };
+}
+
+// Conflict snapshots must not contain their own conflict history. Repeated
+// hydration otherwise nests snapshots until the Firestore document exceeds 1 MiB.
+function conflictPayload(value) {
+  if (value === undefined) return undefined;
+  return JSON.parse(JSON.stringify(value, (key, item) =>
+    key === "_syncConflicts" ? undefined : item));
+}
+
+function compactConflicts(items) {
+  const unique = new Map();
+  for (const item of items || []) {
+    const clean = conflictPayload(item);
+    if (!clean) continue;
+    const key = JSON.stringify([clean.field, clean.localValue, clean.remoteValue]);
+    unique.set(key, clean);
+  }
+  return [...unique.values()].slice(-10);
 }
 
 function mergeObject(base = {}, local = {}, remote = {}) {
@@ -220,19 +241,21 @@ function mergeObject(base = {}, local = {}, remote = {}) {
     ...(Array.isArray(remote?._syncConflicts) ? remote._syncConflicts : [])
   ];
   if (previous.length || conflicts.length) {
-    result._syncConflicts = [...previous, ...conflicts].slice(-100);
+    result._syncConflicts = compactConflicts([...previous, ...conflicts]);
   }
   return { value: result, conflicts };
 }
 
 function tombstone(entry, reason, conflicts = []) {
+  const clean = { ...(entry || {}) };
+  delete clean._pendingDelete;
   return {
-    ...(entry || {}),
+    ...clean,
     recordId: entry?.recordId || newDiaryRecordId(),
     deletedAt: entry?.deletedAt || new Date().toISOString(),
     deleteReason: entry?.deleteReason || reason,
     ...(conflicts.length
-      ? { _syncConflicts: [...(entry?._syncConflicts || []), ...conflicts].slice(-100) }
+      ? { _syncConflicts: compactConflicts([...(entry?._syncConflicts || []), ...conflicts]) }
       : {})
   };
 }
@@ -272,7 +295,7 @@ export function recoverFalseLegacyDeleteTombstones(entries) {
  * - Xóa: tạo tombstone, nên snapshot cũ không làm record sống lại.
  * - Cùng sửa một field: giữ cloud để không ghi đè; lưu giá trị local trong conflict metadata.
  */
-export function mergeOfficeBookDay(baseDay = {}, localDay = {}, remoteDay = {}) {
+export function mergeOfficeBookDay(baseDay = {}, localDay = {}, remoteDay = {}, { requireExplicitDeletes = false } = {}) {
   const baseEntries = ensureDiaryRecordIds(
     recoverFalseLegacyDeleteTombstones(baseDay.entries || [])
   );
@@ -295,15 +318,21 @@ export function mergeOfficeBookDay(baseDay = {}, localDay = {}, remoteDay = {}) 
     const b = baseMap.get(id);
     const l = localMap.get(id);
     const r = remoteMap.get(id);
-    const localDeleted = Boolean(b && !l);
+    const localDeleted = Boolean((l?.deletedAt && l._pendingDelete) ||
+      (!requireExplicitDeletes && b && !l));
     const remoteDeleted = Boolean(r?.deletedAt);
+
+    if (requireExplicitDeletes && l?.deletedAt && !l._pendingDelete && r && !remoteDeleted) {
+      entries.push(clone(r));
+      return;
+    }
 
     if (localDeleted) {
       const remoteChanged = Boolean(r && !same(r, b));
       const rowConflicts = remoteChanged && !remoteDeleted
         ? [conflict("$delete", null, r)]
         : [];
-      entries.push(tombstone(r || b, "local-delete", rowConflicts));
+      entries.push(tombstone(r || b || l, "local-delete", rowConflicts));
       conflicts.push(...rowConflicts);
       return;
     }
@@ -315,6 +344,7 @@ export function mergeOfficeBookDay(baseDay = {}, localDay = {}, remoteDay = {}) 
       return;
     }
     if (!b) {
+      if (!r && l?.deletedAt && !l._pendingDelete && requireExplicitDeletes) return;
       if (l && r && !same(l, r)) {
         const merged = mergeObject({}, l, r);
         entries.push({ ...merged.value, recordId: id });
@@ -322,7 +352,11 @@ export function mergeOfficeBookDay(baseDay = {}, localDay = {}, remoteDay = {}) 
       } else if (l || r) entries.push(clone(l || r));
       return;
     }
-    if (!l) return;
+    if (!l) {
+      // A partial/stale local cache is not a user's delete command.
+      if (r || b) entries.push(clone(r || b));
+      return;
+    }
     if (!r) {
       // Vắng record trên remote không đủ chứng minh đã xóa. Xóa thật phải có
       // tombstone; giữ local để không làm mất bản ghi chưa từng được đẩy cloud.
@@ -349,6 +383,25 @@ export function mergeOfficeBookDay(baseDay = {}, localDay = {}, remoteDay = {}) 
     dayMeta: meta.value,
     conflicts
   };
+}
+
+/** Keep audit snapshots bounded; row business data and pending edits are untouched. */
+export function boundDayConflictHistory(day) {
+  let budget = 64 * 1024;
+  const trim = (value) => {
+    if (!value?._syncConflicts) return value;
+    const history = compactConflicts(value._syncConflicts);
+    const kept = [];
+    for (const item of history.slice().reverse()) {
+      const size = new TextEncoder().encode(JSON.stringify(item)).length;
+      if (size <= budget && size <= 8 * 1024) { kept.unshift(item); budget -= size; }
+    }
+    const result = { ...value };
+    if (kept.length) result._syncConflicts = kept;
+    else delete result._syncConflicts;
+    return result;
+  };
+  return { ...day, entries: (day.entries || []).map(trim), dayMeta: trim(day.dayMeta || {}) };
 }
 
 /**
@@ -386,23 +439,18 @@ export function mergeOfficeBookDayWithoutBase(localDay = {}, remoteDay = {}) {
 
   localEntries.forEach((local) => {
     if (local?.deletedAt) {
-      // Tombstone local thắng bản sống cùng id / cùng fingerprint trên cloud
-      // (tránh hydrate làm dòng vừa xóa «sống lại»).
-      const fp = diaryBusinessFingerprint(local);
-      let replaced = false;
-      for (let i = 0; i < entries.length; i += 1) {
-        const cur = entries[i];
-        if (cur?.deletedAt) continue;
-        const sameId =
-          local.recordId && cur.recordId && String(cur.recordId) === String(local.recordId);
-        const sameFp = diaryBusinessFingerprint(cur) === fp;
-        if (sameId || sameFp) {
-          entries[i] = clone(local);
-          claimedRemoteIds.add(local.recordId);
-          replaced = true;
-        }
+      if (local._pendingDelete) {
+        const idx = entries.findIndex((entry) => entry.recordId === local.recordId);
+        if (idx >= 0) entries[idx] = clone(local);
+        else entries.push(clone(local));
+        claimedRemoteIds.add(local.recordId);
+        return;
       }
-      if (!replaced && !claimedRemoteIds.has(local.recordId)) {
+      // UI xóa bằng cách bỏ dòng; transaction mới tạo tombstone sau khi ghi cloud.
+      // Tombstone đang có trong cache là kết quả đồng bộ, không phải lệnh xóa mới.
+      // Snapshot cloud cùng id thắng cache cũ; tuyệt đối không xóa dòng khác id
+      // chỉ vì cùng nội dung (vd. dòng đã được nhập lại/khôi phục trên máy khác).
+      if (!claimedRemoteIds.has(local.recordId)) {
         entries.push(clone(local));
         claimedRemoteIds.add(local.recordId);
       }
@@ -432,7 +480,7 @@ export function mergeOfficeBookDayWithoutBase(localDay = {}, remoteDay = {}) {
           // Caller phải đánh dấu ngày dirty và đẩy lại cloud — nếu giữ remote thì F5 mất sửa.
           entries[idx] = {
             ...local,
-            _syncConflicts: [...(local._syncConflicts || []), rowConflict].slice(-100)
+            _syncConflicts: compactConflicts([...(local._syncConflicts || []), rowConflict])
           };
         }
         conflicts.push(rowConflict);

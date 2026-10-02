@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   activeDiaryEntries,
+  boundDayConflictHistory,
   ensureDiaryRecordIds,
   mergeOfficeBookDay,
   mergeOfficeBookDayWithoutBase,
@@ -66,4 +67,65 @@ function row(recordId, content, extra = {}) {
   });
 }
 
+{
+  const cloud = Array.from({ length: 8 }, (_, i) => row(`cloud-${i}`, `Row ${i}`));
+  const local = cloud.map((entry, i) => i < 6
+    ? { ...entry, deletedAt: "2026-09-30T00:00:00Z", deleteReason: "remote-delete" }
+    : entry);
+  const merged = mergeOfficeBookDayWithoutBase(
+    { entries: local }, { entries: cloud }
+  );
+  assert.equal(activeDiaryEntries(merged.entries).length, 8,
+    "Cached tombstones must not hide live cloud rows");
+}
+
+{
+  const restored = row("restored", "same content");
+  const merged = mergeOfficeBookDayWithoutBase(
+    { entries: [row("old", "same content", { deletedAt: "2026-09-30T00:00:00Z" })] },
+    { entries: [restored] }
+  );
+  assert.deepEqual(activeDiaryEntries(merged.entries), [restored],
+    "Tombstone of another record must not delete a reimported cloud row");
+  const deleted = mergeOfficeBookDayWithoutBase(
+    { entries: [restored] },
+    { entries: [{ ...restored, deletedAt: "2026-09-30T00:00:00Z" }] }
+  );
+  assert.equal(activeDiaryEntries(deleted.entries).length, 0,
+    "Actual cloud deletion must still win");
+}
+
+{
+  const cloud = row("nested", "cloud");
+  let local = row("nested", "unsaved edit");
+  for (let i = 0; i < 30; i++) {
+    local = mergeOfficeBookDayWithoutBase({ entries: [local] }, { entries: [cloud] }).entries[0];
+  }
+  assert.ok(JSON.stringify(local).length < 10000, "Hydrate must not nest conflict histories");
+  assert.equal(local.content, "unsaved edit", "Compaction must preserve pending edits");
+  assert.equal(local._syncConflicts.length, 1, "Identical conflicts must be deduplicated");
+}
+
+{
+  const cloud = row("partial-cache", "Must stay");
+  const partial = mergeOfficeBookDay({ entries: [cloud] }, { entries: [] }, { entries: [cloud] }, { requireExplicitDeletes: true });
+  assert.equal(activeDiaryEntries(partial.entries).length, 1, "Partial local cache cannot delete cloud rows");
+  const pending = { ...cloud, deletedAt: "2026-10-02T00:00:00Z", deleteReason: "local-delete", _pendingDelete: true };
+  const removed = mergeOfficeBookDay({ entries: [cloud] }, { entries: [pending] }, { entries: [cloud] }, { requireExplicitDeletes: true });
+  assert.equal(activeDiaryEntries(removed.entries).length, 0, "Explicit user deletion must sync");
+  assert.equal(removed.entries[0]._pendingDelete, undefined, "Acknowledged deletion must not remain pending");
+  const cache = { ...pending }; delete cache._pendingDelete;
+  const restored = mergeOfficeBookDay({}, { entries: [cache] }, { entries: [cloud] }, { requireExplicitDeletes: true });
+  assert.equal(activeDiaryEntries(restored.entries).length, 1, "Old acknowledged tombstone cannot delete a restored cloud row");
+}
+
+{
+  const entries = Array.from({ length: 100 }, (_, i) => row(String(i), "Giữ nội dung", {
+    _syncConflicts: Array.from({ length: 20 }, (_, j) => ({ field: String(j), localValue: "x".repeat(4000), remoteValue: "y" }))
+  }));
+  const bounded = boundDayConflictHistory({ entries, dayMeta: {}, conflicts: [] });
+  assert.equal(bounded.entries.length, 100);
+  assert.ok(bounded.entries.every((entry) => entry.content === "Giữ nội dung"));
+  assert.ok(Buffer.byteLength(JSON.stringify(bounded.entries)) < 80000, "Audit history must fit the day budget");
+}
 console.log("office-books conflict checks: OK");

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchOfficeBookAsStorage,
+  restoreOfficeBookRows,
   pushOfficeBookDays,
   pushOfficeBookMeta
 } from "../services/officeBooksService";
@@ -137,6 +138,7 @@ export function useOfficeBooksSync({
 
   const flushPush = useCallback(async () => {
     if (!canPush || !uid || !roadId || !storageKey) return;
+    if (hydratingRef.current) return false;
     if (flushRunRef.current) return flushRunRef.current;
 
     const run = (async () => {
@@ -370,7 +372,7 @@ export function useOfficeBooksSync({
           pushedFpRef.current = new Map(
             hydratedDays.map((day) => [day.date, dayFingerprint(day)])
           );
-          // Tombstone local đã thắng bản sống trên cloud → phải đẩy xóa lên cloud.
+          // Chỉ dấu xóa chưa được xác nhận mới là yêu cầu xóa cần đẩy cloud.
           // Bản ghi chỉ có local (recordId mới trên ngày đã có cloud) → phải đẩy;
           // trước đây `if (!rem) return false` khiến admin không thấy dữ liệu từ máy USER.
           hydratedDays.forEach((day) => {
@@ -379,7 +381,7 @@ export function useOfficeBooksSync({
             const remoteRecovered = recoverFalseLegacyDeleteTombstones(remoteRaw);
             const remoteLive = activeDiaryEntries(remoteDay?.entries || []);
             const localLive = activeDiaryEntries(day.entries || []);
-            const tombs = (day.entries || []).filter((e) => e?.deletedAt);
+            const tombs = (day.entries || []).filter((e) => e?.deletedAt && e._pendingDelete);
 
             // Dọn vĩnh viễn tombstone bị tạo nhầm ở phiên bản lỗi; ADMIN có thể
             // xem ngay, USER mở sổ sẽ đẩy lại document sạch lên Firestore.
@@ -387,13 +389,12 @@ export function useOfficeBooksSync({
               (entry, index) => entry?.deletedAt && !remoteRecovered[index]?.deletedAt
             );
             if (!needsPush && tombs.length && remoteLive.length) {
-              const tombFps = new Set(tombs.map((e) => diaryBusinessFingerprint(e)));
               const tombIds = new Set(
                 tombs.map((e) => String(e.recordId || "").trim()).filter(Boolean)
               );
               needsPush = remoteLive.some((e) => {
                 const id = String(e.recordId || "").trim();
-                return (id && tombIds.has(id)) || tombFps.has(diaryBusinessFingerprint(e));
+                return id && tombIds.has(id);
               });
             }
             if (!needsPush && localLive.length) {
@@ -646,7 +647,41 @@ export function useOfficeBooksSync({
     []
   );
 
+  async function inspectDay() {
+    const remote = await fetchOfficeBookAsStorage(uid, roadId, {
+      dateFrom: focusDate, dateTo: focusDate
+    });
+    const local = loadStorage(storageKey, { includeDeleted: true });
+    const summarize = (entries) => (entries || []).map((entry) => ({
+      recordId: entry.recordId, date: entry.date, section: entry.section,
+      type: entry.type, kmFrom: entry.kmFrom, kmTo: entry.kmTo,
+      deletedAt: entry.deletedAt, deleteReason: entry.deleteReason,
+      conflicts: (entry._syncConflicts || []).map((item) => item.field).join(", ")
+    }));
+    return {
+      date: focusDate,
+      cloud: summarize(remote.remoteDays.flatMap((day) => day.entries || [])),
+      local: summarize(local.entries.filter((entry) => entry.date === focusDate))
+    };
+  }
+
   return {
+    inspectDay,
+    canRestore: canPush && !browseMode,
+    async restoreRows(recordIds) {
+      if (!canPush || browseMode) throw new Error("Tài khoản chỉ đọc.");
+      hydratingRef.current = true;
+      try {
+        if (flushRunRef.current) await flushRunRef.current;
+        await restoreOfficeBookRows(uid, roadId, focusDate, recordIds);
+        const remote = await fetchOfficeBookAsStorage(uid, roadId, { dateFrom: focusDate, dateTo: focusDate });
+        const results = remote.remoteDays.map((day) => ({ ...day, rawEntries: day.entries }));
+        applySyncedDayResults(storageKey, results);
+        results.forEach((day) => baseDaysRef.current.set(day.date, day));
+        onHydratedRef.current?.();
+        return inspectDay();
+      } finally { hydratingRef.current = false; }
+    },
     status:
       syncStatus === "error" || syncStatus === "checking"
         ? syncStatus

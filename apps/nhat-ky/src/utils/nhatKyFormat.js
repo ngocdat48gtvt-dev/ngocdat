@@ -597,6 +597,15 @@ export function safeSetLocalStorage(key, value) {
 
 export function saveStorage(entries, dayMeta, reportMeta, storageKey = "nhatky", options = {}) {
   const current = loadStorage(storageKey);
+  if (!options.silent) {
+    const raw = loadStorage(storageKey, { includeDeleted: true });
+    const ids = new Set(entries.map((entry) => entry.recordId).filter(Boolean));
+    const kept = raw.entries.filter((entry) => entry.recordId && !ids.has(entry.recordId))
+      .map((entry) => entry.deletedAt ? entry : {
+        ...entry, deletedAt: new Date().toISOString(), deleteReason: "local-delete", _pendingDelete: true
+      });
+    entries = [...entries, ...kept];
+  }
   const importMap = reconcileImportMap(entries, current.importMap);
   const payload = {
     entries: sortAllEntryDates(entries.map(migrateEntry)),

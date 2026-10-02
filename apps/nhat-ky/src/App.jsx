@@ -101,6 +101,39 @@ function OfficeSyncStatus({ sync }) {
   );
 }
 
+function OfficeDayComparison({ sync }) {
+  const [result, setResult] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [selectedIds, setSelectedIds] = useState([]);
+  async function inspect() {
+    setBusy(true); setError("");
+    try { setResult(await sync.inspectDay()); }
+    catch (err) { setError(err.message || "Không đọc được dữ liệu ngày."); }
+    finally { setBusy(false); }
+  }
+  return <>
+    <button type="button" className="nhat-ky-backup-btn" disabled={busy} onClick={() => void inspect()}>{busy ? "Đang đối chiếu…" : "Đối chiếu ngày"}</button>
+    {(result || error) && createPortal(<div className="backup-overlay" role="dialog" aria-modal="true" aria-label="Đối chiếu dữ liệu ngày">
+      <div className="backup-dialog">
+        <div className="backup-title"><h2>Đối chiếu dữ liệu ngày {result?.date}</h2><button type="button" onClick={() => { setResult(null); setError(""); }}>×</button></div>
+        <p>Đọc dữ liệu Firebase và bộ nhớ trên máy, không ghi thay đổi.</p>
+        {error && <p>{error}</p>}
+        {sync.canRestore && <button type="button" disabled={busy || !selectedIds.length} onClick={async () => {
+          setBusy(true); setError("");
+          try { setResult(await sync.restoreRows(selectedIds)); setSelectedIds([]); }
+          catch (err) { setError(err.message || "Không khôi phục được dữ liệu."); }
+          finally { setBusy(false); }
+        }}>Khôi phục {selectedIds.length} dòng đã chọn</button>}
+        {result && ["cloud", "local"].map((source) => <div key={source}>
+          <h3>{source === "cloud" ? "Firebase" : "Trên máy"}: {result[source].filter((entry) => !entry.deletedAt).length} dòng đang dùng / {result[source].length} dòng lưu</h3>
+          <div className="backup-table-wrap"><table><thead><tr><th>Mã dòng</th><th>Hạng mục</th><th>Nội dung</th><th>Lý trình</th><th>Trạng thái</th></tr></thead><tbody>{result[source].map((entry, i) => <tr key={i}><td>{source === "cloud" && entry.deletedAt && sync.canRestore && <input type="checkbox" aria-label={`Khôi phục ${entry.recordId}`} checked={selectedIds.includes(entry.recordId)} onChange={(event) => setSelectedIds((ids) => event.target.checked ? [...ids, entry.recordId] : ids.filter((id) => id !== entry.recordId))} />}{entry.recordId}</td><td>{entry.section}</td><td>{entry.type}</td><td>{entry.kmFrom} → {entry.kmTo}</td><td>{entry.deletedAt ? `Đã xóa: ${entry.deleteReason || ""} (${entry.deletedAt})` : "Đang dùng"}{entry.conflicts && `; xung đột: ${entry.conflicts}`}</td></tr>)}</tbody></table></div>
+        </div>)}
+      </div>
+    </div>, document.body)}
+  </>;
+}
+
 function NhatKySubNav({ page, setPage, canEditOfficeData }) {
   const [hosoOpen, setHosoOpen] = useState(false);
   const [menuPos, setMenuPos] = useState(null);
@@ -619,6 +652,7 @@ function AppContent({ offlineSession, onOpenBackup, onEnableBackupEdit, onCloseB
             {workspaceOpen && canEditOfficeData && !browseMode && (
               <OfficeSyncStatus sync={officeSync} />
             )}
+            {workspaceOpen && !offlineMode && <OfficeDayComparison sync={officeSync} />}
             {offlineMode ? (
               <>
                 {!backupEditable && <button type="button" className="nhat-ky-backup-btn" onClick={() => { if (window.confirm("Chỉ sửa bản sao offline và không ghi lên Firebase. Tiếp tục?")) onEnableBackupEdit(); }}>Cho phép sửa</button>}

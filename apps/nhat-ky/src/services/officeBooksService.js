@@ -18,6 +18,7 @@ import {
 import { db } from "../firebase/firebase";
 import {
   activeDiaryEntries,
+  boundDayConflictHistory,
   ensureDiaryRecordIds,
   mergeOfficeBookDay,
   mergeReportMeta
@@ -38,6 +39,30 @@ function bookRef(uid, roadId) {
 
 function dayRef(uid, roadId, date) {
   return doc(db, "users", uid, "office_books", roadId, "days", date);
+}
+
+/** Restore only explicitly selected rows, preserving every other row in the transaction. */
+export async function restoreOfficeBookRows(uid, roadId, date, recordIds) {
+  const ids = new Set(recordIds);
+  return runTransaction(db, async (transaction) => {
+    const ref = dayRef(uid, roadId, date);
+    const snapshot = await transaction.get(ref);
+    if (!snapshot.exists()) throw new Error("Ngày không còn tồn tại trên Firebase.");
+    const day = snapshot.data();
+    const entries = (day.entries || []).map((entry) => {
+      if (!ids.has(entry.recordId)) return entry;
+      const restored = { ...entry };
+      delete restored.deletedAt;
+      delete restored.deleteReason;
+      delete restored._pendingDelete;
+      return restored;
+    });
+    transaction.update(ref, {
+      entries: sanitizeForFirestore(entries),
+      revision: (Number(day.revision) || 0) + 1,
+      updatedAt: serverTimestamp()
+    });
+  });
 }
 
 function daysCol(uid, roadId) {
@@ -364,7 +389,7 @@ export async function pushOfficeBookDaySafely(
       entries: ensureDiaryRecordIds(payload?.entries || []),
       dayMeta: payload?.dayMeta || {}
     };
-    const merged = mergeOfficeBookDay(baseline, localDay, remoteDay);
+    const merged = boundDayConflictHistory(mergeOfficeBookDay(baseline, localDay, remoteDay, { requireExplicitDeletes: true }));
     const nextRevision = remoteRevision + 1;
     transaction.set(
       ref,
