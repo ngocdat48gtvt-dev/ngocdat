@@ -278,8 +278,9 @@ async function fetchDayDocsPaged(uid, roadId, { dateFrom = "", dateTo = "", onPa
       const snap = await withFirestoreRetry(() =>
         getDocsFromServer(query(daysCol(uid, roadId), ...constraints))
       );
-      snap.docs.forEach((d) => days.push(dayFromDoc(d)));
-      if (days.length) onPartial?.(days.slice());
+      const page = snap.docs.map(dayFromDoc);
+      page.forEach((day) => days.push(day));
+      if (page.length) onPartial?.(page);
       if (snap.docs.length < pageSize) break;
       cursor = snap.docs[snap.docs.length - 1];
     }

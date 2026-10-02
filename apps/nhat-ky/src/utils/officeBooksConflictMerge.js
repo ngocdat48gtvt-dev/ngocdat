@@ -111,26 +111,35 @@ function entryRichness(entry) {
   return score;
 }
 
+function isEmptyMergeValue(value) {
+  if (value == null) return true;
+  if (typeof value === "string") return value.trim() === "";
+  if (Array.isArray(value)) return value.length === 0;
+  return false;
+}
+
 function keepRicherEntry(prev, next) {
   if (!prev) return next;
   const preferNext = entryRichness(next) >= entryRichness(prev);
   const primary = preferNext ? next : prev;
   const secondary = preferNext ? prev : next;
-  const merged = { ...primary };
-  [
-    "leaderNote",
-    "resolved",
-    "inspectorNote",
-    "content",
-    "measureSummary",
-    "mainResult",
-    "plannedRepairDate"
-  ].forEach((key) => {
-    if (!String(merged[key] || "").trim() && String(secondary[key] || "").trim()) {
+  const merged = { ...secondary, ...primary };
+  Object.keys(secondary).forEach((key) => {
+    if (isEmptyMergeValue(merged[key]) && !isEmptyMergeValue(secondary[key])) {
       merged[key] = secondary[key];
     }
   });
   return merged;
+}
+
+/** Cùng recordId mới gộp. Khác mã dòng thì giữ riêng, không nuốt sự cố. */
+function dedupeKey(entry) {
+  const recordId = String(entry?.recordId || "").trim();
+  if (recordId) return `id:${recordId}`;
+  const incidentId = normText(entry?.sourceIncidentId);
+  const fp = diaryBusinessFingerprint(entry);
+  if (incidentId) return `inc:${incidentId}|${fp}`;
+  return fp;
 }
 
 /**
@@ -145,8 +154,8 @@ export function dedupeDiaryEntriesByFingerprint(entries) {
       tombstones.push(entry);
       return;
     }
-    const fp = diaryBusinessFingerprint(entry);
-    seen.set(fp, keepRicherEntry(seen.get(fp), entry));
+    const key = dedupeKey(entry);
+    seen.set(key, keepRicherEntry(seen.get(key), entry));
   });
   return [...seen.values(), ...tombstones];
 }
@@ -348,12 +357,16 @@ export function mergeOfficeBookDay(baseDay = {}, localDay = {}, remoteDay = {}) 
  * Trùng fingerprint → cloud; cùng recordId nhưng khác nội dung → giữ local (sửa chưa push).
  */
 export function mergeOfficeBookDayWithoutBase(localDay = {}, remoteDay = {}) {
-  const localEntries = dedupeDiaryEntriesByFingerprint(
-    ensureDiaryRecordIds(recoverFalseLegacyDeleteTombstones(localDay.entries || []))
+  const localEntries = ensureDiaryRecordIds(
+    dedupeDiaryEntriesByFingerprint(
+      recoverFalseLegacyDeleteTombstones(localDay.entries || [])
+    )
   );
-  const remoteEntries = dedupeDiaryEntriesByFingerprint(
+  const remoteEntries = ensureDiaryRecordIds(
     alignLegacyRecordIds(
-      recoverFalseLegacyDeleteTombstones(remoteDay.entries || []),
+      dedupeDiaryEntriesByFingerprint(
+        recoverFalseLegacyDeleteTombstones(remoteDay.entries || [])
+      ),
       localEntries
     )
   );
@@ -396,7 +409,19 @@ export function mergeOfficeBookDayWithoutBase(localDay = {}, remoteDay = {}) {
       return;
     }
     const fp = diaryBusinessFingerprint(local);
-    if (remoteLiveFps.has(fp)) return; // trùng nghiệp vụ cloud → bỏ bản local
+    if (remoteLiveFps.has(fp)) {
+      const idx = entries.findIndex(
+        (e) =>
+          !e?.deletedAt &&
+          ((local.recordId && e.recordId === local.recordId) ||
+            diaryBusinessFingerprint(e) === fp)
+      );
+      if (idx >= 0 && (!local.recordId || entries[idx].recordId === local.recordId)) {
+        entries[idx] = keepRicherEntry(entries[idx], local);
+        return;
+      }
+      if (!local.recordId) return;
+    }
     if (claimedRemoteIds.has(local.recordId)) {
       const remote = remoteById.get(local.recordId);
       if (remote && !same(local, remote) && !remote.deletedAt) {
