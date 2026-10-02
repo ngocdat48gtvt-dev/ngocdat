@@ -284,13 +284,13 @@ async function fetchDayDocsFallback(uid, roadId, { dateFrom = "", dateTo = "" } 
   if (dateTo) constraints.push(where(documentId(), "<=", dateTo));
   const snap = await withFirestoreRetry(() =>
     constraints.length
-      ? getDocs(query(daysCol(uid, roadId), ...constraints))
-      : getDocs(daysCol(uid, roadId))
+      ? getDocsFromServer(query(daysCol(uid, roadId), ...constraints))
+      : getDocsFromServer(daysCol(uid, roadId))
   );
   return snap.docs.map(dayFromDoc);
 }
 
-async function fetchDayDocsPaged(uid, roadId, { dateFrom = "", dateTo = "", onPartial } = {}) {
+async function fetchDayDocsPaged(uid, roadId, { dateFrom = "", dateTo = "", onPartial, strictServer = false } = {}) {
   const pageSize = 20;
   const days = [];
   let cursor = null;
@@ -311,6 +311,7 @@ async function fetchDayDocsPaged(uid, roadId, { dateFrom = "", dateTo = "", onPa
     }
     return days;
   } catch (err) {
+    if (strictServer) throw err;
     console.warn("Đọc sổ theo trang thất bại, đọc nguyên collection.", err);
     const all = await fetchDayDocsFallback(uid, roadId, { dateFrom, dateTo });
     if (all.length) onPartial?.(all);

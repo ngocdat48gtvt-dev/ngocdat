@@ -30,6 +30,7 @@ import { useCongRegistryHydrate } from "./hooks/useCongRegistryHydrate";
 import { useOfficePermissions } from "./hooks/useOfficePermissions";
 import { formatKmDisplay, roadDisplayLabel } from "./utils/roadsCatalog";
 import OfficeBackupDialog from "./components/OfficeBackupDialog";
+import OfficeBooksAuditDialog from "./components/OfficeBooksAuditDialog";
 import { disposeOfficeBackup, downloadEditedOfficeBackup, materializeOfficeBackup, overwriteEditedOfficeBackup, purgeStaleOfficeBackupStorage, readOfficeBackup } from "./services/officeBackupService";
 
 const HOME_URL = "/quan-ly-duong-bo.html";
@@ -493,6 +494,7 @@ function AppContent({ offlineSession, onOpenBackup, onEnableBackupEdit, onCloseB
   const [nhapLieuBootSection, setNhapLieuBootSection] = useState("");
   const [gptcBoot, setGptcBoot] = useState(null);
   const [backupOpen, setBackupOpen] = useState(false);
+  const [auditOpen, setAuditOpen] = useState(false);
   const [backupSaving, setBackupSaving] = useState(false);
 
   useEffect(() => {
@@ -653,6 +655,7 @@ function AppContent({ offlineSession, onOpenBackup, onEnableBackupEdit, onCloseB
               <OfficeSyncStatus sync={officeSync} />
             )}
             {workspaceOpen && !offlineMode && <OfficeDayComparison sync={officeSync} />}
+            {!offlineMode && (profile?.officeRole === "admin" || profile?.officeRole === "user") && <button type="button" className="nhat-ky-backup-btn" onClick={() => setAuditOpen(true)}>Rà soát toàn bộ sổ</button>}
             {offlineMode ? (
               <>
                 {!backupEditable && <button type="button" className="nhat-ky-backup-btn" onClick={() => { if (window.confirm("Chỉ sửa bản sao offline và không ghi lên Firebase. Tiếp tục?")) onEnableBackupEdit(); }}>Cho phép sửa</button>}
@@ -720,6 +723,7 @@ function AppContent({ offlineSession, onOpenBackup, onEnableBackupEdit, onCloseB
       )}
       </div>
       {backupOpen && <OfficeBackupDialog profile={profile} onClose={() => setBackupOpen(false)} onOpenInWebsite={(session) => { setBackupOpen(false); onOpenBackup(session); }} />}
+      {auditOpen && <OfficeBooksAuditDialog profile={profile} onClose={() => setAuditOpen(false)} />}
     </div>
   );
 }
